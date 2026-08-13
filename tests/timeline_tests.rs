@@ -3,6 +3,7 @@ use video_editor::core::clip::Clip;
 use video_editor::core::project::Project;
 use video_editor::core::time::TimeCode;
 use video_editor::core::timeline::Timeline;
+use video_editor::core::track::TrackKind;
 
 #[test]
 fn test_timecode_conversions() {
@@ -15,6 +16,16 @@ fn test_timecode_conversions() {
 
     let from_frames = TimeCode::from_frames(1965, 30.0);
     assert_eq!(from_frames.as_secs_f64(), 65.5);
+}
+
+#[test]
+fn test_senior_friendly_default_tracks() {
+    let timeline = Timeline::new(30.0);
+    assert_eq!(timeline.tracks.len(), 2);
+    assert_eq!(timeline.tracks[0].name, "🎬 Video Track");
+    assert_eq!(timeline.tracks[0].kind, TrackKind::Video);
+    assert_eq!(timeline.tracks[1].name, "🎵 Music & Sound");
+    assert_eq!(timeline.tracks[1].kind, TrackKind::Audio);
 }
 
 #[test]

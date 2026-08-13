@@ -14,7 +14,7 @@ use crate::ui::menu_bar::{MenuAction, MenuBarView};
 use crate::ui::preview_player::{PlayerAction, PreviewPlayerView};
 use crate::ui::theme::AppTheme;
 use crate::ui::timeline_view::{TimelineAction, TimelineView};
-use egui::{ColorImage, Key, TextureHandle};
+use egui::{Button, ColorImage, Key, RichText, TextureHandle};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -28,6 +28,7 @@ pub struct VideoEditorApp {
     pub current_frame: Option<ColorImage>,
     pub last_frame_time: Option<TimeCode>,
     pub proxy_tasks: HashMap<u64, tokio::sync::watch::Receiver<ProxyStatus>>,
+    pub show_help_dialog: bool,
 }
 
 impl Default for VideoEditorApp {
@@ -35,13 +36,14 @@ impl Default for VideoEditorApp {
         Self {
             project: Project::default(),
             player: AudioPlayer::new(),
-            frame_cache: FrameCache::new(60),
+            frame_cache: FrameCache::new(100),
             peak_cache: HashMap::new(),
             export_dialog: ExportDialog::default(),
             preview_texture: None,
             current_frame: None,
             last_frame_time: None,
             proxy_tasks: HashMap::new(),
+            show_help_dialog: false,
         }
     }
 }
@@ -52,7 +54,7 @@ impl VideoEditorApp {
         Self::default()
     }
 
-    /// Import a media file into the project's media bin.
+    /// Import a media file into the project's media bin and automatically place it on timeline if empty.
     pub fn import_file<P: AsRef<Path>>(&mut self, path: P) {
         let p = path.as_ref();
         if let Ok(meta) = probe_media_file(p) {
@@ -69,7 +71,7 @@ impl VideoEditorApp {
                 .unwrap_or("media")
                 .to_string();
 
-            // Extract waveform peaks in background/sync for instant audio rendering
+            // Extract waveform peaks in background for instant audio rendering
             if meta.has_audio {
                 if let Ok(peaks) = extract_peaks(p, meta.duration_secs) {
                     self.peak_cache.insert(stem.clone(), peaks);
@@ -96,7 +98,14 @@ impl VideoEditorApp {
                 peak_path: None,
             };
 
-            self.project.add_asset(asset);
+            self.project.add_asset(asset.clone());
+
+            // Automatically place on timeline so user immediately sees it
+            self.add_asset_to_timeline(asset);
+
+            // Rewind playhead to start and refresh frame
+            self.project.timeline.playhead = TimeCode::ZERO;
+            self.refresh_preview_frame();
         }
     }
 
@@ -127,7 +136,7 @@ impl VideoEditorApp {
                 .unwrap_or_else(|| {
                     self.project
                         .timeline
-                        .add_track("Video Track".to_string(), TrackKind::Video)
+                        .add_track("🎬 Video Track".to_string(), TrackKind::Video)
                 });
 
             if let Some(track) = self.project.timeline.get_track_mut(target_track_id) {
@@ -146,7 +155,7 @@ impl VideoEditorApp {
                 .unwrap_or_else(|| {
                     self.project
                         .timeline
-                        .add_track("Audio Track".to_string(), TrackKind::Audio)
+                        .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio)
                 });
 
             if let Some(track) = self.project.timeline.get_track_mut(target_track_id) {
@@ -154,17 +163,14 @@ impl VideoEditorApp {
                 track.add_clip(clip);
             }
         }
+
+        self.project.timeline.playhead = TimeCode::ZERO;
+        self.refresh_preview_frame();
     }
 
     /// Update preview frame based on current playhead position.
     fn refresh_preview_frame(&mut self) {
         let playhead = self.project.timeline.playhead;
-
-        // Check if playhead has changed or frame is missing
-        if self.last_frame_time == Some(playhead) && self.current_frame.is_some() {
-            return;
-        }
-        self.last_frame_time = Some(playhead);
 
         // Find active video clip under playhead
         let mut active_clip_info = None;
@@ -182,10 +188,14 @@ impl VideoEditorApp {
         }
 
         if let Some((path, sec)) = active_clip_info {
-            self.current_frame = self.frame_cache.fetch_frame(path, sec);
+            if let Some(frame) = self.frame_cache.fetch_frame(path, sec) {
+                self.current_frame = Some(frame);
+            }
         } else {
             self.current_frame = None;
         }
+
+        self.last_frame_time = Some(playhead);
     }
 }
 
@@ -218,15 +228,27 @@ impl eframe::App for VideoEditorApp {
             {
                 if let Ok(loaded) = Project::load_from_file(path) {
                     self.project = loaded;
+                    self.refresh_preview_frame();
                 }
             }
         }
 
-        // 2. Playback Clock Step
+        // 2. Playback Clock Step & Auto-stop at timeline duration
         if self.project.timeline.is_playing {
             let max_dur = self.project.timeline.duration();
-            let new_playhead = self.player.update_playhead(self.project.timeline.playhead, max_dur);
-            self.project.timeline.playhead = new_playhead;
+            if max_dur.as_secs_f64() > 0.0 {
+                let new_playhead = self.player.update_playhead(self.project.timeline.playhead, max_dur);
+                if new_playhead >= max_dur {
+                    self.player.pause();
+                    self.project.timeline.is_playing = false;
+                    self.project.timeline.playhead = max_dur;
+                } else {
+                    self.project.timeline.playhead = new_playhead;
+                }
+            } else {
+                self.player.pause();
+                self.project.timeline.is_playing = false;
+            }
             ctx.request_repaint();
         }
 
@@ -252,63 +274,74 @@ impl eframe::App for VideoEditorApp {
         }
 
         // ==========================================
-        // 5. Render Top Menu Bar
+        // 5. Render Top Menu Bar (Senior 3-Step Header)
         // ==========================================
-        egui::TopBottomPanel::top("top_menu_panel").show(ctx, |ui| {
-            match MenuBarView::render(ui, &mut self.project) {
-                MenuAction::NewProject => {
-                    self.project = Project::default();
-                    self.player.pause();
-                }
-                MenuAction::OpenProject => {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Video Project", &["vproj", "json"])
-                        .pick_file()
-                    {
-                        if let Ok(loaded) = Project::load_from_file(path) {
-                            self.project = loaded;
+        egui::TopBottomPanel::top("top_menu_panel")
+            .min_height(50.0)
+            .show(ctx, |ui| {
+                match MenuBarView::render(ui, &mut self.project) {
+                    MenuAction::NewProject => {
+                        self.project = Project::default();
+                        self.player.pause();
+                        self.current_frame = None;
+                    }
+                    MenuAction::OpenProject => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Video Project", &["vproj", "json"])
+                            .pick_file()
+                        {
+                            if let Ok(loaded) = Project::load_from_file(path) {
+                                self.project = loaded;
+                                self.refresh_preview_frame();
+                            }
                         }
                     }
-                }
-                MenuAction::SaveProject => {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Video Project", &["vproj", "json"])
-                        .set_file_name("project.vproj")
-                        .save_file()
-                    {
-                        let _ = self.project.save_to_file(path);
-                    }
-                }
-                MenuAction::ImportMedia => {
-                    if let Some(files) = rfd::FileDialog::new()
-                        .add_filter("Media Files", &["mp4", "mkv", "mov", "avi", "webm", "mp3", "wav", "flac", "aac"])
-                        .pick_files()
-                    {
-                        for file in files {
-                            self.import_file(file);
+                    MenuAction::SaveProject => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Video Project", &["vproj", "json"])
+                            .set_file_name("project.vproj")
+                            .save_file()
+                        {
+                            let _ = self.project.save_to_file(path);
                         }
                     }
+                    MenuAction::ImportMedia => {
+                        if let Some(files) = rfd::FileDialog::new()
+                            .add_filter(
+                                "Video & Music Files",
+                                &["mp4", "mkv", "mov", "avi", "webm", "mp3", "wav", "flac", "aac"],
+                            )
+                            .pick_files()
+                        {
+                            for file in files {
+                                self.import_file(file);
+                            }
+                        }
+                    }
+                    MenuAction::SplitAtPlayhead => {
+                        self.project.timeline.split_at_playhead();
+                    }
+                    MenuAction::DeleteSelected => {
+                        self.project.timeline.delete_selected_clips();
+                        self.refresh_preview_frame();
+                    }
+                    MenuAction::OpenExportDialog => {
+                        self.export_dialog.is_open = true;
+                    }
+                    MenuAction::ToggleHelp => {
+                        self.show_help_dialog = !self.show_help_dialog;
+                    }
+                    MenuAction::None => {}
                 }
-                MenuAction::SplitAtPlayhead => {
-                    self.project.timeline.split_at_playhead();
-                }
-                MenuAction::DeleteSelected => {
-                    self.project.timeline.delete_selected_clips();
-                }
-                MenuAction::OpenExportDialog => {
-                    self.export_dialog.is_open = true;
-                }
-                MenuAction::None => {}
-            }
-        });
+            });
 
         // ==========================================
         // 6. Render Left Side Panel: Media Bin
         // ==========================================
         egui::SidePanel::left("left_media_bin_panel")
             .resizable(true)
-            .default_width(260.0)
-            .min_width(200.0)
+            .default_width(280.0)
+            .min_width(220.0)
             .max_width(450.0)
             .show(ctx, |ui| {
                 match MediaBinView::render(ui, &mut self.project) {
@@ -329,7 +362,7 @@ impl eframe::App for VideoEditorApp {
         // ==========================================
         egui::TopBottomPanel::bottom("bottom_timeline_panel")
             .resizable(true)
-            .default_height(320.0)
+            .default_height(280.0)
             .min_height(200.0)
             .show(ctx, |ui| {
                 match TimelineView::render(ui, &mut self.project.timeline, &self.peak_cache) {
@@ -346,13 +379,27 @@ impl eframe::App for VideoEditorApp {
                         new_start,
                     } => {
                         self.project.timeline.move_clip(clip_id, target_track_id, new_start);
+                        self.refresh_preview_frame();
                     }
-                    TimelineAction::ClipTrimmed { .. } => {}
+                    TimelineAction::ClipTrimmed { .. } => {
+                        self.refresh_preview_frame();
+                    }
                     TimelineAction::SplitAtPlayhead => {
                         self.project.timeline.split_at_playhead();
                     }
                     TimelineAction::DeleteSelected => {
                         self.project.timeline.delete_selected_clips();
+                        self.refresh_preview_frame();
+                    }
+                    TimelineAction::AddVideoTrack => {
+                        self.project
+                            .timeline
+                            .add_track("🎬 Video Track".to_string(), TrackKind::Video);
+                    }
+                    TimelineAction::AddAudioTrack => {
+                        self.project
+                            .timeline
+                            .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);
                     }
                     TimelineAction::None => {}
                 }
@@ -377,6 +424,13 @@ impl eframe::App for VideoEditorApp {
                     let current_frame = self.project.timeline.playhead.as_frames(fps);
                     let new_frame = (current_frame + delta).max(0);
                     self.project.timeline.playhead = TimeCode::from_frames(new_frame, fps);
+                    self.refresh_preview_frame();
+                }
+                PlayerAction::StepSeconds(delta_secs) => {
+                    let cur = self.project.timeline.playhead.as_secs_f64();
+                    let max = self.project.timeline.duration().as_secs_f64();
+                    let target = (cur + delta_secs).clamp(0.0, max.max(0.0));
+                    self.project.timeline.playhead = TimeCode::from_secs_f64(target);
                     self.refresh_preview_frame();
                 }
                 PlayerAction::Seek(time) => {
@@ -407,6 +461,45 @@ impl eframe::App for VideoEditorApp {
                 }
                 ExportDialogAction::None => {}
             }
+        }
+
+        // ==========================================
+        // 10. Senior Help / How-To Dialog Modal
+        // ==========================================
+        if self.show_help_dialog {
+            egui::Window::new("❓ Easy Step-by-Step Guide")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(420.0)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.vertical(|ui| {
+                        ui.heading(RichText::new("How to Edit Your Video").color(AppTheme::ACCENT_BLUE).size(18.0));
+                        ui.add_space(8.0);
+
+                        ui.label(RichText::new("1. Add Videos & Music:").strong().size(15.0));
+                        ui.label(RichText::new("Click the big blue '1. 📂 Open Video / Music' button at the top to choose files from your computer. Your video will appear automatically on the screen.").size(14.0));
+                        ui.add_space(8.0);
+
+                        ui.label(RichText::new("2. Watch & Cut Video:").strong().size(15.0));
+                        ui.label(RichText::new("Click '▶ PLAY' or tap Spacebar to watch. Click '2. ✂ Cut Video' to slice your video where the red line is. Select unwanted parts and click '🗑 Delete Clip'.").size(14.0));
+                        ui.add_space(8.0);
+
+                        ui.label(RichText::new("3. Lower or Fade Sound:").strong().size(15.0));
+                        ui.label(RichText::new("On any music clip, click the yellow volume line to create a dot, then drag it down to make the music softer at that point.").size(14.0));
+                        ui.add_space(8.0);
+
+                        ui.label(RichText::new("4. Save Your Finished Video:").strong().size(15.0));
+                        ui.label(RichText::new("Click the green '3. 🚀 Export Finished Video' button at top right to save your video file.").size(14.0));
+                        ui.add_space(12.0);
+
+                        ui.vertical_centered(|ui| {
+                            if ui.add(Button::new(RichText::new("Got it, Close").size(15.0).strong()).min_size(egui::vec2(140.0, 36.0))).clicked() {
+                                self.show_help_dialog = false;
+                            }
+                        });
+                    });
+                });
         }
     }
 }

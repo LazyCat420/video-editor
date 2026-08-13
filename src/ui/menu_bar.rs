@@ -13,129 +13,143 @@ pub enum MenuAction {
     SplitAtPlayhead,
     DeleteSelected,
     OpenExportDialog,
+    ToggleHelp,
 }
 
 impl MenuBarView {
     pub fn render(ui: &mut Ui, project: &mut Project) -> MenuAction {
         let mut action = MenuAction::None;
 
-        egui::menu::bar(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("New Project").clicked() {
-                    action = MenuAction::NewProject;
-                    ui.close_menu();
-                }
-                if ui.button("Open Project...").clicked() {
-                    action = MenuAction::OpenProject;
-                    ui.close_menu();
-                }
-                if ui.button("Save Project").clicked() {
-                    action = MenuAction::SaveProject;
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Import Media...").clicked() {
-                    action = MenuAction::ImportMedia;
-                    ui.close_menu();
-                }
-                if ui.button("Export Video... (Ctrl+E)").clicked() {
-                    action = MenuAction::OpenExportDialog;
-                    ui.close_menu();
-                }
-            });
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
 
-            ui.menu_button("Edit", |ui| {
-                if ui.button("Split at Playhead (S)").clicked() {
-                    action = MenuAction::SplitAtPlayhead;
-                    ui.close_menu();
-                }
-                if ui.button("Delete Selected (Del)").clicked() {
-                    action = MenuAction::DeleteSelected;
-                    ui.close_menu();
-                }
-                if ui.button("Clear Selection").clicked() {
-                    project.timeline.clear_selection();
-                    ui.close_menu();
-                }
-            });
+            // Step 1: Open Video Button (Prominent Blue)
+            let open_btn = Button::new(
+                RichText::new("1. 📂 Open Video / Music")
+                    .size(15.0)
+                    .strong()
+                    .color(Color32::WHITE),
+            )
+            .min_size(egui::vec2(190.0, 36.0))
+            .fill(AppTheme::ACCENT_BLUE);
 
-            ui.separator();
-
-            // Quick Toolbar Action Buttons
             if ui
-                .add(
-                    Button::new(RichText::new("📁 Import Media").color(Color32::WHITE))
-                        .fill(AppTheme::ACCENT_BLUE),
-                )
+                .add(open_btn)
+                .on_hover_text("Click to select a video or music file from your computer")
                 .clicked()
             {
                 action = MenuAction::ImportMedia;
             }
 
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Step 2: Cut & Remove Tools
+            let split_btn = Button::new(
+                RichText::new("2. ✂ Cut Video (S)")
+                    .size(15.0)
+                    .strong()
+                    .color(Color32::WHITE),
+            )
+            .min_size(egui::vec2(140.0, 36.0))
+            .fill(AppTheme::BG_CARD);
+
             if ui
-                .add(
-                    Button::new(RichText::new("✂ Split (S)").color(Color32::WHITE))
-                        .fill(AppTheme::BG_CARD),
-                )
-                .on_hover_text("Split clip at current playhead position (Hotkey: S)")
+                .add(split_btn)
+                .on_hover_text("Cut the video at the red line marker (Hotkey: S)")
                 .clicked()
             {
                 action = MenuAction::SplitAtPlayhead;
             }
 
+            let del_btn = Button::new(
+                RichText::new("🗑 Delete Clip")
+                    .size(14.0)
+                    .color(AppTheme::TEXT_PRIMARY),
+            )
+            .min_size(egui::vec2(120.0, 36.0))
+            .fill(AppTheme::BG_CARD);
+
             if ui
-                .add(
-                    Button::new(RichText::new("🗑 Delete").color(Color32::WHITE))
-                        .fill(AppTheme::BG_CARD),
-                )
-                .on_hover_text("Delete selected clip(s) (Hotkey: Delete / Backspace)")
+                .add(del_btn)
+                .on_hover_text("Remove the selected piece of video or audio")
                 .clicked()
             {
                 action = MenuAction::DeleteSelected;
             }
 
-            ui.separator();
-
-            // Magnetic Snapping Toggle
-            let snap_text = if project.timeline.snapping_enabled {
-                "🧲 Snap: ON"
-            } else {
-                "🧲 Snap: OFF"
-            };
-            let snap_btn = Button::new(snap_text).fill(if project.timeline.snapping_enabled {
-                AppTheme::BG_HOVER
-            } else {
-                AppTheme::BG_CARD
-            });
-            if ui.add(snap_btn).clicked() {
-                project.timeline.snapping_enabled = !project.timeline.snapping_enabled;
+            // Easy Zoom Buttons (+ / -)
+            ui.add_space(4.0);
+            if ui
+                .add(Button::new("🔍 -").min_size(egui::vec2(42.0, 36.0)))
+                .on_hover_text("Zoom out timeline")
+                .clicked()
+            {
+                project.timeline.zoom_pps = (project.timeline.zoom_pps * 0.75).max(15.0);
+            }
+            if ui
+                .add(Button::new("🔍 +").min_size(egui::vec2(42.0, 36.0)))
+                .on_hover_text("Zoom in timeline")
+                .clicked()
+            {
+                project.timeline.zoom_pps = (project.timeline.zoom_pps * 1.33).min(300.0);
             }
 
-            // Timeline Zoom Slider
-            ui.add_space(10.0);
-            ui.label(RichText::new("🔍 Zoom:").size(12.0).color(AppTheme::TEXT_SECONDARY));
-            ui.add(
-                egui::Slider::new(&mut project.timeline.zoom_pps, 15.0..=300.0)
-                    .logarithmic(true)
-                    .show_value(false),
-            );
-
+            // Right-aligned: Export & Help
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(6.0);
+
+                // Step 3: Export Button (Prominent Green)
+                let export_btn = Button::new(
+                    RichText::new("3. 🚀 Export Finished Video")
+                        .size(15.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .min_size(egui::vec2(210.0, 36.0))
+                .fill(AppTheme::ACCENT_GREEN);
+
                 if ui
-                    .add(
-                        Button::new(RichText::new("🚀 Export Video").color(Color32::WHITE).strong())
-                            .fill(AppTheme::ACCENT_GREEN),
-                    )
+                    .add(export_btn)
+                    .on_hover_text("Save your finished video to a file")
                     .clicked()
                 {
                     action = MenuAction::OpenExportDialog;
                 }
 
-                ui.label(
-                    RichText::new(format!("⏱ Total: {}", project.timeline.duration()))
-                        .color(AppTheme::TEXT_MUTED)
-                        .size(12.0),
-                );
+                // Help Button
+                let help_btn = Button::new(
+                    RichText::new("❓ Help")
+                        .size(14.0)
+                        .color(AppTheme::TEXT_PRIMARY),
+                )
+                .min_size(egui::vec2(75.0, 36.0))
+                .fill(AppTheme::BG_CARD);
+
+                if ui
+                    .add(help_btn)
+                    .on_hover_text("View simple step-by-step instructions")
+                    .clicked()
+                {
+                    action = MenuAction::ToggleHelp;
+                }
+
+                // Project Menu (File/Save)
+                egui::menu::menu_button(ui, "📁 Project", |ui| {
+                    if ui.button("New Project").clicked() {
+                        action = MenuAction::NewProject;
+                        ui.close_menu();
+                    }
+                    if ui.button("Open Project...").clicked() {
+                        action = MenuAction::OpenProject;
+                        ui.close_menu();
+                    }
+                    if ui.button("Save Project...").clicked() {
+                        action = MenuAction::SaveProject;
+                        ui.close_menu();
+                    }
+                });
             });
         });
 

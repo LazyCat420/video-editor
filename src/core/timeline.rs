@@ -37,11 +37,9 @@ impl Timeline {
             is_playing: false,
         };
 
-        // Initialize with standard tracks: V1, V2, A1, Music
-        tl.add_track("Video 1".to_string(), TrackKind::Video);
-        tl.add_track("Video 2 (Overlay)".to_string(), TrackKind::Video);
-        tl.add_track("Audio 1 (Dialogue)".to_string(), TrackKind::Audio);
-        tl.add_track("Audio 2 (Music / BGM)".to_string(), TrackKind::Audio);
+        // Initialize with simple, senior-friendly tracks: 1 Video + 1 Music/Audio
+        tl.add_track("🎬 Video Track".to_string(), TrackKind::Video);
+        tl.add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);
 
         tl
     }
