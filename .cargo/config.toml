@@ -1,0 +1,7 @@
+[build]
+target = "x86_64-pc-windows-gnullvm"
+
+[target.x86_64-pc-windows-gnullvm]
+linker = "/home/lazycat/.local/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang"
+runner = "scripts/win-runner.sh"
+rustflags = ["-L", "native=/home/lazycat/.local/opt/llvm-mingw/lib-static-unwind"]
