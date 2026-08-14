@@ -2,7 +2,7 @@ use crate::core::project::{MediaAsset, Project};
 use crate::media::frame_cache::FrameCache;
 use crate::ui::theme::AppTheme;
 use crate::ui::MediaAssetDrag;
-use egui::{Button, Color32, ColorImage, Frame, Id, RichText, Rounding, ScrollArea, TextureHandle, TextureOptions, Ui};
+use egui::{Button, Color32, ColorImage, Frame, RichText, Rounding, ScrollArea, TextureHandle, TextureOptions, Ui};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -169,110 +169,121 @@ impl MediaBinView {
                                 None
                             };
 
-                            ui.dnd_drag_source(
-                                Id::new(("media_asset_drag", asset.id)),
-                                MediaAssetDrag(asset.id),
-                                |ui| {
-                                    Frame::none()
-                                        .fill(AppTheme::BG_CARD)
-                                        .stroke(egui::Stroke::new(1.5, AppTheme::BG_HOVER))
-                                        .rounding(Rounding::same(8.0))
-                                        .inner_margin(10.0)
-                                        .show(ui, |ui| {
-                                            ui.horizontal(|ui| {
-                                                if let Some(t) = &tex {
-                                                    ui.add(
-                                                        egui::Image::from_texture(t).fit_to_exact_size(
-                                                            egui::vec2(72.0, 40.0),
-                                                        ),
-                                                    );
-                                                } else {
-                                                    let icon = if asset.has_video {
-                                                        "🎬"
-                                                    } else {
-                                                        "🎵"
-                                                    };
-                                                    ui.label(RichText::new(icon).size(22.0));
+                            Frame::none()
+                                .fill(AppTheme::BG_CARD)
+                                .stroke(egui::Stroke::new(1.5, AppTheme::BG_HOVER))
+                                .rounding(Rounding::same(8.0))
+                                .inner_margin(10.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        // Only the thumbnail box is the drag handle, so the
+                                        // + / X buttons (added after it) stay on top and always
+                                        // click, instead of the drag swallowing them.
+                                        let handle_size = egui::vec2(74.0, 40.0);
+                                        let (handle_rect, handle_resp) = ui.allocate_exact_size(
+                                            handle_size,
+                                            egui::Sense::drag(),
+                                        );
+                                        handle_resp.dnd_set_drag_payload(MediaAssetDrag(asset.id));
+                                        if handle_resp.dragged() {
+                                            ui.ctx()
+                                                .set_cursor_icon(egui::CursorIcon::Grabbing);
+                                        } else if handle_resp.hovered() {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                        }
+
+                                        let hp = ui.painter_at(handle_rect);
+                                        if let Some(t) = &tex {
+                                            hp.image(
+                                                t.id(),
+                                                handle_rect,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                                Color32::WHITE,
+                                            );
+                                        } else {
+                                            let icon = if asset.has_video { "🎬" } else { "🎵" };
+                                            hp.text(
+                                                handle_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                icon,
+                                                egui::FontId::proportional(22.0),
+                                                AppTheme::TEXT_SECONDARY,
+                                            );
+                                        }
+                                        hp.rect_stroke(
+                                            handle_rect,
+                                            Rounding::same(4.0),
+                                            egui::Stroke::new(1.0, AppTheme::BG_HOVER),
+                                        );
+
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(&asset.name)
+                                                    .strong()
+                                                    .color(AppTheme::TEXT_PRIMARY)
+                                                    .size(14.0),
+                                            );
+
+                                            let dur_m =
+                                                (asset.duration_secs / 60.0).floor() as u64;
+                                            let dur_s =
+                                                (asset.duration_secs % 60.0).floor() as u64;
+                                            let dur_text = if dur_m > 0 {
+                                                format!("Duration: {}m {}s", dur_m, dur_s)
+                                            } else {
+                                                format!("Duration: {} seconds", dur_s)
+                                            };
+                                            ui.label(
+                                                RichText::new(dur_text)
+                                                    .size(12.0)
+                                                    .color(AppTheme::TEXT_MUTED),
+                                            );
+                                        });
+
+                                        // Right column: small X (remove) and + (put on timeline).
+                                        ui.with_layout(
+                                            egui::Layout::top_down(egui::Align::Max),
+                                            |ui| {
+                                                if ui
+                                                    .add(
+                                                        Button::new(
+                                                            RichText::new("X").size(11.0),
+                                                        )
+                                                        .min_size(egui::vec2(18.0, 16.0)),
+                                                    )
+                                                    .on_hover_text("Remove from list")
+                                                    .clicked()
+                                                {
+                                                    action =
+                                                        MediaBinAction::RemoveAsset(asset.id);
                                                 }
 
-                                                ui.vertical(|ui| {
-                                                    ui.label(
-                                                        RichText::new(&asset.name)
-                                                            .strong()
-                                                            .color(AppTheme::TEXT_PRIMARY)
-                                                            .size(14.0),
-                                                    );
+                                                let put_btn = Button::new(
+                                                    RichText::new("+")
+                                                        .size(13.0)
+                                                        .strong()
+                                                        .color(Color32::WHITE),
+                                                )
+                                                .min_size(egui::vec2(18.0, 16.0))
+                                                .fill(AppTheme::ACCENT_BLUE);
 
-                                                    let dur_m =
-                                                        (asset.duration_secs / 60.0).floor() as u64;
-                                                    let dur_s =
-                                                        (asset.duration_secs % 60.0).floor() as u64;
-                                                    let dur_text = if dur_m > 0 {
-                                                        format!("Duration: {}m {}s", dur_m, dur_s)
-                                                    } else {
-                                                        format!("Duration: {} seconds", dur_s)
-                                                    };
-                                                    ui.label(
-                                                        RichText::new(dur_text)
-                                                            .size(12.0)
-                                                            .color(AppTheme::TEXT_MUTED),
-                                                    );
-                                                });
-
-                                                // Right column: ✕ to remove + the Put on
-                                                // Timeline button, both beside the title.
-                                                ui.with_layout(
-                                                    egui::Layout::top_down(
-                                                        egui::Align::Max,
-                                                    ),
-                                                    |ui| {
-                                                        if ui
-                                                            .add(
-                                                                Button::new(
-                                                                    RichText::new("✕")
-                                                                        .size(15.0),
-                                                                )
-                                                                .min_size(egui::vec2(
-                                                                    24.0, 22.0,
-                                                                )),
-                                                            )
-                                                            .on_hover_text(
-                                                                "Remove from list",
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            action =
-                                                                MediaBinAction::RemoveAsset(
-                                                                    asset.id,
-                                                                );
-                                                        }
-
-                                                        let put_btn = Button::new(
-                                                            RichText::new("+").size(16.0)
-                                                                .strong()
-                                                                .color(Color32::WHITE),
-                                                        )
-                                                        .min_size(egui::vec2(26.0, 24.0))
-                                                        .fill(AppTheme::ACCENT_BLUE);
-
-                                                        if ui
-                                                            .add(put_btn)
-                                                            .on_hover_text(
-                                                                "Put on Timeline",
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            action =
-                                                                MediaBinAction::AddAssetToTimeline(
-                                                                    asset.clone(),
-                                                                );
-                                                        }
-                                                    },
-                                                );
-                                            });
-                                        });
-                                },
-                            );
+                                                if ui
+                                                    .add(put_btn)
+                                                    .on_hover_text("Put on Timeline")
+                                                    .clicked()
+                                                {
+                                                    action =
+                                                        MediaBinAction::AddAssetToTimeline(
+                                                            asset.clone(),
+                                                        );
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
 
                             ui.add_space(6.0);
                         });
