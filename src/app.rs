@@ -604,6 +604,15 @@ impl eframe::App for VideoEditorApp {
                         self.thumbnail_frames.remove(&id);
                         self.thumb_textures.remove(&id);
                     }
+                    MediaBinAction::ReorderAsset { from_id, to_index } => {
+                        if let Some(from) =
+                            self.project.media_assets.iter().position(|a| a.id == from_id)
+                        {
+                            let item = self.project.media_assets.remove(from);
+                            let to = to_index.min(self.project.media_assets.len());
+                            self.project.media_assets.insert(to, item);
+                        }
+                    }
                     MediaBinAction::None => {}
                 }
             });
@@ -867,7 +876,10 @@ impl eframe::App for VideoEditorApp {
                             egui::Slider::new(&mut self.settings.font_scale, 0.8..=1.5)
                                 .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
                                 .fixed_decimals(0),
-                        );
+                        )
+                        .changed()
+                        .then(|| changed = true)
+                        ;
                     });
                     ui.label(
                         RichText::new("Make the words bigger or smaller.")

@@ -14,6 +14,7 @@ pub enum MediaBinAction {
     ImportFolder(PathBuf),
     AddAssetToTimeline(MediaAsset),
     RemoveAsset(u64),
+    ReorderAsset { from_id: u64, to_index: usize },
 }
 
 impl MediaBinView {
@@ -134,7 +135,7 @@ impl MediaBinView {
                 }
 
                 ScrollArea::vertical().show(ui, |ui| {
-                    let mut render_asset = |ui: &mut Ui, asset: &MediaAsset| {
+                    let mut render_asset = |ui: &mut Ui, asset: &MediaAsset, index: usize| {
                         ui.vertical(|ui| {
                             // The picture + name strip is the drag handle: grab anywhere on it
                             // to drag this file onto a track. Buttons stay separate so clicking
@@ -182,6 +183,19 @@ impl MediaBinView {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             }
 
+                            // Reorder-within-list: if this card is the drop target of another
+                            // asset still being dragged, move that asset to this card's position.
+                            if let Some(released) =
+                                card_resp.dnd_release_payload::<MediaAssetDrag>()
+                            {
+                                if released.0 != asset.id {
+                                    action = MediaBinAction::ReorderAsset {
+                                        from_id: released.0,
+                                        to_index: index,
+                                    };
+                                }
+                            }
+
                             let cp = ui.painter_at(card_rect);
                             cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_card());
                             cp.rect_stroke(
@@ -222,9 +236,16 @@ impl MediaBinView {
                                 egui::Stroke::new(1.0, AppTheme::bg_hover()),
                             );
 
-                            // Name + duration next to the thumbnail.
+                            // Name + duration next to the thumbnail, clipped so long names can
+                            // never run under the + / X buttons (which caused the overlap).
                             let text_x = thumb.max.x + 8.0;
-                            cp.text(
+                            let btn_col_left = card_rect.max.x - pad - 20.0 - 6.0;
+                            let text_clip = Rect::from_min_max(
+                                egui::pos2(text_x - 2.0, card_rect.min.y),
+                                egui::pos2(btn_col_left.max(text_x), card_rect.max.y),
+                            );
+                            let tc = cp.with_clip_rect(text_clip);
+                            tc.text(
                                 egui::pos2(text_x, card_rect.min.y + 16.0),
                                 egui::Align2::LEFT_TOP,
                                 &asset.name,
@@ -238,7 +259,7 @@ impl MediaBinView {
                             } else {
                                 format!("Duration: {} seconds", dur_s)
                             };
-                            cp.text(
+                            tc.text(
                                 egui::pos2(text_x, card_rect.min.y + 38.0),
                                 egui::Align2::LEFT_TOP,
                                 dur_text,
@@ -312,7 +333,12 @@ impl MediaBinView {
                             ui.add_space(4.0);
                             ui.indent(folder_name, |ui| {
                                 for asset in assets {
-                                    render_asset(ui, asset);
+                                    let idx = project
+                                        .media_assets
+                                        .iter()
+                                        .position(|a| a.id == asset.id)
+                                        .unwrap_or(0);
+                                    render_asset(ui, asset, idx);
                                 }
                             });
                         }
@@ -321,7 +347,27 @@ impl MediaBinView {
 
                     // Loose files with no folder
                     for asset in &loose {
-                        render_asset(ui, asset);
+                        let idx = project
+                            .media_assets
+                            .iter()
+                            .position(|a| a.id == asset.id)
+                            .unwrap_or(0);
+                        render_asset(ui, asset, idx);
+                    }
+
+                    // End drop-zone so a dragged file can be moved to the very last position.
+                    if !project.media_assets.is_empty() {
+                        let last = project.media_assets.len() - 1;
+                        let zone = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 12.0),
+                            egui::Sense::hover(),
+                        );
+                        if let Some(released) = zone.1.dnd_release_payload::<MediaAssetDrag>() {
+                            action = MediaBinAction::ReorderAsset {
+                                from_id: released.0,
+                                to_index: last,
+                            };
+                        }
                     }
                 });
             }

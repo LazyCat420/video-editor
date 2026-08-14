@@ -179,15 +179,18 @@ impl TimelineView {
                     action = TimelineAction::DeleteSelected;
                 }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(8.0);
-                    ui.add(
-                        egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
-                            .logarithmic(true)
-                            .show_value(false),
-                    );
-                    ui.label(RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()));
-                });
+                // Zoom slider - placed in normal flow (a little toward the middle, not pinned
+                // to the far right), sized smaller so the drag circle is compact.
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()),
+                );
+                ui.add_sized(
+                    [110.0, 24.0],
+                    egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
+                        .logarithmic(true)
+                        .show_value(false),
+                );
             });
 
             ui.add_space(3.0);
@@ -304,7 +307,8 @@ impl TimelineView {
 
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new("Vol").size(11.0).color(AppTheme::text_muted()));
-                                    ui.add(
+                                    ui.add_sized(
+                                        [ui.available_width(), 20.0],
                                         egui::Slider::new(&mut track.volume, 0.0..=2.0)
                                             .show_value(false),
                                     );
