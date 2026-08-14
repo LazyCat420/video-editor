@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -30,6 +30,35 @@ pub const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
 pub const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "JPG", "jpeg", "JPEG", "png", "PNG", "webp", "WEBP", "bmp", "BMP",
 ];
+
+/// True if the file's extension is one of the supported video/audio/image formats.
+pub fn is_supported_media(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    SUPPORTED_VIDEO_EXTENSIONS.contains(&ext)
+        || SUPPORTED_AUDIO_EXTENSIONS.contains(&ext)
+        || SUPPORTED_IMAGE_EXTENSIONS.contains(&ext)
+}
+
+/// Walk a folder (recursively) and return every media file it contains.
+pub fn scan_folder_for_media(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&d) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if is_supported_media(&path) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    out
+}
 
 /// Returns a pre-configured FileDialog with all supported media formats.
 pub fn create_media_file_dialog() -> rfd::FileDialog {

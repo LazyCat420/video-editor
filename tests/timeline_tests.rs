@@ -342,11 +342,84 @@ fn test_paste_clip() {
     );
 
     let pasted_id = timeline.paste_clip(clip, track_id, TimeCode::from_secs_f64(15.0));
-    assert_eq!(pasted_id, 100);
+    // paste_clip assigns the next free timeline id (default Timeline uses ids 1 and 2
+    // for its two starter tracks, so the next one is 3).
+    assert_eq!(pasted_id, 3);
     assert_eq!(timeline.tracks[0].clips.len(), 1);
     let pasted = timeline.get_clip(pasted_id).unwrap();
     assert_eq!(pasted.timeline_start.as_secs_f64(), 15.0);
     assert_eq!(pasted.duration().as_secs_f64(), 8.0);
     assert!(pasted.is_selected);
+}
+
+#[test]
+fn test_remove_track_deletes_track_and_clips() {
+    let mut timeline = Timeline::new(30.0);
+
+    // Add a second video track and put a clip on the first track.
+    let second_id = timeline.add_track("Video 2".to_string(), TrackKind::Video);
+    let first_id = timeline.tracks[0].id;
+    let clip = Clip::new(
+        1,
+        first_id,
+        "Clip".to_string(),
+        PathBuf::from("a.mp4"),
+        TimeCode::from_secs_f64(5.0),
+        true,
+        false,
+    );
+    timeline.tracks[0].add_clip(clip);
+
+    assert!(timeline.remove_track(first_id));
+    // Default timeline has Video + Audio; removing Video leaves Audio + Video 2.
+    assert_eq!(timeline.tracks.len(), 2);
+    assert!(!timeline.tracks.iter().any(|t| t.id == first_id));
+    assert!(timeline.tracks.iter().any(|t| t.id == second_id));
+
+    // Track is gone, so its clips are gone with it.
+    assert!(timeline.get_clip(1).is_none());
+}
+
+#[test]
+fn test_reorder_track() {
+    let mut timeline = Timeline::new(30.0);
+    let v_id = timeline.tracks[0].id;
+    let a_id = timeline.tracks[1].id;
+    let v2_id = timeline.add_track("Video 2".to_string(), TrackKind::Video);
+
+    // Move the audio track (currently index 1) so it ends up first.
+    timeline.reorder_track(a_id, 0);
+    assert_eq!(timeline.tracks[0].id, a_id);
+    assert_eq!(timeline.tracks[1].id, v_id);
+    assert_eq!(timeline.tracks[2].id, v2_id);
+
+    // Moving to a too-large index clamps to the end.
+    timeline.reorder_track(v_id, 99);
+    assert_eq!(timeline.tracks.last().unwrap().id, v_id);
+}
+
+#[test]
+fn test_scan_folder_recursive_and_dedup() {
+    use video_editor::media::probe::{is_supported_media, scan_folder_for_media};
+
+    let dir = std::env::temp_dir().join(format!("ve_scan_test_{}", std::process::id()));
+    let nested = dir.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(dir.join("a.MP4"), b"x").unwrap();
+    std::fs::write(dir.join("b.mp3"), b"x").unwrap();
+    std::fs::write(dir.join("ignored.txt"), b"x").unwrap();
+    std::fs::write(nested.join("c.png"), b"x").unwrap();
+
+    assert!(is_supported_media(&dir.join("a.MP4")));
+    assert!(is_supported_media(&dir.join("c.png")));
+    assert!(!is_supported_media(&dir.join("ignored.txt")));
+
+    let found = scan_folder_for_media(&dir);
+    assert_eq!(found.len(), 3);
+    assert!(found.iter().any(|p| p.ends_with("a.MP4")));
+    assert!(found.iter().any(|p| p.ends_with("b.mp3")));
+    assert!(found.iter().any(|p| p.ends_with("c.png")));
+
+    let _ = std::fs::remove_dir_all(dir);
 }
 

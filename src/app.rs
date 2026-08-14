@@ -17,7 +17,7 @@ use crate::ui::preview_player::{PlayerAction, PreviewPlayerView};
 use crate::ui::theme::AppTheme;
 use crate::ui::timeline_view::{TimelineAction, TimelineView};
 use egui::{Button, ColorImage, Context, Key, RichText, TextureHandle};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub struct VideoEditorApp {
@@ -36,6 +36,7 @@ pub struct VideoEditorApp {
     pub last_uploaded_version: u64,
     pub last_frame_time: Option<TimeCode>,
     pub proxy_tasks: HashMap<u64, tokio::sync::watch::Receiver<ProxyStatus>>,
+    pub media_bin_collapsed: HashSet<String>,
     pub show_help_dialog: bool,
 }
 
@@ -57,6 +58,7 @@ impl Default for VideoEditorApp {
             last_uploaded_version: 999999,
             last_frame_time: None,
             proxy_tasks: HashMap::new(),
+            media_bin_collapsed: HashSet::new(),
             show_help_dialog: false,
         }
     }
@@ -89,6 +91,10 @@ impl VideoEditorApp {
     /// Import a media file into the project's media bin and automatically place it on timeline if empty.
     pub fn import_file<P: AsRef<Path>>(&mut self, path: P) {
         let p = path.as_ref();
+        // Avoid re-importing the same file (e.g. when a whole folder is scanned twice).
+        if self.project.media_assets.iter().any(|a| a.path == p) {
+            return;
+        }
         if let Ok(meta) = probe_media_file(p) {
             let id = self.project.next_asset_id();
             let name = p
@@ -197,6 +203,65 @@ impl VideoEditorApp {
                 clip.timeline_start = track.duration();
                 track.add_clip(clip);
             }
+        }
+
+        self.project.timeline.playhead = TimeCode::ZERO;
+    }
+
+    /// Pick the best track to drop `asset` onto, honoring the desired track kind
+    /// while preferring the track the user aimed at.
+    fn resolve_drop_track(&self, asset: &MediaAsset, preferred_track_id: u64) -> u64 {
+        let want_kind = if asset.has_video {
+            TrackKind::Video
+        } else {
+            TrackKind::Audio
+        };
+
+        if self
+            .project
+            .timeline
+            .get_track(preferred_track_id)
+            .map(|t| t.kind)
+            == Some(want_kind)
+        {
+            preferred_track_id
+        } else if let Some(track) = self
+            .project
+            .timeline
+            .tracks
+            .iter()
+            .find(|t| t.kind == want_kind)
+        {
+            track.id
+        } else {
+            preferred_track_id
+        }
+    }
+
+    /// Place a media asset onto a specific track at a specific timeline start time.
+    pub fn place_asset_on_timeline(
+        &mut self,
+        asset: MediaAsset,
+        preferred_track_id: u64,
+        start: TimeCode,
+    ) {
+        let target_track_id = self.resolve_drop_track(&asset, preferred_track_id);
+        let clip_id = self.project.timeline.next_id();
+        let source_dur = TimeCode::from_secs_f64(asset.duration_secs);
+
+        let mut clip = Clip::new(
+            clip_id,
+            target_track_id,
+            asset.name.clone(),
+            asset.path.clone(),
+            source_dur,
+            asset.has_video,
+            asset.has_audio,
+        );
+
+        if let Some(track) = self.project.timeline.get_track_mut(target_track_id) {
+            clip.timeline_start = start;
+            track.add_clip(clip);
         }
 
         self.project.timeline.playhead = TimeCode::ZERO;
@@ -464,9 +529,20 @@ impl eframe::App for VideoEditorApp {
             .min_width(220.0)
             .max_width(450.0)
             .show(ctx, |ui| {
-                match MediaBinView::render(ui, &mut self.project) {
+                match MediaBinView::render(
+                    ui,
+                    &mut self.project,
+                    &mut self.media_bin_collapsed,
+                ) {
                     MediaBinAction::ImportFiles(paths) => {
                         for path in paths {
+                            self.import_file(path);
+                        }
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    MediaBinAction::ImportFolder(dir) => {
+                        let files = crate::media::probe::scan_folder_for_media(&dir);
+                        for path in files {
                             self.import_file(path);
                         }
                         self.refresh_preview_frame(Some(ctx));
@@ -573,6 +649,14 @@ impl eframe::App for VideoEditorApp {
                         self.project.timeline.delete_selected_clips();
                         self.refresh_preview_frame(Some(ctx));
                     }
+                    TimelineAction::DeleteTrack(track_id) => {
+                        // Always keep at least one track so there's somewhere to put clips.
+                        if self.project.timeline.tracks.len() > 1 {
+                            self.snapshot_timeline();
+                            self.project.timeline.remove_track(track_id);
+                            self.refresh_preview_frame(Some(ctx));
+                        }
+                    }
                     TimelineAction::Undo => {
                         self.undo(Some(ctx));
                     }
@@ -595,6 +679,27 @@ impl eframe::App for VideoEditorApp {
                         self.project
                             .timeline
                             .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);
+                    }
+                    TimelineAction::ReorderTrack { from_id, to_index } => {
+                        self.snapshot_timeline();
+                        self.project.timeline.reorder_track(from_id, to_index);
+                    }
+                    TimelineAction::AddMediaToTimeline {
+                        asset_id,
+                        track_id,
+                        start,
+                    } => {
+                        if let Some(asset) = self
+                            .project
+                            .media_assets
+                            .iter()
+                            .find(|a| a.id == asset_id)
+                            .cloned()
+                        {
+                            self.snapshot_timeline();
+                            self.place_asset_on_timeline(asset, track_id, start);
+                            self.refresh_preview_frame(Some(ctx));
+                        }
                     }
                     TimelineAction::None => {}
                 }

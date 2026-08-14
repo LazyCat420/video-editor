@@ -4,6 +4,7 @@ use crate::core::track::TrackKind;
 use crate::media::peak_extractor::WaveformPeaks;
 use crate::ui::node_graph_view::render_audio_envelope_graph;
 use crate::ui::theme::AppTheme;
+use crate::ui::{MediaAssetDrag, TrackReorderDrag};
 use egui::{
     Button, Color32, Frame, Id, Key, Pos2, Rect, RichText, Rounding, ScrollArea, Sense, Stroke, Ui,
     Vec2,
@@ -44,6 +45,9 @@ pub enum TimelineAction {
     },
     DeleteClip(u64),
     DeleteSelected,
+    DeleteTrack(u64),
+    ReorderTrack { from_id: u64, to_index: usize },
+    AddMediaToTimeline { asset_id: u64, track_id: u64, start: TimeCode },
     Undo,
     Redo,
     CloseGaps(Option<u64>),
@@ -211,8 +215,9 @@ impl TimelineView {
                     );
 
                     // Track Controls Column
-                    for track in &mut timeline.tracks {
-                        Frame::none()
+                    for (track_index, track) in timeline.tracks.iter_mut().enumerate() {
+                        let track_id = track.id;
+                        let header_resp = Frame::none()
                             .fill(if track.kind == TrackKind::Video {
                                 AppTheme::TRACK_VIDEO_BG
                             } else {
@@ -232,34 +237,56 @@ impl TimelineView {
                                 ui.set_height(Self::TRACK_HEIGHT - 12.0);
                                 ui.set_width(Self::HEADER_WIDTH - 12.0);
 
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(&track.name)
-                                            .strong()
-                                            .size(13.0)
-                                            .color(AppTheme::TEXT_PRIMARY),
-                                    );
-                                });
+                                // Row 1: Drag handle (grip + name) - grab to move this row up/down.
+                                let handle = ui.allocate_response(
+                                    egui::vec2(ui.available_width(), 20.0),
+                                    egui::Sense::drag(),
+                                );
+                                handle.dnd_set_drag_payload(TrackReorderDrag(track_id));
+                                if handle.dragged() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                } else if handle.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                }
+                                ui.painter().text(
+                                    handle.rect.left_center() + egui::vec2(2.0, 0.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("≡  {}", track.name),
+                                    egui::FontId::proportional(12.5),
+                                    AppTheme::TEXT_PRIMARY,
+                                );
 
-                                ui.add_space(4.0);
+                                ui.add_space(2.0);
 
                                 ui.horizontal(|ui| {
                                     let mute_text = if track.is_muted {
-                                        RichText::new("Muted").color(Color32::from_rgb(255, 100, 100))
+                                        RichText::new("Muted").size(12.0).color(Color32::from_rgb(255, 100, 100))
                                     } else {
-                                        RichText::new("Mute").color(AppTheme::TEXT_SECONDARY)
+                                        RichText::new("Mute").size(12.0).color(AppTheme::TEXT_SECONDARY)
                                     };
                                     if ui.button(mute_text).clicked() {
                                         track.is_muted = !track.is_muted;
                                     }
 
                                     let solo_text = if track.is_solo {
-                                        RichText::new("Solo").color(AppTheme::ACCENT_YELLOW)
+                                        RichText::new("Solo").size(12.0).color(AppTheme::ACCENT_YELLOW)
                                     } else {
-                                        RichText::new("Solo").color(AppTheme::TEXT_MUTED)
+                                        RichText::new("Solo").size(12.0).color(AppTheme::TEXT_MUTED)
                                     };
                                     if ui.button(solo_text).clicked() {
                                         track.is_solo = !track.is_solo;
+                                    }
+
+                                    // Delete this whole row
+                                    if ui
+                                        .add(
+                                            Button::new(RichText::new("🗑").size(13.0))
+                                                .min_size(egui::vec2(24.0, 20.0)),
+                                        )
+                                        .on_hover_text("Remove this whole row")
+                                        .clicked()
+                                    {
+                                        action = TimelineAction::DeleteTrack(track_id);
                                     }
                                 });
 
@@ -270,7 +297,29 @@ impl TimelineView {
                                             .show_value(false),
                                     );
                                 });
-                            });
+                            })
+                            .response;
+
+                        // Reorder drop target: atop this header, show a highlight border.
+                        if let Some(payload) = header_resp.dnd_hover_payload::<TrackReorderDrag>() {
+                            if payload.0 != track_id {
+                                let hp = ui.painter();
+                                hp.rect_stroke(
+                                    header_resp.rect.expand(2.0),
+                                    Rounding::same(6.0),
+                                    Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                );
+                            }
+                        }
+                        if let Some(payload) = header_resp.dnd_release_payload::<TrackReorderDrag>() {
+                            if payload.0 != track_id {
+                                action = TimelineAction::ReorderTrack {
+                                    from_id: payload.0,
+                                    to_index: track_index,
+                                };
+                            }
+                        }
+
                         ui.add_space(2.0);
                     }
 
@@ -427,6 +476,37 @@ impl TimelineView {
                                         ui.close_menu();
                                     }
                                 });
+
+                                // Drag a file from the files panel and drop it onto this track.
+                                let content_origin_x = ui.min_rect().min.x;
+                                if let Some(_payload) = track_response.dnd_hover_payload::<MediaAssetDrag>() {
+                                    let hover_painter = ui.painter();
+                                    hover_painter.rect_stroke(
+                                        track_rect,
+                                        Rounding::same(6.0),
+                                        Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                    );
+                                    hover_painter.text(
+                                        track_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        "➕ Put file here",
+                                        egui::FontId::proportional(15.0),
+                                        AppTheme::ACCENT_BLUE,
+                                    );
+                                }
+                                if let Some(drop) = track_response.dnd_release_payload::<MediaAssetDrag>() {
+                                    let asset_id = drop.0;
+                                    let mut start = TimeCode::ZERO;
+                                    if let Some(screen_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                                        let offset_px = (screen_pos.x - content_origin_x - track_rect.min.x).max(0.0);
+                                        start = TimeCode::from_pixels(offset_px, pps);
+                                    }
+                                    action = TimelineAction::AddMediaToTimeline {
+                                        asset_id,
+                                        track_id: track.id,
+                                        start,
+                                    };
+                                }
 
                                 // Render clips on this track
                                 for clip in &mut track.clips {

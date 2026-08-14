@@ -62,6 +62,20 @@ impl Timeline {
         self.tracks.len() != initial_len
     }
 
+    /// Move the track `from_id` so it ends up at `to_index` in the track list order.
+    pub fn reorder_track(&mut self, from_id: u64, to_index: usize) {
+        let Some(from_index) = self.tracks.iter().position(|t| t.id == from_id) else {
+            return;
+        };
+        let mut to_index = to_index.min(self.tracks.len());
+        // Removing the track first shifts indices above `from_index` down by one.
+        if to_index > from_index {
+            to_index -= 1;
+        }
+        let track = self.tracks.remove(from_index);
+        self.tracks.insert(to_index, track);
+    }
+
     pub fn get_track(&self, track_id: u64) -> Option<&Track> {
         self.tracks.iter().find(|t| t.id == track_id)
     }

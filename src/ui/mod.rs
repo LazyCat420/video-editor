@@ -1,4 +1,14 @@
 pub mod export_dialog;
+
+/// Drag-and-drop payload: a media asset id being dragged from the files panel
+/// onto a timeline track to be placed there.
+#[derive(Clone, Debug)]
+pub struct MediaAssetDrag(pub u64);
+
+/// Drag-and-drop payload: a track id being dragged (by its header) to reorder rows.
+#[derive(Clone, Debug)]
+pub struct TrackReorderDrag(pub u64);
+
 pub mod media_bin;
 pub mod menu_bar;
 pub mod node_graph_view;
