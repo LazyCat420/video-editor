@@ -899,14 +899,31 @@ impl TimelineView {
                                         Color32::WHITE,
                                     );
 
-                                    // Transition badge so the user sees which clip has one.
+                                    // Transition badge so the user clearly sees which clip has an active transition.
                                     if let Some(tr) = clip.transition.as_ref() {
-                                        if clip_width > 70.0 {
+                                        if clip_width > 80.0 {
+                                            let badge_text = format!("✦ {} {:.1}s", tr.kind.label(), tr.duration_secs);
+                                            let font_id = egui::FontId::proportional(11.5);
+                                            let text_len = (badge_text.len() as f32 * 6.5).min(clip_width - 20.0);
+                                            let pill_rect = Rect::from_min_max(
+                                                Pos2::new(clip_rect.max.x - 12.0 - text_len, clip_rect.min.y + 4.0),
+                                                Pos2::new(clip_rect.max.x - 4.0, clip_rect.min.y + 20.0),
+                                            );
+                                            clip_painter.rect_filled(
+                                                pill_rect,
+                                                Rounding::same(4.0),
+                                                Color32::from_rgb(25, 35, 50),
+                                            );
+                                            clip_painter.rect_stroke(
+                                                pill_rect,
+                                                Rounding::same(4.0),
+                                                Stroke::new(1.0, AppTheme::accent_yellow()),
+                                            );
                                             clip_painter.text(
-                                                Pos2::new(clip_rect.max.x - 6.0, clip_rect.min.y + 6.0),
+                                                Pos2::new(clip_rect.max.x - 8.0, clip_rect.min.y + 5.5),
                                                 egui::Align2::RIGHT_TOP,
-                                                format!("✦ {}", tr.kind.label()),
-                                                egui::FontId::proportional(12.0),
+                                                badge_text,
+                                                font_id,
                                                 AppTheme::accent_yellow(),
                                             );
                                         }

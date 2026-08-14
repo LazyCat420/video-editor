@@ -573,3 +573,123 @@ fn test_transition_export_xfade() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn test_transition_kind_catalog_completeness() {
+    use std::collections::HashSet;
+    use video_editor::core::transition::TransitionKind;
+
+    let all = TransitionKind::all();
+    assert_eq!(all.len(), 18, "Expected 18 transition kinds");
+
+    let mut labels = HashSet::new();
+    let mut xfade_names = HashSet::new();
+
+    for kind in all {
+        let label = kind.label();
+        let xfade = kind.to_xfade();
+
+        assert!(!label.is_empty(), "Label must not be empty");
+        assert!(!xfade.is_empty(), "xfade name must not be empty");
+
+        assert!(
+            labels.insert(label),
+            "Duplicate transition label: {}",
+            label
+        );
+        assert!(
+            xfade_names.insert(xfade),
+            "Duplicate xfade transition name: {}",
+            xfade
+        );
+    }
+}
+
+#[test]
+fn test_transition_attachment_and_duration_mutation() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::history::TimelineHistory;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::transition::{Transition, TransitionKind};
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let clip = Clip::new(
+        101,
+        track_id,
+        "Scene A".to_string(),
+        PathBuf::from("/mock/video.mp4"),
+        TimeCode::from_secs_f64(5.0),
+        true,
+        false,
+    );
+    timeline.tracks[0].add_clip(clip);
+
+    let mut history = TimelineHistory::new(20);
+
+    // Initial state: no transition
+    assert_eq!(timeline.tracks[0].clips[0].transition, None);
+
+    // Snapshot before setting transition
+    history.push_snapshot(&timeline);
+
+    // Apply Dip to Black (0.5s)
+    let clip_ref = timeline.get_clip_mut(101).unwrap();
+    clip_ref.transition = Some(Transition::new(TransitionKind::DipToBlack));
+    assert_eq!(
+        timeline.tracks[0].clips[0].transition,
+        Some(Transition {
+            kind: TransitionKind::DipToBlack,
+            duration_secs: 0.5,
+        })
+    );
+
+    // Snapshot before changing duration
+    history.push_snapshot(&timeline);
+
+    // Change duration to 1.2s
+    let clip_ref = timeline.get_clip_mut(101).unwrap();
+    if let Some(tr) = clip_ref.transition.as_mut() {
+        tr.duration_secs = 1.2;
+    }
+    assert_eq!(
+        timeline.tracks[0].clips[0].transition.unwrap().duration_secs,
+        1.2
+    );
+
+    // Snapshot before removing transition
+    history.push_snapshot(&timeline);
+
+    // Remove transition (hard cut)
+    let clip_ref = timeline.get_clip_mut(101).unwrap();
+    clip_ref.transition = None;
+    assert_eq!(timeline.tracks[0].clips[0].transition, None);
+
+    // Undo removal -> restores 1.2s transition
+    timeline = history.undo(&timeline).expect("undo remove");
+    assert_eq!(
+        timeline.tracks[0].clips[0].transition,
+        Some(Transition {
+            kind: TransitionKind::DipToBlack,
+            duration_secs: 1.2,
+        })
+    );
+
+    // Undo duration change -> restores 0.5s transition
+    timeline = history.undo(&timeline).expect("undo duration");
+    assert_eq!(
+        timeline.tracks[0].clips[0].transition,
+        Some(Transition {
+            kind: TransitionKind::DipToBlack,
+            duration_secs: 0.5,
+        })
+    );
+
+    // Undo application -> restores None
+    timeline = history.undo(&timeline).expect("undo apply");
+    assert_eq!(timeline.tracks[0].clips[0].transition, None);
+}
+
+

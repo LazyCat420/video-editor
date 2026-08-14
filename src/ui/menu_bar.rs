@@ -12,6 +12,7 @@ pub enum MenuAction {
     ImportMedia,
     SplitAtPlayhead,
     DeleteSelected,
+    OpenTransitions,
     OpenExportDialog,
     ToggleHelp,
     OpenSettings,
@@ -78,6 +79,23 @@ impl MenuBarView {
                 .clicked()
             {
                 action = MenuAction::DeleteSelected;
+            }
+
+            let transition_btn = Button::new(
+                RichText::new("✨ Transitions")
+                    .size(14.0)
+                    .color(AppTheme::accent_yellow())
+                    .strong(),
+            )
+            .min_size(egui::vec2(130.0, 36.0))
+            .fill(AppTheme::bg_card());
+
+            if ui
+                .add(transition_btn)
+                .on_hover_text("Open Transitions gallery to add dissolves, wipes & slides between cuts")
+                .clicked()
+            {
+                action = MenuAction::OpenTransitions;
             }
 
             // Easy Zoom Buttons (+ / -)

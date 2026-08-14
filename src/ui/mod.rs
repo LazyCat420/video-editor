@@ -15,6 +15,19 @@ pub mod node_graph_view;
 pub mod preview_player;
 pub mod theme;
 pub mod timeline_view;
+pub mod transition_bin;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SidebarTab {
+    Files,
+    Transitions,
+}
+
+impl Default for SidebarTab {
+    fn default() -> Self {
+        Self::Files
+    }
+}
 
 pub use export_dialog::ExportDialog;
 pub use media_bin::MediaBinView;
@@ -23,6 +36,7 @@ pub use node_graph_view::render_audio_envelope_graph;
 pub use preview_player::PreviewPlayerView;
 pub use theme::AppTheme;
 pub use timeline_view::TimelineView;
+pub use transition_bin::{TransitionBinAction, TransitionBinView};
 
 /// Run `f` with a smaller `interact_size.y` so horizontal sliders render with a shorter
 /// track and a much smaller drag knob (egui sizes the knob from `max(text, interact_size.y)`,

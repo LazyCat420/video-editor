@@ -56,6 +56,7 @@ pub struct VideoEditorApp {
     pub thumb_textures: HashMap<u64, TextureHandle>,
     pub thumbnail_frames: HashMap<u64, ColorImage>,
     pub settings: AppSettings,
+    pub sidebar_tab: crate::ui::SidebarTab,
     pub show_settings_dialog: bool,
     pub show_help_dialog: bool,
 }
@@ -82,6 +83,7 @@ impl Default for VideoEditorApp {
             thumb_textures: HashMap::new(),
             thumbnail_frames: HashMap::new(),
             settings: AppSettings::default(),
+            sidebar_tab: crate::ui::SidebarTab::Files,
             show_settings_dialog: false,
             show_help_dialog: false,
         }
@@ -550,6 +552,9 @@ impl eframe::App for VideoEditorApp {
                         self.project.timeline.delete_selected_clips();
                         self.refresh_preview_frame(Some(ctx));
                     }
+                    MenuAction::OpenTransitions => {
+                        self.sidebar_tab = crate::ui::SidebarTab::Transitions;
+                    }
                     MenuAction::OpenExportDialog => {
                         self.export_dialog.is_open = true;
                     }
@@ -564,7 +569,7 @@ impl eframe::App for VideoEditorApp {
             });
 
         // ==========================================
-        // 6. Render Left Side Panel: Media Bin
+        // 6. Render Left Side Panel: Media Bin & Transitions
         // ==========================================
         egui::SidePanel::left("left_media_bin_panel")
             .resizable(true)
@@ -572,48 +577,124 @@ impl eframe::App for VideoEditorApp {
             .min_width(220.0)
             .max_width(450.0)
             .show(ctx, |ui| {
-                match MediaBinView::render(
-                    ui,
-                    &mut self.project,
-                    &mut self.media_bin_collapsed,
-                    &self.frame_cache,
-                    &mut self.thumbnail_frames,
-                    &mut self.thumb_textures,
-                ) {
-                    MediaBinAction::ImportFiles(paths) => {
-                        for path in paths {
-                            self.import_file(path);
+                ui.add_space(4.0);
+
+                // Tab Switcher Header (Files vs Transitions)
+                ui.horizontal(|ui| {
+                    let files_active = self.sidebar_tab == crate::ui::SidebarTab::Files;
+                    let trans_active = self.sidebar_tab == crate::ui::SidebarTab::Transitions;
+
+                    let tab_w = (ui.available_width() - 8.0) / 2.0;
+
+                    let files_btn = Button::new(
+                        RichText::new("📁 Your Files")
+                            .size(13.5)
+                            .strong()
+                            .color(if files_active {
+                                Color32::WHITE
+                            } else {
+                                AppTheme::text_secondary()
+                            }),
+                    )
+                    .fill(if files_active {
+                        AppTheme::accent_blue()
+                    } else {
+                        AppTheme::bg_card()
+                    })
+                    .min_size(egui::vec2(tab_w, 32.0));
+
+                    if ui.add(files_btn).clicked() {
+                        self.sidebar_tab = crate::ui::SidebarTab::Files;
+                    }
+
+                    let trans_btn = Button::new(
+                        RichText::new("✨ Transitions")
+                            .size(13.5)
+                            .strong()
+                            .color(if trans_active {
+                                Color32::WHITE
+                            } else {
+                                AppTheme::text_secondary()
+                            }),
+                    )
+                    .fill(if trans_active {
+                        AppTheme::accent_blue()
+                    } else {
+                        AppTheme::bg_card()
+                    })
+                    .min_size(egui::vec2(tab_w, 32.0));
+
+                    if ui.add(trans_btn).clicked() {
+                        self.sidebar_tab = crate::ui::SidebarTab::Transitions;
+                    }
+                });
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                match self.sidebar_tab {
+                    crate::ui::SidebarTab::Files => {
+                        match MediaBinView::render(
+                            ui,
+                            &mut self.project,
+                            &mut self.media_bin_collapsed,
+                            &self.frame_cache,
+                            &mut self.thumbnail_frames,
+                            &mut self.thumb_textures,
+                        ) {
+                            MediaBinAction::ImportFiles(paths) => {
+                                for path in paths {
+                                    self.import_file(path);
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            MediaBinAction::ImportFolder(dir) => {
+                                let files = crate::media::probe::scan_folder_for_media(&dir);
+                                // Just bring the files into 'Your Files' — do NOT auto-place every
+                                // one on the timeline. The user drags/drops what they want.
+                                for path in files {
+                                    self.add_media_to_bin(path);
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            MediaBinAction::AddAssetToTimeline(asset) => {
+                                self.add_asset_to_timeline(asset);
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            MediaBinAction::RemoveAsset(id) => {
+                                self.project.media_assets.retain(|a| a.id != id);
+                                self.thumbnail_frames.remove(&id);
+                                self.thumb_textures.remove(&id);
+                            }
+                            MediaBinAction::ReorderAsset { from_id, to_index } => {
+                                if let Some(from) =
+                                    self.project.media_assets.iter().position(|a| a.id == from_id)
+                                {
+                                    let item = self.project.media_assets.remove(from);
+                                    let to = to_index.min(self.project.media_assets.len());
+                                    self.project.media_assets.insert(to, item);
+                                }
+                            }
+                            MediaBinAction::None => {}
                         }
-                        self.refresh_preview_frame(Some(ctx));
                     }
-                    MediaBinAction::ImportFolder(dir) => {
-                        let files = crate::media::probe::scan_folder_for_media(&dir);
-                        // Just bring the files into 'Your Files' — do NOT auto-place every
-                        // one on the timeline. The user drags/drops what they want.
-                        for path in files {
-                            self.add_media_to_bin(path);
-                        }
-                        self.refresh_preview_frame(Some(ctx));
-                    }
-                    MediaBinAction::AddAssetToTimeline(asset) => {
-                        self.add_asset_to_timeline(asset);
-                        self.refresh_preview_frame(Some(ctx));
-                    }
-                    MediaBinAction::RemoveAsset(id) => {
-                        self.project.media_assets.retain(|a| a.id != id);
-                        self.thumbnail_frames.remove(&id);
-                        self.thumb_textures.remove(&id);
-                    }
-                    MediaBinAction::ReorderAsset { from_id, to_index } => {
-                        if let Some(from) =
-                            self.project.media_assets.iter().position(|a| a.id == from_id)
-                        {
-                            let item = self.project.media_assets.remove(from);
-                            let to = to_index.min(self.project.media_assets.len());
-                            self.project.media_assets.insert(to, item);
+                    crate::ui::SidebarTab::Transitions => {
+                        match crate::ui::TransitionBinView::render(ui, &mut self.project.timeline) {
+                            crate::ui::TransitionBinAction::SetTransition {
+                                clip_id,
+                                transition,
+                            } => {
+                                if self.project.timeline.get_clip_mut(clip_id).is_some() {
+                                    self.snapshot_timeline();
+                                    self.project.timeline.get_clip_mut(clip_id).unwrap().transition =
+                                        transition;
+                                    self.refresh_preview_frame(Some(ctx));
+                                }
+                            }
+                            crate::ui::TransitionBinAction::None => {}
                         }
                     }
-                    MediaBinAction::None => {}
                 }
             });
 
@@ -942,7 +1023,11 @@ impl eframe::App for VideoEditorApp {
                         ui.label(RichText::new("On any music clip, click the yellow volume line to create a dot, then drag it down to make the music softer at that point.").size(14.0));
                         ui.add_space(8.0);
 
-                        ui.label(RichText::new("4. Save Your Finished Video:").strong().size(15.0));
+                        ui.label(RichText::new("4. Add Transitions Between Cuts:").strong().size(15.0));
+                        ui.label(RichText::new("Click the '✨ Transitions' button at top or switch to the Transitions tab on the left. Pick from 17 styles like Cross Fade, Wipes, or Slides.").size(14.0));
+                        ui.add_space(8.0);
+
+                        ui.label(RichText::new("5. Save Your Finished Video:").strong().size(15.0));
                         ui.label(RichText::new("Click the green '3. 🚀 Export Finished Video' button at top right to save your video file.").size(14.0));
                         ui.add_space(12.0);
 
