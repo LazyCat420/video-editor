@@ -205,9 +205,9 @@ impl AppTheme {
             style.spacing.button_padding = egui::vec2(14.0, 8.0);
             // Sliders a little smaller throughout the program.
             style.spacing.slider_width = 90.0;
-            // Rail ~25% thinner than the egui default (8 -> 6).
-            style.spacing.slider_rail_height = 6.0;
-            style.spacing.interact_size = egui::vec2(36.0, 36.0);
+            // Rail thinner than default (8 -> 4).
+            style.spacing.slider_rail_height = 4.0;
+            style.spacing.interact_size = egui::vec2(24.0, 18.0);
 
             let mut text_styles = std::collections::BTreeMap::new();
             text_styles.insert(TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional));

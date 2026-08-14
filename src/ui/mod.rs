@@ -38,15 +38,15 @@ pub use theme::AppTheme;
 pub use timeline_view::TimelineView;
 pub use transition_bin::{TransitionBinAction, TransitionBinView};
 
-/// Run `f` with a smaller `interact_size.y` so horizontal sliders render with a shorter
-/// track and a much smaller drag knob (egui sizes the knob from `max(text, interact_size.y)`,
-/// not from `add_sized`).
+/// Run `f` with a smaller `interact_size.y` and sleek `slider_rail_height` so horizontal sliders
+/// render with a compact, proportional drag knob (egui sizes the knob circle from `spacing.interact_size.y`).
 pub fn small_slider<R>(ui: &mut egui::Ui, height: f32, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let old = (*ui.ctx().style()).clone();
-    let mut s = old.clone();
-    s.spacing.interact_size.y = height;
-    ui.ctx().set_style(s);
+    let old_interact = ui.spacing().interact_size;
+    let old_rail = ui.spacing().slider_rail_height;
+    ui.spacing_mut().interact_size.y = height;
+    ui.spacing_mut().slider_rail_height = 4.0;
     let r = f(ui);
-    ui.ctx().set_style(old);
+    ui.spacing_mut().interact_size = old_interact;
+    ui.spacing_mut().slider_rail_height = old_rail;
     r
 }

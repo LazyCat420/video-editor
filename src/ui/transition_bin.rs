@@ -68,9 +68,9 @@ impl TransitionBinView {
                                         .size(12.0)
                                         .color(AppTheme::text_secondary()),
                                 );
-                                if crate::ui::small_slider(ui, 18.0, |ui| {
+                                if crate::ui::small_slider(ui, 12.0, |ui| {
                                     ui.add_sized(
-                                        [110.0, 18.0],
+                                        [110.0, 12.0],
                                         egui::Slider::new(&mut dur, 0.2..=2.0)
                                             .custom_formatter(|v, _| format!("{:.1}s", v))
                                             .step_by(0.1),

@@ -692,4 +692,62 @@ fn test_transition_attachment_and_duration_mutation() {
     assert_eq!(timeline.tracks[0].clips[0].transition, None);
 }
 
+#[test]
+fn test_small_slider_scopes_and_restores_spacing() {
+    use video_editor::ui::small_slider;
+
+    let ctx = egui::Context::default();
+    let _ = ctx.run(Default::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let initial_interact = ui.spacing().interact_size;
+            let initial_rail = ui.spacing().slider_rail_height;
+
+            small_slider(ui, 12.0, |ui| {
+                assert_eq!(
+                    ui.spacing().interact_size.y,
+                    12.0,
+                    "interact_size.y must be 12.0 inside small_slider"
+                );
+                assert_eq!(
+                    ui.spacing().slider_rail_height,
+                    4.0,
+                    "slider_rail_height must be 4.0 inside small_slider"
+                );
+            });
+
+            assert_eq!(
+                ui.spacing().interact_size,
+                initial_interact,
+                "interact_size must be restored"
+            );
+            assert_eq!(
+                ui.spacing().slider_rail_height,
+                initial_rail,
+                "slider_rail_height must be restored"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_settings_font_scale_granularity() {
+    use video_editor::ui::theme::{AppTheme, ThemeKind};
+
+    let ctx = egui::Context::default();
+
+    // Verify fine-grained stepping across 65% to 140% in 1% increments
+    for i in 65..=140 {
+        let scale = i as f32 / 100.0;
+        AppTheme::configure(&ctx, ThemeKind::Dark, scale);
+        let current = AppTheme::font_scale_now();
+        assert!(
+            (current - scale).abs() < 1e-4,
+            "Font scale must match exactly at {:.2} (got {:.2})",
+            scale,
+            current
+        );
+    }
+}
+
+
 
