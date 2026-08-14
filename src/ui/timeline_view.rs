@@ -56,22 +56,22 @@ impl TimelineView {
             action = TimelineAction::DeleteSelected;
         }
 
-        // Collect snapping candidate timestamps
+        // Collect snapping candidate timestamps (paired with optional clip ID)
         let mut snap_candidates = Vec::new();
         if timeline.snapping_enabled {
-            snap_candidates.push(TimeCode::ZERO);
-            snap_candidates.push(timeline.playhead);
+            snap_candidates.push((None, TimeCode::ZERO));
+            snap_candidates.push((None, timeline.playhead));
             for track in &timeline.tracks {
                 for clip in &track.clips {
-                    snap_candidates.push(clip.timeline_start);
-                    snap_candidates.push(clip.timeline_end());
+                    snap_candidates.push((Some(clip.id), clip.timeline_start));
+                    snap_candidates.push((Some(clip.id), clip.timeline_end()));
                 }
             }
         }
         let snapping_enabled = timeline.snapping_enabled;
         let snap_threshold_pixels = timeline.snap_threshold_pixels;
 
-        let snap_fn = |target: TimeCode| -> TimeCode {
+        let snap_fn = |target: TimeCode, exclude_id: Option<u64>| -> TimeCode {
             if !snapping_enabled || pps <= 0.0 {
                 return target;
             }
@@ -80,7 +80,12 @@ impl TimelineView {
             let mut closest = target;
             let mut min_diff = threshold_secs;
 
-            for cand in &snap_candidates {
+            for (clip_id_opt, cand) in &snap_candidates {
+                if let Some(cand_clip_id) = clip_id_opt {
+                    if Some(*cand_clip_id) == exclude_id {
+                        continue;
+                    }
+                }
                 let diff = (cand.as_secs_f64() - target_secs).abs();
                 if diff < min_diff {
                     min_diff = diff;
@@ -211,7 +216,7 @@ impl TimelineView {
                                 if let Some(pos) = ruler_response.interact_pointer_pos() {
                                     let offset_px = (pos.x - ruler_rect.min.x).max(0.0);
                                     let clicked_time = TimeCode::from_pixels(offset_px, pps);
-                                    let snapped = snap_fn(clicked_time);
+                                    let snapped = snap_fn(clicked_time, None);
                                     action = TimelineAction::Seek(snapped);
                                 }
                             }
@@ -292,16 +297,21 @@ impl TimelineView {
                                         action = TimelineAction::ClipSelected(clip.id);
                                     }
 
-                                    // Handle Clip Dragging
+                                    // Hand cursor feedback when hovering or dragging clips
+                                    if clip_resp.dragged() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                    } else if clip_resp.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                    }
+
+                                    // Handle Clip Dragging with signed float delta (excludes self from snapping)
                                     if clip_resp.dragged() {
                                         let delta_x = clip_resp.drag_delta().x;
-                                        let delta_time = TimeCode::from_pixels(delta_x, pps);
-                                        let new_start = if delta_x > 0.0 {
-                                            clip.timeline_start + delta_time
-                                        } else {
-                                            clip.timeline_start - delta_time
-                                        };
-                                        let snapped_start = snap_fn(new_start);
+                                        let cur_secs = clip.timeline_start.as_secs_f64();
+                                        let delta_secs = (delta_x / pps) as f64;
+                                        let new_secs = (cur_secs + delta_secs).max(0.0);
+                                        let new_start = TimeCode::from_secs_f64(new_secs);
+                                        let snapped_start = snap_fn(new_start, Some(clip.id));
                                         action = TimelineAction::ClipMoved {
                                             clip_id: clip.id,
                                             target_track_id: track.id,

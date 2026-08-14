@@ -39,13 +39,7 @@ impl MediaBinView {
             .fill(AppTheme::ACCENT_BLUE);
 
             if ui.add(add_btn).clicked() {
-                if let Some(files) = rfd::FileDialog::new()
-                    .add_filter(
-                        "Video & Music Files",
-                        &["mp4", "mkv", "mov", "avi", "webm", "mp3", "wav", "flac", "aac"],
-                    )
-                    .pick_files()
-                {
+                if let Some(files) = crate::media::probe::create_media_file_dialog().pick_files() {
                     action = MediaBinAction::ImportFiles(files);
                 }
             }

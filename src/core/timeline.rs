@@ -79,8 +79,18 @@ impl Timeline {
             .unwrap_or(TimeCode::ZERO)
     }
 
-    /// Find snap point: snaps to playhead, other clip boundaries within pixel threshold.
+    /// Find snap point: snaps to playhead, origin, and other clip boundaries within pixel threshold.
     pub fn find_snap_point(&self, target_time: TimeCode, pps: f32) -> TimeCode {
+        self.find_snap_point_excluding(target_time, pps, None)
+    }
+
+    /// Find snap point while excluding a specific clip (e.g. the one currently being dragged).
+    pub fn find_snap_point_excluding(
+        &self,
+        target_time: TimeCode,
+        pps: f32,
+        exclude_clip_id: Option<u64>,
+    ) -> TimeCode {
         if !self.snapping_enabled || pps <= 0.0 {
             return target_time;
         }
@@ -94,11 +104,13 @@ impl Timeline {
         // 2. Timeline origin (0.0)
         candidates.push(TimeCode::ZERO);
 
-        // 3. All clip boundaries
+        // 3. Other clip boundaries
         for track in &self.tracks {
             for clip in &track.clips {
-                candidates.push(clip.timeline_start);
-                candidates.push(clip.timeline_end());
+                if Some(clip.id) != exclude_clip_id {
+                    candidates.push(clip.timeline_start);
+                    candidates.push(clip.timeline_end());
+                }
             }
         }
 

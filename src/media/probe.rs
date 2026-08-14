@@ -16,6 +16,36 @@ pub struct MediaMetadata {
     pub channels: Option<u32>,
 }
 
+pub const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &[
+    "mp4", "MP4", "mov", "MOV", "m4v", "M4V", "mkv", "MKV", "avi", "AVI",
+    "wmv", "WMV", "webm", "WEBM", "flv", "FLV", "ts", "TS", "mts", "MTS",
+    "m2ts", "M2TS", "3gp", "3GP", "mpg", "MPG", "mpeg", "MPEG", "vob", "VOB",
+];
+
+pub const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
+    "mp3", "MP3", "wav", "WAV", "m4a", "M4A", "aac", "AAC", "flac", "FLAC",
+    "ogg", "OGG", "wma", "WMA", "opus", "OPUS", "aiff", "AIFF", "alac", "ALAC",
+];
+
+pub const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
+    "jpg", "JPG", "jpeg", "JPEG", "png", "PNG", "webp", "WEBP", "bmp", "BMP",
+];
+
+/// Returns a pre-configured FileDialog with all supported media formats.
+pub fn create_media_file_dialog() -> rfd::FileDialog {
+    let mut all_media = Vec::new();
+    all_media.extend_from_slice(SUPPORTED_VIDEO_EXTENSIONS);
+    all_media.extend_from_slice(SUPPORTED_AUDIO_EXTENSIONS);
+    all_media.extend_from_slice(SUPPORTED_IMAGE_EXTENSIONS);
+
+    rfd::FileDialog::new()
+        .add_filter("All Media (Videos, Music, Photos)", &all_media)
+        .add_filter("Video Files", SUPPORTED_VIDEO_EXTENSIONS)
+        .add_filter("Audio / Music Files", SUPPORTED_AUDIO_EXTENSIONS)
+        .add_filter("Photos & Images", SUPPORTED_IMAGE_EXTENSIONS)
+        .add_filter("All Files (*.*)", &["*"])
+}
+
 #[derive(Deserialize)]
 struct FFprobeOutput {
     streams: Option<Vec<FFprobeStream>>,
@@ -126,6 +156,11 @@ pub fn probe_media_file<P: AsRef<Path>>(path: P) -> Result<MediaMetadata, String
     // Fallback if fps was zero
     if meta.fps == 0.0 && meta.has_video {
         meta.fps = 30.0;
+    }
+
+    // Fallback if duration was zero (e.g. still photos like JPG/PNG)
+    if meta.duration_secs <= 0.01 {
+        meta.duration_secs = 5.0;
     }
 
     Ok(meta)

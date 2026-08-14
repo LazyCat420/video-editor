@@ -126,3 +126,44 @@ fn test_project_save_load_json() {
 
     let _ = std::fs::remove_file(temp_file);
 }
+
+#[test]
+fn test_drag_math_to_zero() {
+    let mut clip = Clip::new(
+        1,
+        1,
+        "Test".to_string(),
+        PathBuf::from("video.mp4"),
+        TimeCode::from_secs_f64(10.0),
+        true,
+        true,
+    );
+    clip.timeline_start = TimeCode::from_secs_f64(4.0);
+
+    let pps = 50.0;
+    // Dragging left by -250px (-5.0s)
+    let delta_x: f32 = -250.0;
+    let cur_secs = clip.timeline_start.as_secs_f64();
+    let delta_secs = (delta_x / pps) as f64;
+    let new_secs = (cur_secs + delta_secs).max(0.0);
+    let new_start = TimeCode::from_secs_f64(new_secs);
+
+    assert_eq!(new_start.as_secs_f64(), 0.0);
+}
+
+#[test]
+fn test_universal_format_filters() {
+    use video_editor::media::probe::{
+        SUPPORTED_AUDIO_EXTENSIONS, SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS,
+    };
+    assert!(SUPPORTED_VIDEO_EXTENSIONS.contains(&"mp4"));
+    assert!(SUPPORTED_VIDEO_EXTENSIONS.contains(&"MP4"));
+    assert!(SUPPORTED_VIDEO_EXTENSIONS.contains(&"mov"));
+    assert!(SUPPORTED_VIDEO_EXTENSIONS.contains(&"wmv"));
+    assert!(SUPPORTED_VIDEO_EXTENSIONS.contains(&"mts"));
+    assert!(SUPPORTED_AUDIO_EXTENSIONS.contains(&"mp3"));
+    assert!(SUPPORTED_AUDIO_EXTENSIONS.contains(&"wav"));
+    assert!(SUPPORTED_AUDIO_EXTENSIONS.contains(&"m4a"));
+    assert!(SUPPORTED_IMAGE_EXTENSIONS.contains(&"jpg"));
+    assert!(SUPPORTED_IMAGE_EXTENSIONS.contains(&"png"));
+}
