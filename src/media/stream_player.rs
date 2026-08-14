@@ -15,12 +15,13 @@ pub const STREAM_BYTES_PER_FRAME: usize = STREAM_WIDTH * STREAM_HEIGHT * 3;
 
 /// Continuous video playback decoder using a single lightweight FFmpeg rawvideo stream.
 pub struct StreamVideoPlayer {
-    buffer: Arc<Mutex<VecDeque<ColorImage>>>,
+    buffer: Arc<Mutex<VecDeque<(f64, ColorImage)>>>,
     is_running: Arc<AtomicBool>,
     active_path: Option<PathBuf>,
     child_process: Option<Child>,
     pub last_error: Arc<Mutex<Option<String>>>,
     ffmpeg_bin: PathBuf,
+    current_frame: Option<ColorImage>,
 }
 
 impl Default for StreamVideoPlayer {
@@ -32,6 +33,7 @@ impl Default for StreamVideoPlayer {
             child_process: None,
             last_error: Arc::new(Mutex::new(None)),
             ffmpeg_bin: find_ffmpeg_executable(),
+            current_frame: None,
         }
     }
 }
@@ -54,6 +56,7 @@ impl StreamVideoPlayer {
         let path_buf = path.as_ref().to_path_buf();
         self.active_path = Some(path_buf.clone());
         self.is_running.store(true, Ordering::SeqCst);
+        self.current_frame = None;
 
         let mut err_lock = self.last_error.lock().unwrap();
         *err_lock = None;
@@ -122,9 +125,11 @@ impl StreamVideoPlayer {
 
         let mut stdout = child.stdout.take().expect("Failed to open stdout pipe");
 
-        // Spawn background reader thread with producer backpressure
+        // Spawn background reader thread with producer backpressure and PTS tagging
         thread::spawn(move || {
             let mut raw_buf = vec![0u8; STREAM_BYTES_PER_FRAME];
+            let mut frame_idx: u64 = 0;
+            let frame_duration = 1.0 / 30.0;
 
             while is_running_arc.load(Ordering::SeqCst) {
                 // Backpressure: pause reader when lookahead buffer has 30 frames
@@ -138,13 +143,16 @@ impl StreamVideoPlayer {
 
                 match stdout.read_exact(&mut raw_buf) {
                     Ok(_) => {
+                        let pts = start_secs + (frame_idx as f64 * frame_duration);
+                        frame_idx += 1;
+
                         let color_img = ColorImage::from_rgb(
                             [STREAM_WIDTH, STREAM_HEIGHT],
                             &raw_buf,
                         );
 
                         if let Ok(mut buf) = buffer_arc.lock() {
-                            buf.push_back(color_img);
+                            buf.push_back((pts, color_img));
                         }
 
                         if let Some(ref c) = ctx_clone {
@@ -164,16 +172,25 @@ impl StreamVideoPlayer {
         self.child_process = Some(child);
     }
 
-    /// Retrieve the next decoded video frame from the stream buffer.
-    pub fn get_next_frame(&self) -> Option<ColorImage> {
+    /// Retrieve the video frame corresponding to the current source playback time.
+    /// Pops all frames whose PTS <= current_source_time, returning the most up-to-date frame.
+    pub fn get_frame_for_time(&mut self, current_source_time: f64) -> Option<ColorImage> {
         if let Ok(mut buf) = self.buffer.lock() {
-            if buf.len() > 1 {
-                return buf.pop_front();
-            } else if let Some(f) = buf.front() {
-                return Some(f.clone());
+            let mut advanced = false;
+            while let Some((pts, _)) = buf.front() {
+                if *pts <= current_source_time {
+                    let (_, frame) = buf.pop_front().unwrap();
+                    self.current_frame = Some(frame);
+                    advanced = true;
+                } else {
+                    break;
+                }
+            }
+            if advanced {
+                return self.current_frame.clone();
             }
         }
-        None
+        self.current_frame.clone()
     }
 
     /// Stop the continuous video playback stream.
@@ -188,10 +205,14 @@ impl StreamVideoPlayer {
         if let Ok(mut buf) = self.buffer.lock() {
             buf.clear();
         }
-        self.active_path = None;
-    }
 
-    pub fn is_active(&self) -> bool {
-        self.is_running.load(Ordering::SeqCst)
+        self.active_path = None;
+        self.current_frame = None;
+    }
+}
+
+impl Drop for StreamVideoPlayer {
+    fn drop(&mut self) {
+        self.stop();
     }
 }

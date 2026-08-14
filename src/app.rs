@@ -363,8 +363,8 @@ impl eframe::App for VideoEditorApp {
             let new_clip_id = active_clip.as_ref().map(|(id, _, _, _)| *id);
             if new_clip_id != self.current_playing_clip_id {
                 self.current_playing_clip_id = new_clip_id;
-                if let Some((_, path, sec, rem_dur)) = active_clip {
-                    self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
+                if let Some((_, path, sec, rem_dur)) = &active_clip {
+                    self.stream_player.start(path, *sec, Some(*rem_dur), Some(ctx));
                 } else {
                     self.stream_player.stop();
                     self.current_frame = None;
@@ -372,10 +372,12 @@ impl eframe::App for VideoEditorApp {
                 }
             }
 
-            // Consume frames from the continuous streaming decoder
-            if let Some(stream_frame) = self.stream_player.get_next_frame() {
-                self.current_frame = Some(stream_frame);
-                self.frame_version += 1;
+            // Consume frames from the continuous streaming decoder synchronized to PTS
+            if let Some((_, _, source_sec, _)) = active_clip {
+                if let Some(stream_frame) = self.stream_player.get_frame_for_time(source_sec) {
+                    self.current_frame = Some(stream_frame);
+                    self.frame_version += 1;
+                }
             }
 
             ctx.request_repaint();
