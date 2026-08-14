@@ -44,6 +44,16 @@ pub enum PlayerAction {
     ResizeElement { idx: usize, x: f32, y: f32, w: f32, h: f32 },
     /// Fill the whole frame with element `idx`.
     FullSlide { idx: usize },
+    /// Promote picture element `idx` to slide background.
+    SetAsBackground { idx: usize },
+    /// Select or deselect element.
+    SelectElement(Option<usize>),
+    /// Delete element `idx`.
+    DeleteElement(usize),
+    /// Drop a media asset from MediaBin onto canvas at normalized (x, y).
+    DropMediaAsset { asset_id: u64, x: f32, y: f32 },
+    /// Drop external files from OS onto canvas at normalized (x, y).
+    DropFiles { paths: Vec<std::path::PathBuf>, x: f32, y: f32 },
 }
 
 #[derive(Clone, Copy)]
@@ -56,11 +66,17 @@ fn drag_id() -> Id {
     Id::new("preview_slide_drag")
 }
 
-fn visual_screen_rect(frame: Rect, b: (f32, f32, f32, f32)) -> Rect {
+fn visual_screen_rect(frame: Rect, b: (f32, f32, f32, f32), overlay: Option<&TextOverlay>) -> Rect {
     let (x, y, w, h) = b;
     let tl = frame.min + Vec2::new(x * frame.width(), y * frame.height());
     if w <= 0.0 && h <= 0.0 {
-        Rect::from_center_size(tl, Vec2::new(140.0, 48.0))
+        let scale = (frame.height() / 400.0).clamp(0.6, 2.5);
+        let font_size = overlay.map(|o| (o.font_size * scale * 0.55).max(12.0)).unwrap_or(20.0);
+        let line_count = overlay.map(|o| o.text.lines().count().max(1)).unwrap_or(1);
+        let max_chars = overlay.map(|o| o.text.lines().map(|l| l.len()).max().unwrap_or(12).max(12)).unwrap_or(12);
+        let estimated_w = (max_chars as f32 * font_size * 0.55 + 30.0 * scale).clamp(120.0, frame.width() * 0.95);
+        let estimated_h = (line_count as f32 * (font_size + 6.0 * scale) + 20.0 * scale).clamp(36.0, frame.height() * 0.95);
+        Rect::from_center_size(tl, Vec2::new(estimated_w, estimated_h))
     } else {
         Rect::from_min_size(tl, Vec2::new(w * frame.width(), h * frame.height()))
     }
@@ -75,6 +91,7 @@ impl PreviewPlayerView {
         texture_cache: &mut Option<TextureHandle>,
         frame_is_dirty: bool,
         place_mode: bool,
+        selected_element: Option<usize>,
     ) -> PlayerAction {
         let mut action = PlayerAction::None;
 
@@ -122,7 +139,7 @@ impl PreviewPlayerView {
                 // Draw each visual element (pictures/videos as quads, text via painter).
                 let screen_rects: Vec<Rect> = visuals
                     .iter()
-                    .map(|v| visual_screen_rect(rect, v.bounds))
+                    .map(|v| visual_screen_rect(rect, v.bounds, v.overlay.as_ref()))
                     .collect();
                 for (v, srect) in visuals.iter().zip(screen_rects.iter()) {
                     if let Some(tex) = &v.texture {
@@ -143,7 +160,36 @@ impl PreviewPlayerView {
                     }
                 }
 
-                // Interactions: place / move / resize / full-slide.
+                // Draw selection highlight and handles for active element
+                for (v, srect) in visuals.iter().zip(screen_rects.iter()) {
+                    if selected_element == Some(v.idx) {
+                        painter.rect_stroke(
+                            *srect,
+                            Rounding::same(4.0),
+                            egui::Stroke::new(2.0, AppTheme::accent_blue()),
+                        );
+
+                        // Corner handles
+                        let handle_size = Vec2::splat(8.0);
+                        let corners = [
+                            srect.left_top(),
+                            srect.right_top(),
+                            srect.left_bottom(),
+                            srect.right_bottom(),
+                        ];
+                        for corner in corners {
+                            let hrect = Rect::from_center_size(corner, handle_size);
+                            painter.rect_filled(hrect, Rounding::same(2.0), Color32::WHITE);
+                            painter.rect_stroke(
+                                hrect,
+                                Rounding::same(2.0),
+                                egui::Stroke::new(1.0, AppTheme::accent_blue()),
+                            );
+                        }
+                    }
+                }
+
+                // Interactions: drag-and-drop, place, select, move, resize, context menu.
                 Self::handle_interactions(
                     ui,
                     response,
@@ -151,6 +197,7 @@ impl PreviewPlayerView {
                     visuals,
                     &screen_rects,
                     place_mode,
+                    selected_element,
                     &mut action,
                 );
             } else if total_dur.as_secs_f64() > 0.0 && timeline.playhead >= total_dur {
@@ -260,12 +307,65 @@ impl PreviewPlayerView {
         visuals: &[SlideVisual],
         screen_rects: &[Rect],
         place_mode: bool,
+        selected_element: Option<usize>,
         action: &mut PlayerAction,
     ) {
         let to_norm =
             |p: Pos2| ((p.x - frame.min.x) / frame.width(), (p.y - frame.min.y) / frame.height());
 
-        // Placement mode: a plain click drops a pending element where clicked.
+        // 1. Drag & drop hovering from Files panel (MediaAssetDrag)
+        if let Some(_payload) = response.dnd_hover_payload::<crate::ui::MediaAssetDrag>() {
+            let hover_painter = ui.painter_at(frame);
+            hover_painter.rect_stroke(
+                frame,
+                Rounding::same(8.0),
+                egui::Stroke::new(3.0, AppTheme::accent_cyan()),
+            );
+            let badge_rect = Rect::from_center_size(frame.center(), Vec2::new(220.0, 44.0));
+            hover_painter.rect_filled(badge_rect, Rounding::same(8.0), Color32::from_black_alpha(210));
+            hover_painter.rect_stroke(badge_rect, Rounding::same(8.0), egui::Stroke::new(1.5, AppTheme::accent_cyan()));
+            hover_painter.text(
+                frame.center(),
+                Align2::CENTER_CENTER,
+                "➕ Drop onto slide",
+                FontId::proportional(16.0),
+                AppTheme::accent_cyan(),
+            );
+        }
+
+        // 2. Drag & drop release from Files panel (MediaAssetDrag)
+        if let Some(drop) = response.dnd_release_payload::<crate::ui::MediaAssetDrag>() {
+            if let Some(p) = ui.input(|i| i.pointer.hover_pos()) {
+                let (nx, ny) = to_norm(p);
+                *action = PlayerAction::DropMediaAsset {
+                    asset_id: drop.0,
+                    x: nx.clamp(0.0, 1.0),
+                    y: ny.clamp(0.0, 1.0),
+                };
+                return;
+            }
+        }
+
+        // 3. Direct file drag-and-drop from OS file explorer
+        let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() {
+            if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
+                if frame.contains(pos) {
+                    let paths: Vec<std::path::PathBuf> = dropped_files.into_iter().filter_map(|f| f.path).collect();
+                    if !paths.is_empty() {
+                        let (nx, ny) = to_norm(pos);
+                        *action = PlayerAction::DropFiles {
+                            paths,
+                            x: nx.clamp(0.0, 1.0),
+                            y: ny.clamp(0.0, 1.0),
+                        };
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 4. Placement mode: a plain click drops a pending element where clicked.
         if place_mode && response.clicked() {
             if let Some(p) = response.interact_pointer_pos() {
                 let (nx, ny) = to_norm(p);
@@ -277,19 +377,83 @@ impl PreviewPlayerView {
             }
         }
 
-        // Right-click an element -> Full Slide.
-        if response.secondary_clicked() {
-            if let Some(p) = response.interact_pointer_pos() {
+        // 5. Keyboard shortcuts for selected element
+        if let Some(sel_idx) = selected_element {
+            if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+                *action = PlayerAction::DeleteElement(sel_idx);
+                return;
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                *action = PlayerAction::SelectElement(None);
+                return;
+            }
+        }
+
+        // 6. Right-click context menu on element
+        response.context_menu(|ui| {
+            if let Some(p) = ui.input(|i| i.pointer.hover_pos()) {
+                let mut hit_idx = None;
+                let mut hit_kind = None;
                 for (v, srect) in visuals.iter().zip(screen_rects.iter()).rev() {
                     if srect.contains(p) {
-                        *action = PlayerAction::FullSlide { idx: v.idx };
-                        return;
+                        hit_idx = Some(v.idx);
+                        hit_kind = Some(v.kind);
+                        break;
                     }
+                }
+                if let Some(idx) = hit_idx {
+                    ui.label(RichText::new("Slide Item Actions").strong().color(AppTheme::accent_yellow()));
+                    ui.separator();
+                    if ui.button("⛶ Fill Entire Slide").clicked() {
+                        *action = PlayerAction::FullSlide { idx };
+                        ui.close_menu();
+                    }
+                    if hit_kind == Some(SlideVisualKind::Picture) {
+                        if ui.button("🖼 Set as Slide Background").clicked() {
+                            *action = PlayerAction::SetAsBackground { idx };
+                            ui.close_menu();
+                        }
+                    }
+                    if ui.button("🗑 Delete Element").clicked() {
+                        *action = PlayerAction::DeleteElement(idx);
+                        ui.close_menu();
+                    }
+                } else {
+                    ui.label("Click on an element for actions");
+                }
+            }
+        });
+
+        // 7. Cursor hover styling
+        if let Some(p) = response.hover_pos() {
+            for (v, srect) in visuals.iter().zip(screen_rects.iter()).rev() {
+                if srect.contains(p) {
+                    let corner = srect.max - Vec2::new(14.0, 14.0);
+                    if v.overlay.is_none() && p.x > corner.x && p.y > corner.y {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeSouthEast);
+                    } else {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+                    }
+                    break;
                 }
             }
         }
 
-        // Drag / resize state machine (stored across frames in egui memory).
+        // 8. Selection via click
+        if response.clicked() && !place_mode {
+            if let Some(p) = response.interact_pointer_pos() {
+                let mut hit = None;
+                for (v, srect) in visuals.iter().zip(screen_rects.iter()).rev() {
+                    if srect.contains(p) {
+                        hit = Some(v.idx);
+                        break;
+                    }
+                }
+                *action = PlayerAction::SelectElement(hit);
+            }
+        }
+
+        // 9. Drag / resize state machine (stored across frames in egui memory).
         let state = ui.data(|d| d.get_temp::<DragState>(drag_id()));
         if response.dragged() {
             if let Some(st) = state {
@@ -340,8 +504,9 @@ impl PreviewPlayerView {
                 // Hit-test topmost element first.
                 for (v, srect) in visuals.iter().zip(screen_rects.iter()).rev() {
                     if srect.contains(p) {
+                        *action = PlayerAction::SelectElement(Some(v.idx));
                         // Resize only via the bottom-right corner of a box.
-                        let corner = srect.max - Vec2::new(12.0, 12.0);
+                        let corner = srect.max - Vec2::new(14.0, 14.0);
                         let mode = if v.overlay.is_none() && p.x > corner.x && p.y > corner.y {
                             DragMode::Resize
                         } else {

@@ -65,6 +65,8 @@ pub struct VideoEditorApp {
     pub text_draft: crate::core::text_overlay::TextOverlay,
     /// Cached egui textures for slide picture/video element frames.
     pub slide_textures: HashMap<PathBuf, TextureHandle>,
+    /// Index of the currently selected element on the active slide.
+    pub selected_slide_element: Option<usize>,
 }
 
 impl Default for VideoEditorApp {
@@ -95,6 +97,7 @@ impl Default for VideoEditorApp {
             pending_place: None,
             text_draft: crate::core::text_overlay::TextOverlay::new(""),
             slide_textures: HashMap::new(),
+            selected_slide_element: None,
         }
     }
 }
@@ -540,7 +543,7 @@ impl VideoEditorApp {
         };
         for (idx, el) in elements.into_iter().enumerate() {
             match &el {
-                SlideElement::Text(o) if !o.text.trim().is_empty() => {
+                SlideElement::Text(o) => {
                     visuals.push(SlideVisual {
                         idx,
                         bounds: (o.x, o.y, 0.0, 0.0),
@@ -626,6 +629,9 @@ impl VideoEditorApp {
         if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
             let element = match pending {
                 crate::ui::PendingElement::Text(mut o) => {
+                    if o.text.trim().is_empty() {
+                        o.text = "Click to edit text".to_string();
+                    }
                     o.x = x.clamp(0.0, 1.0);
                     o.y = y.clamp(0.0, 1.0);
                     SlideElement::Text(o)
@@ -646,6 +652,87 @@ impl VideoEditorApp {
                 },
             };
             clip.elements.push(element);
+            self.selected_slide_element = Some(clip.elements.len() - 1);
+        }
+        self.refresh_preview_frame(ctx);
+    }
+
+    fn drop_media_asset_on_canvas(&mut self, asset_id: u64, x: f32, y: f32, ctx: Option<&Context>) {
+        use crate::core::text_overlay::SlideElement;
+        let asset = self.project.media_assets.iter().find(|a| a.id == asset_id).cloned();
+        let Some(asset) = asset else {
+            return;
+        };
+        self.snapshot_timeline();
+        let slide_id = self.resolve_target_slide_id();
+        if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
+            let element = if asset.has_video {
+                SlideElement::Video {
+                    path: asset.path,
+                    x: (x - 0.25).clamp(0.0, 0.75),
+                    y: (y - 0.15).clamp(0.0, 0.85),
+                    w: 0.50,
+                    h: 0.30,
+                }
+            } else {
+                SlideElement::Picture {
+                    path: asset.path,
+                    x: (x - 0.20).clamp(0.0, 0.80),
+                    y: (y - 0.15).clamp(0.0, 0.85),
+                    w: 0.40,
+                    h: 0.30,
+                }
+            };
+            clip.elements.push(element);
+            self.selected_slide_element = Some(clip.elements.len() - 1);
+        }
+        self.refresh_preview_frame(ctx);
+    }
+
+    fn drop_files_on_canvas(&mut self, paths: Vec<PathBuf>, x: f32, y: f32, ctx: Option<&Context>) {
+        use crate::core::text_overlay::SlideElement;
+        if paths.is_empty() {
+            return;
+        }
+        self.snapshot_timeline();
+        let slide_id = self.resolve_target_slide_id();
+        let mut first_new_idx = None;
+        for (i, p) in paths.into_iter().enumerate() {
+            let asset_id = self.add_media_to_bin(&p);
+            let has_video = asset_id
+                .and_then(|id| self.project.media_assets.iter().find(|a| a.id == id))
+                .map(|a| a.has_video)
+                .unwrap_or_else(|| {
+                    crate::media::probe::probe_media_file(&p).map(|inf| inf.has_video).unwrap_or(true)
+                });
+            if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
+                let offset_x = (i as f32) * 0.04;
+                let offset_y = (i as f32) * 0.04;
+                let element = if has_video {
+                    SlideElement::Video {
+                        path: p,
+                        x: (x - 0.25 + offset_x).clamp(0.0, 0.75),
+                        y: (y - 0.15 + offset_y).clamp(0.0, 0.85),
+                        w: 0.50,
+                        h: 0.30,
+                    }
+                } else {
+                    SlideElement::Picture {
+                        path: p,
+                        x: (x - 0.20 + offset_x).clamp(0.0, 0.80),
+                        y: (y - 0.15 + offset_y).clamp(0.0, 0.85),
+                        w: 0.40,
+                        h: 0.30,
+                    }
+                };
+                clip.elements.push(element);
+                if first_new_idx.is_none() {
+                    first_new_idx = Some(clip.elements.len() - 1);
+                }
+            }
+        }
+        if let Some(idx) = first_new_idx {
+            self.selected_slide_element = Some(idx);
         }
         self.refresh_preview_frame(ctx);
     }
@@ -686,6 +773,35 @@ impl VideoEditorApp {
                         }
                         _ => {}
                     }
+                }
+            }
+            self.refresh_preview_frame(ctx);
+        }
+    }
+
+    fn set_element_as_background(&mut self, idx: usize, ctx: Option<&Context>) {
+        use crate::core::text_overlay::{SlideBackground, SlideElement};
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            self.snapshot_timeline();
+            if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                if idx < clip.elements.len() {
+                    if let SlideElement::Picture { path, .. } = clip.elements.remove(idx) {
+                        clip.background = Some(SlideBackground::Picture(path));
+                        self.selected_slide_element = None;
+                    }
+                }
+            }
+            self.refresh_preview_frame(ctx);
+        }
+    }
+
+    fn delete_slide_element(&mut self, idx: usize, ctx: Option<&Context>) {
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            self.snapshot_timeline();
+            if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                if idx < clip.elements.len() {
+                    clip.elements.remove(idx);
+                    self.selected_slide_element = None;
                 }
             }
             self.refresh_preview_frame(ctx);
@@ -1063,12 +1179,16 @@ impl eframe::App for VideoEditorApp {
                                     }
                                 }
                             }
+                            crate::ui::SlideBinAction::SelectElement(sel) => {
+                                self.selected_slide_element = sel;
+                            }
                             crate::ui::SlideBinAction::RemoveElement(idx) => {
                                 self.snapshot_timeline();
                                 if let Some(id) = self.active_slide().map(|c| c.id) {
                                     if let Some(c) = self.project.timeline.get_clip_mut(id) {
                                         if idx < c.elements.len() {
                                             c.elements.remove(idx);
+                                            self.selected_slide_element = None;
                                         }
                                     }
                                 }
@@ -1081,7 +1201,9 @@ impl eframe::App for VideoEditorApp {
                                         let target = idx as isize + dir as isize;
                                         if target >= 0 && (target as usize) < c.elements.len() {
                                             let el = c.elements.remove(idx);
-                                            c.elements.insert(target as usize, el);
+                                            let new_idx = target as usize;
+                                            c.elements.insert(new_idx, el);
+                                            self.selected_slide_element = Some(new_idx);
                                         }
                                     }
                                 }
@@ -1089,6 +1211,9 @@ impl eframe::App for VideoEditorApp {
                             }
                             crate::ui::SlideBinAction::FullSlide(idx) => {
                                 self.full_slide_element(idx, Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::SetElementAsBackground(idx) => {
+                                self.set_element_as_background(idx, Some(ctx));
                             }
                         }
                     }
@@ -1318,6 +1443,7 @@ impl eframe::App for VideoEditorApp {
                 &mut self.preview_texture,
                 is_dirty,
                 place_mode,
+                self.selected_slide_element,
             ) {
                 PlayerAction::PlayPauseToggle => {
                     self.toggle_playback(ctx);
@@ -1353,6 +1479,21 @@ impl eframe::App for VideoEditorApp {
                 }
                 PlayerAction::FullSlide { idx } => {
                     self.full_slide_element(idx, Some(ctx));
+                }
+                PlayerAction::SetAsBackground { idx } => {
+                    self.set_element_as_background(idx, Some(ctx));
+                }
+                PlayerAction::SelectElement(sel) => {
+                    self.selected_slide_element = sel;
+                }
+                PlayerAction::DeleteElement(idx) => {
+                    self.delete_slide_element(idx, Some(ctx));
+                }
+                PlayerAction::DropMediaAsset { asset_id, x, y } => {
+                    self.drop_media_asset_on_canvas(asset_id, x, y, Some(ctx));
+                }
+                PlayerAction::DropFiles { paths, x, y } => {
+                    self.drop_files_on_canvas(paths, x, y, Some(ctx));
                 }
                 PlayerAction::None => {}
             }

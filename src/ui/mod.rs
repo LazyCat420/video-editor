@@ -62,9 +62,11 @@ pub enum SlideBinAction {
     ArmPlace(PendingElement),
     UpdateElement { idx: usize, element: SlideElement },
     UpdateAudioVolume { idx: usize, volume: f32 },
+    SelectElement(Option<usize>),
     RemoveElement(usize),
     ReorderElement { idx: usize, dir: i32 },
     FullSlide(usize),
+    SetElementAsBackground(usize),
 }
 
 /// Run `f` with a smaller `interact_size.y` and sleek `slider_rail_height` so horizontal sliders
