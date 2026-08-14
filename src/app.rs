@@ -1203,6 +1203,20 @@ impl eframe::App for VideoEditorApp {
                                 }
                                 self.refresh_preview_frame(Some(ctx));
                             }
+                            crate::ui::SlideBinAction::ReorderElementTo { from_idx, to_idx } => {
+                                self.snapshot_timeline();
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    if let Some(c) = self.project.timeline.get_clip_mut(id) {
+                                        if from_idx < c.elements.len() {
+                                            let el = c.elements.remove(from_idx);
+                                            let target = to_idx.min(c.elements.len());
+                                            c.elements.insert(target, el);
+                                            self.selected_slide_element = Some(target);
+                                        }
+                                    }
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
                             crate::ui::SlideBinAction::FullSlide(idx) => {
                                 self.full_slide_element(idx, Some(ctx));
                             }

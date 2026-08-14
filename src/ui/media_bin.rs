@@ -135,14 +135,61 @@ impl MediaBinView {
                 }
 
                 ScrollArea::vertical().show(ui, |ui| {
-                    let mut render_asset = |ui: &mut Ui, asset: &MediaAsset, index: usize| {
+                    let active_drag_id = egui::DragAndDrop::payload::<MediaAssetDrag>(ui.ctx()).map(|p| p.0);
+
+                    let render_drop_slot = |ui: &mut Ui, target_index: usize, action: &mut MediaBinAction| {
+                        if let Some(drag_id) = active_drag_id {
+                            let (slot_rect, slot_resp) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 28.0),
+                                egui::Sense::hover(),
+                            );
+                            let is_hovered = slot_resp.dnd_hover_payload::<MediaAssetDrag>().is_some()
+                                || (slot_resp.hovered() && active_drag_id.is_some());
+                            let sp = ui.painter_at(slot_rect);
+                            if is_hovered {
+                                sp.rect_filled(
+                                    slot_rect,
+                                    Rounding::same(6.0),
+                                    Color32::from_rgba_premultiplied(0, 140, 255, 45),
+                                );
+                                sp.rect_stroke(
+                                    slot_rect,
+                                    Rounding::same(6.0),
+                                    egui::Stroke::new(2.0, AppTheme::accent_blue()),
+                                );
+                                sp.text(
+                                    slot_rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("⬇ Insert Here (Position #{})", target_index + 1),
+                                    egui::FontId::proportional(11.5),
+                                    AppTheme::accent_blue(),
+                                );
+                            } else {
+                                // Subtle guide line when dragging
+                                sp.hline(
+                                    slot_rect.x_range(),
+                                    slot_rect.center().y,
+                                    egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 140, 255, 60)),
+                                );
+                            }
+                            if let Some(released) = slot_resp.dnd_release_payload::<MediaAssetDrag>() {
+                                if released.0 != drag_id {
+                                    *action = MediaBinAction::ReorderAsset {
+                                        from_id: released.0,
+                                        to_index: target_index,
+                                    };
+                                }
+                            }
+                        }
+                    };
+
+                    let mut render_asset = |ui: &mut Ui, asset: &MediaAsset, index: usize, action: &mut MediaBinAction| {
+                        render_drop_slot(ui, index, action);
+
                         ui.vertical(|ui| {
-                            // The picture + name strip is the drag handle: grab anywhere on it
-                            // to drag this file onto a track. Buttons stay separate so clicking
-                            // them never accidentally starts a drag.
+                            let is_this_dragged = active_drag_id == Some(asset.id);
+
                             let tex = if asset.has_video {
-                                // Prefer the small cached thumbnail; if a project was loaded (no
-                                // import) or the frame cache was evicted, lazily re-extract one.
                                 if !thumbnail_frames.contains_key(&asset.id) {
                                     if let Some(img) = frame_cache.get_cached(&asset.path, 0.0) {
                                         thumbnail_frames.insert(
@@ -170,9 +217,6 @@ impl MediaBinView {
                                 None
                             };
 
-                            // Whole card is the drag source - easy to grab anywhere - while the
-                            // + / X buttons are placed ON TOP via ui.put (registered after the
-                            // drag), so they always win clicks.
                             let card_size = egui::vec2(ui.available_width(), 92.0);
                             let (card_rect, card_resp) =
                                 ui.allocate_exact_size(card_size, egui::Sense::click_and_drag());
@@ -183,13 +227,11 @@ impl MediaBinView {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             }
 
-                            // Reorder-within-list: if this card is the drop target of another
-                            // asset still being dragged, move that asset to this card's position.
                             if let Some(released) =
                                 card_resp.dnd_release_payload::<MediaAssetDrag>()
                             {
                                 if released.0 != asset.id {
-                                    action = MediaBinAction::ReorderAsset {
+                                    *action = MediaBinAction::ReorderAsset {
                                         from_id: released.0,
                                         to_index: index,
                                     };
@@ -197,21 +239,23 @@ impl MediaBinView {
                             }
 
                             let cp = ui.painter_at(card_rect);
-                            let dragging = card_resp.dragged();
+                            let dragging = card_resp.dragged() || is_this_dragged;
                             if dragging {
-                                // Highlight the card being moved so the drag is obvious.
-                                cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_hover());
+                                // Dimmed placeholder outline so user sees original slot
+                                cp.rect_filled(card_rect, Rounding::same(8.0), Color32::from_rgba_premultiplied(18, 22, 30, 160));
+                                cp.rect_stroke(
+                                    card_rect,
+                                    Rounding::same(8.0),
+                                    egui::Stroke::new(1.5, Color32::from_gray(80)),
+                                );
                             } else {
                                 cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_card());
+                                cp.rect_stroke(
+                                    card_rect,
+                                    Rounding::same(8.0),
+                                    egui::Stroke::new(1.5, AppTheme::bg_hover()),
+                                );
                             }
-                            cp.rect_stroke(
-                                card_rect,
-                                Rounding::same(8.0),
-                                egui::Stroke::new(
-                                    if dragging { 2.5 } else { 1.5 },
-                                    if dragging { AppTheme::accent_blue() } else { AppTheme::bg_hover() },
-                                ),
-                            );
 
                             // Thumbnail / icon on the left.
                             let pad = 8.0;
@@ -219,6 +263,7 @@ impl MediaBinView {
                                 egui::pos2(card_rect.min.x + pad, card_rect.center().y - 20.0),
                                 egui::vec2(74.0, 40.0),
                             );
+                            let content_tint = if dragging { Color32::from_white_alpha(100) } else { Color32::WHITE };
                             if let Some(t) = &tex {
                                 cp.image(
                                     t.id(),
@@ -227,7 +272,7 @@ impl MediaBinView {
                                         egui::pos2(0.0, 0.0),
                                         egui::pos2(1.0, 1.0),
                                     ),
-                                    Color32::WHITE,
+                                    content_tint,
                                 );
                             } else {
                                 let icon = if asset.has_video { "🎬" } else { "🎵" };
@@ -236,17 +281,15 @@ impl MediaBinView {
                                     egui::Align2::CENTER_CENTER,
                                     icon,
                                     egui::FontId::proportional(22.0),
-                                    AppTheme::text_secondary(),
+                                    if dragging { Color32::from_gray(90) } else { AppTheme::text_secondary() },
                                 );
                             }
                             cp.rect_stroke(
                                 thumb,
                                 Rounding::same(4.0),
-                                egui::Stroke::new(1.0, AppTheme::bg_hover()),
+                                egui::Stroke::new(1.0, if dragging { Color32::from_gray(60) } else { AppTheme::bg_hover() }),
                             );
 
-                            // Name + duration next to the thumbnail, clipped so long names can
-                            // never run under the + / X buttons (which caused the overlap).
                             let text_x = thumb.max.x + 8.0;
                             let btn_col_left = card_rect.max.x - pad - 22.0 - 6.0;
                             let text_clip = Rect::from_min_max(
@@ -259,7 +302,7 @@ impl MediaBinView {
                                 egui::Align2::LEFT_TOP,
                                 &asset.name,
                                 egui::FontId::proportional(14.0),
-                                AppTheme::text_primary(),
+                                if dragging { Color32::from_gray(120) } else { AppTheme::text_primary() },
                             );
                             let dur_m = (asset.duration_secs / 60.0).floor() as u64;
                             let dur_s = (asset.duration_secs % 60.0).floor() as u64;
@@ -273,48 +316,47 @@ impl MediaBinView {
                                 egui::Align2::LEFT_TOP,
                                 dur_text,
                                 egui::FontId::proportional(12.0),
-                                AppTheme::text_muted(),
+                                if dragging { Color32::from_gray(80) } else { AppTheme::text_muted() },
                             );
 
-                            // Buttons placed on top (top-right): X to remove, + to put on
-                            // timeline. ui.put registers them after the drag source, so they
-                            // receive the click instead of the drag.
-                            let btn = egui::vec2(22.0, 22.0);
-                            let btns_right = card_rect.max.x - pad;
-                            let x_rect = Rect::from_min_size(
-                                egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0),
-                                btn,
-                            );
-                            let plus_rect = Rect::from_min_size(
-                                egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0 + btn.y + 10.0),
-                                btn,
-                            );
+                            if !dragging {
+                                let btn = egui::vec2(22.0, 22.0);
+                                let btns_right = card_rect.max.x - pad;
+                                let x_rect = Rect::from_min_size(
+                                    egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0),
+                                    btn,
+                                );
+                                let plus_rect = Rect::from_min_size(
+                                    egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0 + btn.y + 10.0),
+                                    btn,
+                                );
 
-                            if ui
-                                .put(x_rect, Button::new(RichText::new("X").size(11.0)))
-                                .on_hover_text("Remove from list")
-                                .clicked()
-                            {
-                                action = MediaBinAction::RemoveAsset(asset.id);
+                                if ui
+                                    .put(x_rect, Button::new(RichText::new("X").size(11.0)))
+                                    .on_hover_text("Remove from list")
+                                    .clicked()
+                                {
+                                    *action = MediaBinAction::RemoveAsset(asset.id);
+                                }
+
+                                let put_btn = Button::new(
+                                    RichText::new("+").size(13.0).strong().color(Color32::WHITE),
+                                )
+                                .fill(AppTheme::accent_blue());
+
+                                if ui
+                                    .put(plus_rect, put_btn)
+                                    .on_hover_text("Put on Timeline")
+                                    .clicked()
+                                {
+                                    *action = MediaBinAction::AddAssetToTimeline(asset.clone());
+                                }
                             }
 
-                            let put_btn = Button::new(
-                                RichText::new("+").size(13.0).strong().color(Color32::WHITE),
-                            )
-                            .fill(AppTheme::accent_blue());
-
-                            if ui
-                                .put(plus_rect, put_btn)
-                                .on_hover_text("Put on Timeline")
-                                .clicked()
-                            {
-                                action = MediaBinAction::AddAssetToTimeline(asset.clone());
-                            }
-
-                            ui.add_space(6.0);
+                            ui.add_space(4.0);
                         });
 
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                     };
 
                     // Render folder groups
@@ -347,7 +389,7 @@ impl MediaBinView {
                                         .iter()
                                         .position(|a| a.id == asset.id)
                                         .unwrap_or(0);
-                                    render_asset(ui, asset, idx);
+                                    render_asset(ui, asset, idx, &mut action);
                                 }
                             });
                         }
@@ -361,21 +403,49 @@ impl MediaBinView {
                             .iter()
                             .position(|a| a.id == asset.id)
                             .unwrap_or(0);
-                        render_asset(ui, asset, idx);
+                        render_asset(ui, asset, idx, &mut action);
                     }
 
-                    // End drop-zone so a dragged file can be moved to the very last position.
+                    // End drop-slot so a dragged file can be moved to the very last position.
                     if !project.media_assets.is_empty() {
-                        let last = project.media_assets.len() - 1;
-                        let zone = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 12.0),
-                            egui::Sense::hover(),
-                        );
-                        if let Some(released) = zone.1.dnd_release_payload::<MediaAssetDrag>() {
-                            action = MediaBinAction::ReorderAsset {
-                                from_id: released.0,
-                                to_index: last,
-                            };
+                        let last = project.media_assets.len();
+                        render_drop_slot(ui, last, &mut action);
+                    }
+
+                    // Render floating ghost card attached to pointer when dragging
+                    if let Some(drag_id) = active_drag_id {
+                        if let Some(dragged_asset) = project.media_assets.iter().find(|a| a.id == drag_id) {
+                            if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                                let ghost_size = egui::vec2(220.0, 52.0);
+                                let ghost_rect = Rect::from_min_size(pointer_pos + egui::vec2(12.0, 12.0), ghost_size);
+                                let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dnd_ghost_media")));
+                                painter.rect_filled(ghost_rect, Rounding::same(8.0), Color32::from_rgba_premultiplied(24, 29, 40, 235));
+                                painter.rect_stroke(ghost_rect, Rounding::same(8.0), egui::Stroke::new(2.0, AppTheme::accent_blue()));
+                                let icon = if dragged_asset.has_video { "🎬" } else { "🎵" };
+                                painter.text(
+                                    egui::pos2(ghost_rect.min.x + 12.0, ghost_rect.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    icon,
+                                    egui::FontId::proportional(20.0),
+                                    Color32::WHITE,
+                                );
+                                painter.text(
+                                    egui::pos2(ghost_rect.min.x + 40.0, ghost_rect.min.y + 10.0),
+                                    egui::Align2::LEFT_TOP,
+                                    &dragged_asset.name,
+                                    egui::FontId::proportional(13.0),
+                                    AppTheme::text_primary(),
+                                );
+                                let dur_m = (dragged_asset.duration_secs / 60.0).floor() as u64;
+                                let dur_s = (dragged_asset.duration_secs % 60.0).floor() as u64;
+                                painter.text(
+                                    egui::pos2(ghost_rect.min.x + 40.0, ghost_rect.min.y + 28.0),
+                                    egui::Align2::LEFT_TOP,
+                                    format!("Moving item • {}m {}s", dur_m, dur_s),
+                                    egui::FontId::proportional(11.0),
+                                    AppTheme::accent_blue(),
+                                );
+                            }
                         }
                     }
                 });

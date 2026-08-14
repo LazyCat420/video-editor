@@ -9,6 +9,10 @@ pub struct MediaAssetDrag(pub u64);
 #[derive(Clone, Debug)]
 pub struct TrackReorderDrag(pub u64);
 
+/// Drag-and-drop payload: slide element index being dragged to reorder in items list.
+#[derive(Clone, Debug)]
+pub struct SlideElementDrag(pub usize);
+
 pub mod media_bin;
 pub mod menu_bar;
 pub mod node_graph_view;
@@ -65,6 +69,7 @@ pub enum SlideBinAction {
     SelectElement(Option<usize>),
     RemoveElement(usize),
     ReorderElement { idx: usize, dir: i32 },
+    ReorderElementTo { from_idx: usize, to_idx: usize },
     FullSlide(usize),
     SetElementAsBackground(usize),
 }

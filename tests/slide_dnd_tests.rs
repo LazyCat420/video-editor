@@ -160,3 +160,35 @@ fn test_media_bin_import_does_not_mutate_timeline() {
     assert_eq!(project.timeline.duration().as_secs_f64(), 0.0);
 }
 
+#[test]
+fn test_reorder_element_to_arbitrary_index() {
+    let mut slide = Clip::new_blank_slide(1, 100, "Blank Slide".to_string(), 3.0);
+    slide.elements.push(SlideElement::Text(TextOverlay::new("Item A")));
+    slide.elements.push(SlideElement::Text(TextOverlay::new("Item B")));
+    slide.elements.push(SlideElement::Text(TextOverlay::new("Item C")));
+    slide.elements.push(SlideElement::Text(TextOverlay::new("Item D")));
+
+    // Reorder from index 3 (Item D) to index 1 (between A and B)
+    let el = slide.elements.remove(3);
+    slide.elements.insert(1, el);
+
+    let labels: Vec<String> = slide.elements.iter().map(|e| match e {
+        SlideElement::Text(o) => o.text.clone(),
+        _ => String::new(),
+    }).collect();
+
+    assert_eq!(labels, vec!["Item A", "Item D", "Item B", "Item C"]);
+
+    // Reorder from index 0 (Item A) to end (index 3)
+    let el = slide.elements.remove(0);
+    slide.elements.insert(3, el);
+
+    let labels: Vec<String> = slide.elements.iter().map(|e| match e {
+        SlideElement::Text(o) => o.text.clone(),
+        _ => String::new(),
+    }).collect();
+
+    assert_eq!(labels, vec!["Item D", "Item B", "Item C", "Item A"]);
+}
+
+

@@ -1,7 +1,7 @@
 use crate::VideoEditorApp;
 use crate::core::text_overlay::{SlideBackground, SlideElement, TextBoxStyle};
 use crate::ui::theme::AppTheme;
-use crate::ui::SlideBinAction;
+use crate::ui::{SlideBinAction, SlideElementDrag};
 use egui::{Button, Color32, RichText, Ui};
 use std::path::Path;
 
@@ -440,9 +440,60 @@ impl SlideBinView {
             return;
         }
 
-        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+        let active_drag_idx = egui::DragAndDrop::payload::<SlideElementDrag>(ui.ctx()).map(|p| p.0);
+
+        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+            let render_slide_drop_slot = |ui: &mut Ui, target_idx: usize, action: &mut SlideBinAction| {
+                if let Some(_drag_from) = active_drag_idx {
+                    let (slot_rect, slot_resp) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 22.0),
+                        egui::Sense::hover(),
+                    );
+                    let is_hovered = slot_resp.dnd_hover_payload::<SlideElementDrag>().is_some()
+                        || (slot_resp.hovered() && active_drag_idx.is_some());
+                    let sp = ui.painter_at(slot_rect);
+                    if is_hovered {
+                        sp.rect_filled(
+                            slot_rect,
+                            egui::Rounding::same(4.0),
+                            Color32::from_rgba_premultiplied(0, 140, 255, 45),
+                        );
+                        sp.rect_stroke(
+                            slot_rect,
+                            egui::Rounding::same(4.0),
+                            egui::Stroke::new(1.5, AppTheme::accent_blue()),
+                        );
+                        sp.text(
+                            slot_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            format!("⬇ Move to Layer #{}", target_idx + 1),
+                            egui::FontId::proportional(10.5),
+                            AppTheme::accent_blue(),
+                        );
+                    } else {
+                        sp.hline(
+                            slot_rect.x_range(),
+                            slot_rect.center().y,
+                            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 140, 255, 50)),
+                        );
+                    }
+                    if let Some(released) = slot_resp.dnd_release_payload::<SlideElementDrag>() {
+                        if released.0 != target_idx {
+                            *action = SlideBinAction::ReorderElementTo {
+                                from_idx: released.0,
+                                to_idx: target_idx,
+                            };
+                        }
+                    }
+                }
+            };
+
             for (idx, el) in clip.elements.iter().enumerate() {
+                render_slide_drop_slot(ui, idx, action);
+
                 let is_sel = app.selected_slide_element == Some(idx);
+                let is_this_dragged = active_drag_idx == Some(idx);
+
                 ui.horizontal(|ui| {
                     let label = match el {
                         SlideElement::Text(o) => format!("✏️ Text: {}", o.text.lines().next().unwrap_or("")),
@@ -450,8 +501,26 @@ impl SlideBinView {
                         SlideElement::Video { path, .. } => format!("🎞 {}", file_label(path)),
                         SlideElement::Audio { path, .. } => format!("🎵 {}", file_label(path)),
                     };
-                    let btn = Button::new(RichText::new(label).size(11.5).color(if is_sel { AppTheme::accent_yellow() } else { Color32::WHITE }))
-                        .fill(if is_sel { AppTheme::bg_hover() } else { AppTheme::bg_card() });
+
+                    let handle_resp = ui.add(
+                        Button::new(RichText::new("⠿").size(12.0).color(if is_this_dragged { Color32::from_gray(80) } else { AppTheme::text_secondary() }))
+                            .frame(false)
+                    );
+                    let handle_resp = handle_resp.interact(egui::Sense::click_and_drag());
+                    handle_resp.dnd_set_drag_payload(SlideElementDrag(idx));
+                    if handle_resp.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if handle_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+
+                    let btn = Button::new(
+                        RichText::new(label)
+                            .size(11.5)
+                            .color(if is_this_dragged { Color32::from_gray(100) } else if is_sel { AppTheme::accent_yellow() } else { Color32::WHITE }),
+                    )
+                    .fill(if is_this_dragged { Color32::from_rgba_premultiplied(20, 24, 32, 140) } else if is_sel { AppTheme::bg_hover() } else { AppTheme::bg_card() });
+
                     if ui.add(btn).on_hover_text("Click to select and format this item").clicked() {
                         *action = SlideBinAction::SelectElement(Some(idx));
                     }
@@ -465,6 +534,37 @@ impl SlideBinView {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
+            }
+
+            if !clip.elements.is_empty() {
+                let last = clip.elements.len();
+                render_slide_drop_slot(ui, last, action);
+            }
+
+            // Floating drag ghost for slide elements
+            if let Some(drag_idx) = active_drag_idx {
+                if let Some(dragged_el) = clip.elements.get(drag_idx) {
+                    if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                        let ghost_size = egui::vec2(190.0, 32.0);
+                        let ghost_rect = egui::Rect::from_min_size(pointer_pos + egui::vec2(10.0, 10.0), ghost_size);
+                        let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dnd_ghost_slide_el")));
+                        painter.rect_filled(ghost_rect, egui::Rounding::same(6.0), Color32::from_rgba_premultiplied(24, 29, 40, 235));
+                        painter.rect_stroke(ghost_rect, egui::Rounding::same(6.0), egui::Stroke::new(1.5, AppTheme::accent_blue()));
+                        let ghost_label = match dragged_el {
+                            SlideElement::Text(o) => format!("✏️ Text: {}", o.text.lines().next().unwrap_or("")),
+                            SlideElement::Picture { path, .. } => format!("🖼 {}", file_label(path)),
+                            SlideElement::Video { path, .. } => format!("🎞 {}", file_label(path)),
+                            SlideElement::Audio { path, .. } => format!("🎵 {}", file_label(path)),
+                        };
+                        painter.text(
+                            egui::pos2(ghost_rect.min.x + 8.0, ghost_rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            ghost_label,
+                            egui::FontId::proportional(11.5),
+                            AppTheme::accent_blue(),
+                        );
+                    }
+                }
             }
         });
     }
