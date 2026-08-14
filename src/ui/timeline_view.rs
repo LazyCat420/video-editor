@@ -118,7 +118,7 @@ impl TimelineView {
 
         ui.vertical(|ui| {
             // ====================================================
-            // 0. Top Toolbar: Undo, Redo, Split, Close Gaps, Zoom
+            // 0. Top Toolbar: Big Simple Buttons (Undo, Cut, Delete)
             // ====================================================
             ui.horizontal(|ui| {
                 ui.add_space(4.0);
@@ -127,8 +127,8 @@ impl TimelineView {
                     .add_enabled(
                         can_undo,
                         Button::new(
-                            RichText::new("↩️ Undo (Ctrl+Z)")
-                                .size(13.0)
+                            RichText::new("↩ Undo")
+                                .size(14.0)
                                 .color(if can_undo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
                         ),
                     )
@@ -141,8 +141,8 @@ impl TimelineView {
                     .add_enabled(
                         can_redo,
                         Button::new(
-                            RichText::new("↪️ Redo (Ctrl+Y)")
-                                .size(13.0)
+                            RichText::new("↪ Redo")
+                                .size(14.0)
                                 .color(if can_redo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
                         ),
                     )
@@ -155,8 +155,8 @@ impl TimelineView {
 
                 if ui
                     .button(
-                        RichText::new("✂️ Split at Marker (S)")
-                            .size(13.0)
+                        RichText::new("✂ Cut Video Here (S)")
+                            .size(14.0)
                             .color(AppTheme::ACCENT_BLUE),
                     )
                     .clicked()
@@ -166,20 +166,8 @@ impl TimelineView {
 
                 if ui
                     .button(
-                        RichText::new("🧲 Close All Gaps")
-                            .size(13.0)
-                            .color(AppTheme::ACCENT_CYAN),
-                    )
-                    .on_hover_text("Magnetically pull all clips together to remove empty black spaces")
-                    .clicked()
-                {
-                    action = TimelineAction::CloseGaps(None);
-                }
-
-                if ui
-                    .button(
-                        RichText::new("🗑️ Delete Selected")
-                            .size(13.0)
+                        RichText::new("🗑 Delete Clip (Del)")
+                            .size(14.0)
                             .color(AppTheme::TEXT_SECONDARY),
                     )
                     .clicked()
@@ -194,7 +182,7 @@ impl TimelineView {
                             .logarithmic(true)
                             .show_value(false),
                     );
-                    ui.label(RichText::new("🔍 Zoom:").size(12.0).color(AppTheme::TEXT_SECONDARY));
+                    ui.label(RichText::new("Zoom:").size(13.0).color(AppTheme::TEXT_SECONDARY));
                 });
             });
 
@@ -217,7 +205,7 @@ impl TimelineView {
                     painter.text(
                         corner_rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        "🎬 Timeline Tracks",
+                        "Tracks",
                         egui::FontId::proportional(14.0),
                         AppTheme::TEXT_PRIMARY,
                     );
@@ -257,16 +245,16 @@ impl TimelineView {
 
                                 ui.horizontal(|ui| {
                                     let mute_text = if track.is_muted {
-                                        RichText::new("🔇 Muted").color(Color32::from_rgb(255, 100, 100))
+                                        RichText::new("Muted").color(Color32::from_rgb(255, 100, 100))
                                     } else {
-                                        RichText::new("🔊 Mute").color(AppTheme::TEXT_SECONDARY)
+                                        RichText::new("Mute").color(AppTheme::TEXT_SECONDARY)
                                     };
                                     if ui.button(mute_text).clicked() {
                                         track.is_muted = !track.is_muted;
                                     }
 
                                     let solo_text = if track.is_solo {
-                                        RichText::new("⭐ Solo").color(AppTheme::ACCENT_YELLOW)
+                                        RichText::new("Solo").color(AppTheme::ACCENT_YELLOW)
                                     } else {
                                         RichText::new("Solo").color(AppTheme::TEXT_MUTED)
                                     };
@@ -407,9 +395,9 @@ impl TimelineView {
 
                                 // Right-click context menu on Track Background
                                 track_response.context_menu(|ui| {
-                                    ui.set_min_width(190.0);
+                                    ui.set_min_width(180.0);
                                     ui.label(
-                                        RichText::new(format!("Track: {}", track.name))
+                                        RichText::new(&track.name)
                                             .strong()
                                             .size(13.0)
                                             .color(AppTheme::TEXT_SECONDARY),
@@ -420,7 +408,9 @@ impl TimelineView {
                                         .add_enabled(
                                             has_clipboard,
                                             Button::new(
-                                                RichText::new("📋 Paste Clip Here (Ctrl+V)").size(13.0),
+                                                RichText::new("📋 Paste Clip")
+                                                    .size(14.0)
+                                                    .color(if has_clipboard { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
                                             ),
                                         )
                                         .clicked()
@@ -434,14 +424,6 @@ impl TimelineView {
                                             track_id: track.id,
                                             target_time,
                                         };
-                                        ui.close_menu();
-                                    }
-
-                                    if ui
-                                        .button(RichText::new("🧲 Close Gaps on This Track").size(13.0))
-                                        .clicked()
-                                    {
-                                        action = TimelineAction::CloseGaps(Some(track.id));
                                         ui.close_menu();
                                     }
                                 });
@@ -490,22 +472,22 @@ impl TimelineView {
                                         };
                                     }
 
-                                    // Right-Click Context Menu on Clip
+                                    // Dead-Simple 5-Item Senior Context Menu on Clip
                                     clip_resp.context_menu(|ui| {
-                                        ui.set_min_width(210.0);
-                                        ui.add_space(3.0);
+                                        ui.set_min_width(220.0);
+                                        ui.add_space(4.0);
                                         ui.label(
-                                            RichText::new(format!("🎬 {}", clip.name))
+                                            RichText::new(&clip.name)
                                                 .strong()
-                                                .size(13.0)
+                                                .size(14.0)
                                                 .color(AppTheme::ACCENT_CYAN),
                                         );
                                         ui.separator();
 
                                         if ui
                                             .button(
-                                                RichText::new("✂️ Split / Cut Here (S)")
-                                                    .size(13.0)
+                                                RichText::new("✂ Cut Video Here")
+                                                    .size(15.0)
                                                     .color(AppTheme::ACCENT_BLUE),
                                             )
                                             .clicked()
@@ -519,8 +501,9 @@ impl TimelineView {
 
                                         if ui
                                             .button(
-                                                RichText::new("➗ Divide in 2 Equal Halves")
-                                                    .size(13.0),
+                                                RichText::new("➗ Divide in Half")
+                                                    .size(15.0)
+                                                    .color(Color32::WHITE),
                                             )
                                             .clicked()
                                         {
@@ -532,32 +515,9 @@ impl TimelineView {
 
                                         if ui
                                             .button(
-                                                RichText::new("✂️ Trim Start to Red Marker")
-                                                    .size(13.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            action = TimelineAction::TrimStartToPlayhead(clip.id);
-                                            ui.close_menu();
-                                        }
-
-                                        if ui
-                                            .button(
-                                                RichText::new("✂️ Trim End to Red Marker")
-                                                    .size(13.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            action = TimelineAction::TrimEndToPlayhead(clip.id);
-                                            ui.close_menu();
-                                        }
-
-                                        ui.separator();
-
-                                        if ui
-                                            .button(
-                                                RichText::new("📋 Copy Clip (Ctrl+C)")
-                                                    .size(13.0),
+                                                RichText::new("📋 Copy Clip")
+                                                    .size(15.0)
+                                                    .color(Color32::WHITE),
                                             )
                                             .clicked()
                                         {
@@ -569,8 +529,13 @@ impl TimelineView {
                                             .add_enabled(
                                                 has_clipboard,
                                                 Button::new(
-                                                    RichText::new("📋 Paste Clip (Ctrl+V)")
-                                                        .size(13.0),
+                                                    RichText::new("📋 Paste Clip")
+                                                        .size(15.0)
+                                                        .color(if has_clipboard {
+                                                            Color32::WHITE
+                                                        } else {
+                                                            AppTheme::TEXT_MUTED
+                                                        }),
                                                 ),
                                             )
                                             .clicked()
@@ -586,33 +551,9 @@ impl TimelineView {
 
                                         if ui
                                             .button(
-                                                RichText::new("📈 Auto Fade In (1.0s)")
-                                                    .size(13.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            action = TimelineAction::ApplyFadeIn(clip.id);
-                                            ui.close_menu();
-                                        }
-
-                                        if ui
-                                            .button(
-                                                RichText::new("📉 Auto Fade Out (1.0s)")
-                                                    .size(13.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            action = TimelineAction::ApplyFadeOut(clip.id);
-                                            ui.close_menu();
-                                        }
-
-                                        ui.separator();
-
-                                        if ui
-                                            .button(
-                                                RichText::new("🗑️ Delete Clip (Del)")
-                                                    .size(13.0)
-                                                    .color(Color32::from_rgb(255, 100, 100)),
+                                                RichText::new("🗑 Delete Clip")
+                                                    .size(15.0)
+                                                    .color(Color32::from_rgb(255, 110, 110)),
                                             )
                                             .clicked()
                                         {
@@ -655,7 +596,7 @@ impl TimelineView {
                                         ),
                                     );
 
-                                    // Clip Title Header (Clear 13px)
+                                    // Clip Title Header
                                     clip_painter.text(
                                         Pos2::new(clip_rect.min.x + 8.0, clip_rect.min.y + 6.0),
                                         egui::Align2::LEFT_TOP,
@@ -664,9 +605,7 @@ impl TimelineView {
                                         Color32::WHITE,
                                     );
 
-                                    // ----------------------------------------------------
-                                    // Audio Track: Interactive Envelope Node Line Graph
-                                    // ----------------------------------------------------
+                                    // Audio Track Envelope Graph
                                     if track.kind == TrackKind::Audio || clip.has_audio {
                                         let stem = clip
                                             .source_path
@@ -730,28 +669,18 @@ impl TimelineView {
                     });
             });
 
-            // 3. Friendly Tips Status Banner at Bottom of Timeline
+            // 3. Simple Tips at Bottom
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
                 ui.label(
-                    RichText::new("💡 Quick Tips:")
+                    RichText::new("Tips:")
                         .strong()
                         .size(13.0)
                         .color(AppTheme::ACCENT_YELLOW),
                 );
                 ui.label(
-                    RichText::new("1. Right-click any clip for Cut, Divide, Copy, Fades, and Delete.")
-                        .size(13.0)
-                        .color(AppTheme::TEXT_SECONDARY),
-                );
-                ui.label(
-                    RichText::new("2. Click '↩ Undo' above if you make any mistake.")
-                        .size(13.0)
-                        .color(AppTheme::TEXT_SECONDARY),
-                );
-                ui.label(
-                    RichText::new("3. Click '🧲 Close All Gaps' to automatically remove empty black spaces.")
+                    RichText::new("Right-click any clip to Cut, Copy, or Delete.")
                         .size(13.0)
                         .color(AppTheme::TEXT_SECONDARY),
                 );
