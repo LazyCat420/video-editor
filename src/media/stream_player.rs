@@ -22,6 +22,7 @@ pub struct StreamVideoPlayer {
     pub last_error: Arc<Mutex<Option<String>>>,
     ffmpeg_bin: PathBuf,
     current_frame: Option<ColorImage>,
+    last_pts: Option<f64>,
 }
 
 impl Default for StreamVideoPlayer {
@@ -34,6 +35,7 @@ impl Default for StreamVideoPlayer {
             last_error: Arc::new(Mutex::new(None)),
             ffmpeg_bin: find_ffmpeg_executable(),
             current_frame: None,
+            last_pts: None,
         }
     }
 }
@@ -41,6 +43,21 @@ impl Default for StreamVideoPlayer {
 impl StreamVideoPlayer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Check if the currently running stream already covers the given file and timestamp seamlessly.
+    pub fn is_continuous_with(&self, path: &Path, source_time: f64) -> bool {
+        if !self.is_running.load(Ordering::SeqCst) {
+            return false;
+        }
+        if self.active_path.as_deref() != Some(path) {
+            return false;
+        }
+        if let Some(last) = self.last_pts {
+            (source_time - last).abs() < 0.35
+        } else {
+            false
+        }
     }
 
     /// Start streaming decoded 30 FPS video frames from `start_secs` with optional segment duration.
@@ -57,6 +74,7 @@ impl StreamVideoPlayer {
         self.active_path = Some(path_buf.clone());
         self.is_running.store(true, Ordering::SeqCst);
         self.current_frame = None;
+        self.last_pts = Some(start_secs);
 
         let mut err_lock = self.last_error.lock().unwrap();
         *err_lock = None;
@@ -179,8 +197,9 @@ impl StreamVideoPlayer {
             let mut advanced = false;
             while let Some((pts, _)) = buf.front() {
                 if *pts <= current_source_time {
-                    let (_, frame) = buf.pop_front().unwrap();
+                    let (pts_val, frame) = buf.pop_front().unwrap();
                     self.current_frame = Some(frame);
+                    self.last_pts = Some(pts_val);
                     advanced = true;
                 } else {
                     break;
@@ -208,6 +227,7 @@ impl StreamVideoPlayer {
 
         self.active_path = None;
         self.current_frame = None;
+        self.last_pts = None;
     }
 }
 

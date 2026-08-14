@@ -364,7 +364,9 @@ impl eframe::App for VideoEditorApp {
             if new_clip_id != self.current_playing_clip_id {
                 self.current_playing_clip_id = new_clip_id;
                 if let Some((_, path, sec, rem_dur)) = &active_clip {
-                    self.stream_player.start(path, *sec, Some(*rem_dur), Some(ctx));
+                    if !self.stream_player.is_continuous_with(path, *sec) {
+                        self.stream_player.start(path, *sec, Some(*rem_dur), Some(ctx));
+                    }
                 } else {
                     self.stream_player.stop();
                     self.current_frame = None;
