@@ -115,3 +115,48 @@ fn test_slide_element_resize_and_bounds_clamp() {
     assert_eq!(w, 0.5);
     assert_eq!(h, 0.5);
 }
+
+#[test]
+fn test_media_bin_import_does_not_mutate_timeline() {
+    use video_editor::core::project::{MediaAsset, Project};
+
+    let mut project = Project::new("Import Test".to_string());
+    assert_eq!(project.media_assets.len(), 0);
+    assert_eq!(project.timeline.tracks[0].clips.len(), 0);
+
+    let asset1 = MediaAsset {
+        id: 1,
+        name: "video1.mp4".to_string(),
+        path: PathBuf::from("video1.mp4"),
+        duration_secs: 10.0,
+        width: 1920,
+        height: 1080,
+        fps: 30.0,
+        has_video: true,
+        has_audio: true,
+        proxy_path: None,
+        peak_path: None,
+    };
+    let asset2 = MediaAsset {
+        id: 2,
+        name: "video2.mp4".to_string(),
+        path: PathBuf::from("video2.mp4"),
+        duration_secs: 5.0,
+        width: 1920,
+        height: 1080,
+        fps: 30.0,
+        has_video: true,
+        has_audio: true,
+        proxy_path: None,
+        peak_path: None,
+    };
+
+    project.add_asset(asset1);
+    project.add_asset(asset2);
+
+    assert_eq!(project.media_assets.len(), 2);
+    // Timeline must remain untouched
+    assert_eq!(project.timeline.tracks[0].clips.len(), 0);
+    assert_eq!(project.timeline.duration().as_secs_f64(), 0.0);
+}
+

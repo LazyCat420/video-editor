@@ -190,16 +190,9 @@ impl VideoEditorApp {
         Some(id)
     }
 
-    /// Import a single media file into the project and automatically place it on the timeline.
-    pub fn import_file<P: AsRef<Path>>(&mut self, path: P) {
-        let Some(id) = self.add_media_to_bin(path) else {
-            return;
-        };
-        if let Some(asset) = self.project.media_assets.iter().find(|a| a.id == id).cloned() {
-            self.add_asset_to_timeline(asset);
-        }
-        // Rewind playhead to start
-        self.project.timeline.playhead = TimeCode::ZERO;
+    /// Import a single media file into the project media bin without modifying timeline.
+    pub fn import_file<P: AsRef<Path>>(&mut self, path: P) -> Option<u64> {
+        self.add_media_to_bin(path)
     }
 
     /// Add an asset from the media bin directly to the timeline.
@@ -968,6 +961,7 @@ impl eframe::App for VideoEditorApp {
                             for file in files {
                                 self.import_file(file);
                             }
+                            self.sidebar_tab = crate::ui::SidebarTab::Files;
                             self.refresh_preview_frame(Some(ctx));
                         }
                     }
