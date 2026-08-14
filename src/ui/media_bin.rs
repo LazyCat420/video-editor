@@ -2,7 +2,7 @@ use crate::core::project::{MediaAsset, Project};
 use crate::media::frame_cache::FrameCache;
 use crate::ui::theme::AppTheme;
 use crate::ui::MediaAssetDrag;
-use egui::{Button, Color32, ColorImage, Frame, RichText, Rounding, ScrollArea, TextureHandle, TextureOptions, Ui};
+use egui::{Button, Color32, ColorImage, Frame, Rect, RichText, Rounding, ScrollArea, TextureHandle, TextureOptions, Ui};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -169,121 +169,117 @@ impl MediaBinView {
                                 None
                             };
 
-                            Frame::none()
-                                .fill(AppTheme::BG_CARD)
-                                .stroke(egui::Stroke::new(1.5, AppTheme::BG_HOVER))
-                                .rounding(Rounding::same(8.0))
-                                .inner_margin(10.0)
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        // Only the thumbnail box is the drag handle, so the
-                                        // + / X buttons (added after it) stay on top and always
-                                        // click, instead of the drag swallowing them.
-                                        let handle_size = egui::vec2(74.0, 40.0);
-                                        let (handle_rect, handle_resp) = ui.allocate_exact_size(
-                                            handle_size,
-                                            egui::Sense::drag(),
-                                        );
-                                        handle_resp.dnd_set_drag_payload(MediaAssetDrag(asset.id));
-                                        if handle_resp.dragged() {
-                                            ui.ctx()
-                                                .set_cursor_icon(egui::CursorIcon::Grabbing);
-                                        } else if handle_resp.hovered() {
-                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                                        }
+                            // Whole card is the drag source - easy to grab anywhere - while the
+                            // + / X buttons are placed ON TOP via ui.put (registered after the
+                            // drag), so they always win clicks.
+                            let card_size = egui::vec2(ui.available_width(), 72.0);
+                            let (card_rect, card_resp) =
+                                ui.allocate_exact_size(card_size, egui::Sense::click_and_drag());
+                            card_resp.dnd_set_drag_payload(MediaAssetDrag(asset.id));
+                            if card_resp.dragged() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                            } else if card_resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                            }
 
-                                        let hp = ui.painter_at(handle_rect);
-                                        if let Some(t) = &tex {
-                                            hp.image(
-                                                t.id(),
-                                                handle_rect,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(0.0, 0.0),
-                                                    egui::pos2(1.0, 1.0),
-                                                ),
-                                                Color32::WHITE,
-                                            );
-                                        } else {
-                                            let icon = if asset.has_video { "🎬" } else { "🎵" };
-                                            hp.text(
-                                                handle_rect.center(),
-                                                egui::Align2::CENTER_CENTER,
-                                                icon,
-                                                egui::FontId::proportional(22.0),
-                                                AppTheme::TEXT_SECONDARY,
-                                            );
-                                        }
-                                        hp.rect_stroke(
-                                            handle_rect,
-                                            Rounding::same(4.0),
-                                            egui::Stroke::new(1.0, AppTheme::BG_HOVER),
-                                        );
+                            let cp = ui.painter_at(card_rect);
+                            cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::BG_CARD);
+                            cp.rect_stroke(
+                                card_rect,
+                                Rounding::same(8.0),
+                                egui::Stroke::new(1.5, AppTheme::BG_HOVER),
+                            );
 
-                                        ui.vertical(|ui| {
-                                            ui.label(
-                                                RichText::new(&asset.name)
-                                                    .strong()
-                                                    .color(AppTheme::TEXT_PRIMARY)
-                                                    .size(14.0),
-                                            );
+                            // Thumbnail / icon on the left.
+                            let pad = 8.0;
+                            let thumb = Rect::from_min_size(
+                                egui::pos2(card_rect.min.x + pad, card_rect.center().y - 20.0),
+                                egui::vec2(74.0, 40.0),
+                            );
+                            if let Some(t) = &tex {
+                                cp.image(
+                                    t.id(),
+                                    thumb,
+                                    Rect::from_min_max(
+                                        egui::pos2(0.0, 0.0),
+                                        egui::pos2(1.0, 1.0),
+                                    ),
+                                    Color32::WHITE,
+                                );
+                            } else {
+                                let icon = if asset.has_video { "🎬" } else { "🎵" };
+                                cp.text(
+                                    thumb.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    icon,
+                                    egui::FontId::proportional(22.0),
+                                    AppTheme::TEXT_SECONDARY,
+                                );
+                            }
+                            cp.rect_stroke(
+                                thumb,
+                                Rounding::same(4.0),
+                                egui::Stroke::new(1.0, AppTheme::BG_HOVER),
+                            );
 
-                                            let dur_m =
-                                                (asset.duration_secs / 60.0).floor() as u64;
-                                            let dur_s =
-                                                (asset.duration_secs % 60.0).floor() as u64;
-                                            let dur_text = if dur_m > 0 {
-                                                format!("Duration: {}m {}s", dur_m, dur_s)
-                                            } else {
-                                                format!("Duration: {} seconds", dur_s)
-                                            };
-                                            ui.label(
-                                                RichText::new(dur_text)
-                                                    .size(12.0)
-                                                    .color(AppTheme::TEXT_MUTED),
-                                            );
-                                        });
+                            // Name + duration next to the thumbnail.
+                            let text_x = thumb.max.x + 8.0;
+                            cp.text(
+                                egui::pos2(text_x, card_rect.min.y + 16.0),
+                                egui::Align2::LEFT_TOP,
+                                &asset.name,
+                                egui::FontId::proportional(14.0),
+                                AppTheme::TEXT_PRIMARY,
+                            );
+                            let dur_m = (asset.duration_secs / 60.0).floor() as u64;
+                            let dur_s = (asset.duration_secs % 60.0).floor() as u64;
+                            let dur_text = if dur_m > 0 {
+                                format!("Duration: {}m {}s", dur_m, dur_s)
+                            } else {
+                                format!("Duration: {} seconds", dur_s)
+                            };
+                            cp.text(
+                                egui::pos2(text_x, card_rect.min.y + 38.0),
+                                egui::Align2::LEFT_TOP,
+                                dur_text,
+                                egui::FontId::proportional(12.0),
+                                AppTheme::TEXT_MUTED,
+                            );
 
-                                        // Right column: small X (remove) and + (put on timeline).
-                                        ui.with_layout(
-                                            egui::Layout::top_down(egui::Align::Max),
-                                            |ui| {
-                                                if ui
-                                                    .add(
-                                                        Button::new(
-                                                            RichText::new("X").size(11.0),
-                                                        )
-                                                        .min_size(egui::vec2(18.0, 16.0)),
-                                                    )
-                                                    .on_hover_text("Remove from list")
-                                                    .clicked()
-                                                {
-                                                    action =
-                                                        MediaBinAction::RemoveAsset(asset.id);
-                                                }
+                            // Buttons placed on top (top-right): X to remove, + to put on
+                            // timeline. ui.put registers them after the drag source, so they
+                            // receive the click instead of the drag.
+                            let btn = egui::vec2(20.0, 18.0);
+                            let btns_right = card_rect.max.x - pad;
+                            let x_rect = Rect::from_min_size(
+                                egui::pos2(btns_right - btn.x, card_rect.min.y + 6.0),
+                                btn,
+                            );
+                            let plus_rect = Rect::from_min_size(
+                                egui::pos2(btns_right - btn.x, card_rect.min.y + 6.0 + btn.y + 2.0),
+                                btn,
+                            );
 
-                                                let put_btn = Button::new(
-                                                    RichText::new("+")
-                                                        .size(13.0)
-                                                        .strong()
-                                                        .color(Color32::WHITE),
-                                                )
-                                                .min_size(egui::vec2(18.0, 16.0))
-                                                .fill(AppTheme::ACCENT_BLUE);
+                            if ui
+                                .put(x_rect, Button::new(RichText::new("X").size(11.0)))
+                                .on_hover_text("Remove from list")
+                                .clicked()
+                            {
+                                action = MediaBinAction::RemoveAsset(asset.id);
+                            }
 
-                                                if ui
-                                                    .add(put_btn)
-                                                    .on_hover_text("Put on Timeline")
-                                                    .clicked()
-                                                {
-                                                    action =
-                                                        MediaBinAction::AddAssetToTimeline(
-                                                            asset.clone(),
-                                                        );
-                                                }
-                                            },
-                                        );
-                                    });
-                                });
+                            let put_btn = Button::new(
+                                RichText::new("+").size(13.0).strong().color(Color32::WHITE),
+                            )
+                            .fill(AppTheme::ACCENT_BLUE);
+
+                            if ui
+                                .put(plus_rect, put_btn)
+                                .on_hover_text("Put on Timeline")
+                                .clicked()
+                            {
+                                action = MediaBinAction::AddAssetToTimeline(asset.clone());
+                            }
 
                             ui.add_space(6.0);
                         });
