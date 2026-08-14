@@ -378,14 +378,55 @@ impl VideoEditorApp {
     }
 
     /// Update preview frame based on current playhead position with UI repaint callback.
+    /// If the playhead is inside an active clip's transition window, dynamically composites
+    /// the outgoing and incoming frames using real-time software blending.
     fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
         let playhead = self.project.timeline.playhead;
 
-        if let Some((_id, path, sec, _dur)) = self.get_active_video_clip_info(playhead) {
-            if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
-                self.current_frame = Some(frame);
-                self.frame_version += 1;
+        let mut found_frame = None;
+
+        for track in &self.project.timeline.tracks {
+            if track.kind == TrackKind::Video && !track.is_muted {
+                if let Some(clip) = track.get_clip_at(playhead) {
+                    if clip.has_video {
+                        if let Some(source_time) = clip.timeline_to_source_time(playhead) {
+                            let curr_frame = self.frame_cache.fetch_frame(&clip.source_path, source_time.as_secs_f64(), ctx);
+
+                            if let Some(frame_b) = curr_frame {
+                                if let Some(tr) = &clip.transition {
+                                    let elapsed_secs = playhead.as_secs_f64() - clip.timeline_start.as_secs_f64();
+                                    if elapsed_secs >= 0.0 && elapsed_secs < tr.duration_secs && tr.duration_secs > 0.0 {
+                                        let progress = (elapsed_secs / tr.duration_secs) as f32;
+
+                                        // Find preceding clip on this track (if any)
+                                        let prev_clip = track.clips.iter().filter(|c| c.timeline_end() <= clip.timeline_start).max_by_key(|c| c.timeline_start);
+                                        if let Some(prev) = prev_clip {
+                                            let prev_end_sec = prev.source_out.as_secs_f64();
+                                            if let Some(frame_a) = self.frame_cache.fetch_frame(&prev.source_path, prev_end_sec, ctx) {
+                                                found_frame = Some(crate::media::blend_transition(&frame_a, &frame_b, tr.kind, progress));
+                                            } else {
+                                                found_frame = Some(crate::media::blend_fade_in(&frame_b, tr.kind, progress));
+                                            }
+                                        } else {
+                                            found_frame = Some(crate::media::blend_fade_in(&frame_b, tr.kind, progress));
+                                        }
+                                    } else {
+                                        found_frame = Some(frame_b);
+                                    }
+                                } else {
+                                    found_frame = Some(frame_b);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
             }
+        }
+
+        if found_frame.is_some() {
+            self.current_frame = found_frame;
+            self.frame_version += 1;
         } else if self.current_frame.is_some() {
             self.current_frame = None;
             self.frame_version += 1;
@@ -491,12 +532,35 @@ impl eframe::App for VideoEditorApp {
             // Only update the preview when a genuinely NEW frame was decoded, so we do not
             // re-clone a ~691 KB ColorImage (and re-upload it) on every UI tick at 2x the
             // 30 FPS video rate.
-            if let Some((_, _, source_sec, _)) = active_clip {
+            if let Some((clip_id, _, source_sec, _)) = active_clip {
                 let (had_new_frame, stream_frame) =
                     self.stream_player.get_frame_for_time(source_sec);
                 if had_new_frame {
                     if let Some(f) = stream_frame {
-                        self.current_frame = Some(f);
+                        let mut final_frame = f;
+                        if let Some(clip) = self.project.timeline.get_clip(clip_id) {
+                            if let Some(tr) = &clip.transition {
+                                let playhead = self.project.timeline.playhead;
+                                let elapsed_secs = playhead.as_secs_f64() - clip.timeline_start.as_secs_f64();
+                                if elapsed_secs >= 0.0 && elapsed_secs < tr.duration_secs && tr.duration_secs > 0.0 {
+                                    let progress = (elapsed_secs / tr.duration_secs) as f32;
+                                    if let Some(track) = self.project.timeline.tracks.iter().find(|t| t.id == clip.track_id) {
+                                        let prev_clip = track.clips.iter().filter(|c| c.timeline_end() <= clip.timeline_start).max_by_key(|c| c.timeline_start);
+                                        if let Some(prev) = prev_clip {
+                                            let prev_end_sec = prev.source_out.as_secs_f64();
+                                            if let Some(frame_a) = self.frame_cache.fetch_frame(&prev.source_path, prev_end_sec, Some(ctx)) {
+                                                final_frame = crate::media::blend_transition(&frame_a, &final_frame, tr.kind, progress);
+                                            } else {
+                                                final_frame = crate::media::blend_fade_in(&final_frame, tr.kind, progress);
+                                            }
+                                        } else {
+                                            final_frame = crate::media::blend_fade_in(&final_frame, tr.kind, progress);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self.current_frame = Some(final_frame);
                         self.frame_version += 1;
                     }
                 }

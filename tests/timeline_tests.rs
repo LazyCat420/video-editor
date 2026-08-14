@@ -774,6 +774,130 @@ fn test_font_scaling_modifies_text_styles_without_pixels_per_point_mutation() {
     );
 }
 
+#[test]
+fn test_transition_blend_all_18_kinds_matrix() {
+    use egui::{Color32, ColorImage};
+    use video_editor::core::transition::TransitionKind;
+    use video_editor::media::{blend_fade_in, blend_transition};
 
+    let w = 64;
+    let h = 36;
+    let frame_a = ColorImage {
+        size: [w, h],
+        pixels: vec![Color32::BLACK; w * h],
+    };
+    let frame_b = ColorImage {
+        size: [w, h],
+        pixels: vec![Color32::WHITE; w * h],
+    };
 
+    let all_kinds = [
+        TransitionKind::CrossFade,
+        TransitionKind::DipToBlack,
+        TransitionKind::DipToWhite,
+        TransitionKind::WipeLeft,
+        TransitionKind::WipeRight,
+        TransitionKind::WipeUp,
+        TransitionKind::WipeDown,
+        TransitionKind::SlideLeft,
+        TransitionKind::SlideRight,
+        TransitionKind::SlideUp,
+        TransitionKind::SlideDown,
+        TransitionKind::SmoothLeft,
+        TransitionKind::CircleOpen,
+        TransitionKind::CircleClose,
+        TransitionKind::Radial,
+        TransitionKind::ZoomIn,
+        TransitionKind::SqueezeHorizontal,
+        TransitionKind::Pixelate,
+    ];
 
+    assert_eq!(all_kinds.len(), 18, "Must test all 18 catalog transitions");
+
+    for kind in all_kinds {
+        for progress in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            let blended = blend_transition(&frame_a, &frame_b, kind, progress);
+            assert_eq!(
+                blended.size,
+                [w, h],
+                "Blended frame size must match input size for {:?} at t={}",
+                kind,
+                progress
+            );
+            assert_eq!(
+                blended.pixels.len(),
+                w * h,
+                "Blended pixel count must match width*height for {:?} at t={}",
+                kind,
+                progress
+            );
+
+            if progress == 0.0 {
+                assert_eq!(
+                    blended.pixels[0],
+                    Color32::BLACK,
+                    "t=0.0 must be frame A for {:?}",
+                    kind
+                );
+            } else if progress == 1.0 {
+                assert_eq!(
+                    blended.pixels[0],
+                    Color32::WHITE,
+                    "t=1.0 must be frame B for {:?}",
+                    kind
+                );
+            }
+        }
+    }
+
+    // Test fade-in helper
+    let fade_black = blend_fade_in(&frame_b, TransitionKind::DipToBlack, 0.5);
+    assert_eq!(fade_black.size, [w, h]);
+    assert_eq!(fade_black.pixels[0].r(), 127);
+
+    let fade_white = blend_fade_in(&frame_a, TransitionKind::DipToWhite, 0.5);
+    assert_eq!(fade_white.size, [w, h]);
+    assert_eq!(fade_white.pixels[0].r(), 127);
+}
+
+#[test]
+fn test_export_filtergraph_single_clip_fade_in() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::transition::{Transition, TransitionKind};
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+    let mut clip = Clip::new(
+        1,
+        track_id,
+        "Intro".to_string(),
+        PathBuf::from("intro.mp4"),
+        TimeCode::from_secs_f64(5.0),
+        true,
+        false,
+    );
+    clip.transition = Some(Transition::new(TransitionKind::DipToBlack));
+    timeline.tracks[0].add_clip(clip);
+
+    let config = ExportConfig {
+        output_path: PathBuf::from("output.mp4"),
+        width: 1280,
+        height: 720,
+        fps: 30.0,
+        ..ExportConfig::default()
+    };
+
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+    let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
+    let fc = &cmd[fc_idx + 1];
+
+    assert!(
+        fc.contains("fade=t=in:st=0:d=0.500:color=black"),
+        "Filter complex must contain leading fade in: {}",
+        fc
+    );
+}

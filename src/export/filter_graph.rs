@@ -155,8 +155,38 @@ pub fn build_ffmpeg_export_command(
             config.width, config.height, total_dur, config.fps
         ));
     } else if video_out_labels.len() == 1 {
-        final_video_label = video_out_labels[0].clone();
+        let mut base_lbl = video_out_labels[0].clone();
+        if let Some(tr) = video_meta[0].1 {
+            let fade_lbl = "v_fade_0".to_string();
+            let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
+                "white"
+            } else {
+                "black"
+            };
+            filter_chains.push(format!(
+                "[{}]fade=t=in:st=0:d={:.3}:color={}[{}]",
+                base_lbl, tr.duration_secs, col, fade_lbl
+            ));
+            base_lbl = fade_lbl;
+        }
+        final_video_label = base_lbl;
     } else {
+        // First, if clip 0 has a leading fade-in, apply it
+        let mut initial_lbl = video_out_labels[0].clone();
+        if let Some(tr) = video_meta[0].1 {
+            let fade_lbl = "v_fade_0".to_string();
+            let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
+                "white"
+            } else {
+                "black"
+            };
+            filter_chains.push(format!(
+                "[{}]fade=t=in:st=0:d={:.3}:color={}[{}]",
+                initial_lbl, tr.duration_secs, col, fade_lbl
+            ));
+            initial_lbl = fade_lbl;
+        }
+
         // Chain the clips through ffmpeg xfade so the selected transition blends each clip
         // into the next one. Boundaries with no transition use a near-instant crossfade (a
         // quick cut).
@@ -176,17 +206,22 @@ pub fn build_ffmpeg_export_command(
         // the previous picture is still showing during the blend.
         let mut ready: Vec<String> = Vec::with_capacity(n);
         for i in 0..n {
+            let in_lbl = if i == 0 {
+                initial_lbl.clone()
+            } else {
+                video_out_labels[i].clone()
+            };
             if i + 1 < n {
                 let out_lbl = format!("vx_{}", i);
                 filter_chains.push(format!(
                     "[{}]tpad=stop_mode=clone:stop_duration={:.3}[{}]",
-                    video_out_labels[i],
+                    in_lbl,
                     overlaps[i + 1],
                     out_lbl
                 ));
                 ready.push(out_lbl);
             } else {
-                ready.push(video_out_labels[i].clone());
+                ready.push(in_lbl);
             }
         }
 
