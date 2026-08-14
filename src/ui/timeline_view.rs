@@ -49,6 +49,7 @@ pub enum TimelineAction {
     DeleteTrack(u64),
     SetTransition {
         clip_id: u64,
+        slot: crate::ui::transition_bin::TransitionSlot,
         transition: Option<Transition>,
     },
     ReorderTrack { from_id: u64, to_index: usize },
@@ -770,13 +771,10 @@ impl TimelineView {
                                             ui.close_menu();
                                         }
 
-                                        ui.separator();
-
                                         ui.menu_button(
-                                            RichText::new("✨ Transitions")
-                                                .size(15.0)
-                                                .color(Color32::WHITE),
+                                            RichText::new("✨ Beginning Transition (In)...").size(14.0),
                                             |ui| {
+                                                ui.set_min_width(200.0);
                                                 for kind in TransitionKind::all() {
                                                     if ui
                                                         .button(
@@ -785,12 +783,12 @@ impl TimelineView {
                                                         .clicked()
                                                     {
                                                         let dur = clip
-                                                            .transition
-                                                            .as_ref()
+                                                            .start_transition()
                                                             .map(|t| t.duration_secs)
                                                             .unwrap_or(0.5);
                                                         action = TimelineAction::SetTransition {
                                                             clip_id: clip.id,
+                                                            slot: crate::ui::transition_bin::TransitionSlot::In,
                                                             transition: Some(Transition {
                                                                 kind: *kind,
                                                                 duration_secs: dur,
@@ -799,19 +797,21 @@ impl TimelineView {
                                                         ui.close_menu();
                                                     }
                                                 }
-                                                if clip.transition.is_some() {
+                                                if clip.start_transition().is_some() {
                                                     ui.separator();
                                                     if ui
                                                         .button(
                                                             RichText::new(
-                                                                "No Transition (Hard Cut)",
+                                                                "❌ Remove Beginning Transition",
                                                             )
-                                                            .size(14.0),
+                                                            .size(14.0)
+                                                            .color(Color32::from_rgb(255, 130, 130)),
                                                         )
                                                         .clicked()
                                                     {
                                                         action = TimelineAction::SetTransition {
                                                             clip_id: clip.id,
+                                                            slot: crate::ui::transition_bin::TransitionSlot::In,
                                                             transition: None,
                                                         };
                                                         ui.close_menu();
@@ -820,26 +820,54 @@ impl TimelineView {
                                             },
                                         );
 
-                                        // Adjust how long the transition lasts.
-                                        if let Some(tr) = clip.transition.as_ref() {
-                                            let mut dur = tr.duration_secs;
-                                            if ui
-                                                .add(
-                                                    egui::Slider::new(&mut dur, 0.2..=2.0)
-                                                        .text("Length (s)")
-                                                        .fixed_decimals(1),
-                                                )
-                                                .changed()
-                                            {
-                                                action = TimelineAction::SetTransition {
-                                                    clip_id: clip.id,
-                                                    transition: Some(Transition {
-                                                        kind: tr.kind,
-                                                        duration_secs: dur,
-                                                    }),
-                                                };
-                                            }
-                                        }
+                                        ui.menu_button(
+                                            RichText::new("✨ End Transition (Out)...").size(14.0),
+                                            |ui| {
+                                                ui.set_min_width(200.0);
+                                                for kind in TransitionKind::all() {
+                                                    if ui
+                                                        .button(
+                                                            RichText::new(kind.label()).size(14.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        let dur = clip
+                                                            .end_transition()
+                                                            .map(|t| t.duration_secs)
+                                                            .unwrap_or(0.5);
+                                                        action = TimelineAction::SetTransition {
+                                                            clip_id: clip.id,
+                                                            slot: crate::ui::transition_bin::TransitionSlot::Out,
+                                                            transition: Some(Transition {
+                                                                kind: *kind,
+                                                                duration_secs: dur,
+                                                            }),
+                                                        };
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                                if clip.end_transition().is_some() {
+                                                    ui.separator();
+                                                    if ui
+                                                        .button(
+                                                            RichText::new(
+                                                                "❌ Remove End Transition",
+                                                            )
+                                                            .size(14.0)
+                                                            .color(Color32::from_rgb(255, 130, 130)),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = TimelineAction::SetTransition {
+                                                            clip_id: clip.id,
+                                                            slot: crate::ui::transition_bin::TransitionSlot::Out,
+                                                            transition: None,
+                                                        };
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                            },
+                                        );
 
                                         ui.separator();
 
@@ -890,21 +918,56 @@ impl TimelineView {
                                         ),
                                     );
 
-                                    // Clip Title Header
+                                    // Clip Title Header (offset to avoid overlapping with in-transition badge)
+                                    let title_offset_x = if clip.start_transition().is_some() && clip_width > 120.0 {
+                                        80.0
+                                    } else {
+                                        8.0
+                                    };
                                     clip_painter.text(
-                                        Pos2::new(clip_rect.min.x + 8.0, clip_rect.min.y + 6.0),
+                                        Pos2::new(clip_rect.min.x + title_offset_x, clip_rect.min.y + 6.0),
                                         egui::Align2::LEFT_TOP,
                                         &clip.name,
                                         egui::FontId::proportional(13.0),
                                         Color32::WHITE,
                                     );
 
-                                    // Transition badge so the user clearly sees which clip has an active transition.
-                                    if let Some(tr) = clip.transition.as_ref() {
-                                        if clip_width > 80.0 {
-                                            let badge_text = format!("✦ {} {:.1}s", tr.kind.label(), tr.duration_secs);
-                                            let font_id = egui::FontId::proportional(11.5);
-                                            let text_len = (badge_text.len() as f32 * 6.5).min(clip_width - 20.0);
+                                    // 1. Beginning Transition Badge (Anchored to the LEFT edge)
+                                    if let Some(tr) = clip.start_transition() {
+                                        if clip_width > 60.0 {
+                                            let badge_text = format!("⇤ {} {:.1}s", tr.kind.label(), tr.duration_secs);
+                                            let font_id = egui::FontId::proportional(11.0);
+                                            let text_len = (badge_text.len() as f32 * 6.2).min((clip_width / 2.0) - 8.0);
+                                            let pill_rect = Rect::from_min_max(
+                                                Pos2::new(clip_rect.min.x + 4.0, clip_rect.min.y + 4.0),
+                                                Pos2::new(clip_rect.min.x + 12.0 + text_len, clip_rect.min.y + 20.0),
+                                            );
+                                            clip_painter.rect_filled(
+                                                pill_rect,
+                                                Rounding::same(4.0),
+                                                Color32::from_rgb(18, 38, 55),
+                                            );
+                                            clip_painter.rect_stroke(
+                                                pill_rect,
+                                                Rounding::same(4.0),
+                                                Stroke::new(1.0, Color32::from_rgb(0, 210, 235)),
+                                            );
+                                            clip_painter.text(
+                                                Pos2::new(clip_rect.min.x + 8.0, clip_rect.min.y + 5.5),
+                                                egui::Align2::LEFT_TOP,
+                                                badge_text,
+                                                font_id,
+                                                Color32::from_rgb(0, 225, 255),
+                                            );
+                                        }
+                                    }
+
+                                    // 2. End Transition Badge (Anchored to the RIGHT edge)
+                                    if let Some(tr) = clip.end_transition() {
+                                        if clip_width > 60.0 {
+                                            let badge_text = format!("{} {:.1}s ⇥", tr.kind.label(), tr.duration_secs);
+                                            let font_id = egui::FontId::proportional(11.0);
+                                            let text_len = (badge_text.len() as f32 * 6.2).min((clip_width / 2.0) - 8.0);
                                             let pill_rect = Rect::from_min_max(
                                                 Pos2::new(clip_rect.max.x - 12.0 - text_len, clip_rect.min.y + 4.0),
                                                 Pos2::new(clip_rect.max.x - 4.0, clip_rect.min.y + 20.0),
@@ -912,7 +975,7 @@ impl TimelineView {
                                             clip_painter.rect_filled(
                                                 pill_rect,
                                                 Rounding::same(4.0),
-                                                Color32::from_rgb(25, 35, 50),
+                                                Color32::from_rgb(45, 38, 20),
                                             );
                                             clip_painter.rect_stroke(
                                                 pill_rect,

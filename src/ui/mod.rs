@@ -36,7 +36,7 @@ pub use node_graph_view::render_audio_envelope_graph;
 pub use preview_player::PreviewPlayerView;
 pub use theme::AppTheme;
 pub use timeline_view::TimelineView;
-pub use transition_bin::{TransitionBinAction, TransitionBinView};
+pub use transition_bin::{TransitionBinAction, TransitionBinView, TransitionSlot};
 
 /// Run `f` with a smaller `interact_size.y` and sleek `slider_rail_height` so horizontal sliders
 /// render with a compact, proportional drag knob (egui sizes the knob circle from `spacing.interact_size.y`).

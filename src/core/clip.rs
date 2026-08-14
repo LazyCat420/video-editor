@@ -28,7 +28,13 @@ pub struct Clip {
     pub speed: f32,
     /// Volume automation envelope (node line graph).
     pub volume_envelope: VolumeEnvelope,
-    /// Transition used when this clip enters (blends with the clip that came before it).
+    /// Transition at the beginning (In) of the clip (e.g. Fade In, Wipe In, Dip to Black).
+    #[serde(default)]
+    pub transition_in: Option<Transition>,
+    /// Transition at the end (Out) of the clip (e.g. Fade Out, Crossfade to next clip, Dip to Black).
+    #[serde(default)]
+    pub transition_out: Option<Transition>,
+    /// Legacy transition field kept for backwards-compatibility with existing saved projects.
     #[serde(default)]
     pub transition: Option<Transition>,
     pub has_video: bool,
@@ -62,11 +68,23 @@ impl Clip {
             timeline_start: TimeCode::ZERO,
             speed: 1.0,
             volume_envelope,
+            transition_in: None,
+            transition_out: None,
             transition: None,
             has_video,
             has_audio,
             is_selected: false,
         }
+    }
+
+    /// Effective beginning/start transition for this clip.
+    pub fn start_transition(&self) -> Option<&Transition> {
+        self.transition_in.as_ref().or(self.transition.as_ref())
+    }
+
+    /// Effective ending/out transition for this clip.
+    pub fn end_transition(&self) -> Option<&Transition> {
+        self.transition_out.as_ref()
     }
 
     /// Duration of the trimmed clip on the timeline.

@@ -377,6 +377,67 @@ impl VideoEditorApp {
         None
     }
 
+    /// Composite beginning (In) or ending (Out) transition on top of a base frame
+    fn composite_transition(
+        &mut self,
+        track_id: u64,
+        clip_id: u64,
+        base_frame: egui::ColorImage,
+        playhead: TimeCode,
+        ctx: Option<&Context>,
+    ) -> egui::ColorImage {
+        let clip = match self.project.timeline.get_clip(clip_id) {
+            Some(c) => c.clone(),
+            None => return base_frame,
+        };
+        let track = match self.project.timeline.tracks.iter().find(|t| t.id == track_id) {
+            Some(t) => t.clone(),
+            None => return base_frame,
+        };
+
+        // 1. Beginning (In) Transition
+        if let Some(tr_in) = clip.start_transition() {
+            let elapsed_in = playhead.as_secs_f64() - clip.timeline_start.as_secs_f64();
+            if elapsed_in >= 0.0 && elapsed_in < tr_in.duration_secs && tr_in.duration_secs > 0.0 {
+                let progress = (elapsed_in / tr_in.duration_secs) as f32;
+                let prev_clip = track
+                    .clips
+                    .iter()
+                    .filter(|c| c.timeline_end() <= clip.timeline_start)
+                    .max_by_key(|c| c.timeline_start);
+                if let Some(prev) = prev_clip {
+                    let prev_end_sec = prev.source_out.as_secs_f64();
+                    if let Some(frame_a) = self.frame_cache.fetch_frame(&prev.source_path, prev_end_sec, ctx) {
+                        return crate::media::blend_transition(&frame_a, &base_frame, tr_in.kind, progress);
+                    }
+                }
+                return crate::media::blend_fade_in(&base_frame, tr_in.kind, progress);
+            }
+        }
+
+        // 2. Ending (Out) Transition
+        if let Some(tr_out) = clip.end_transition() {
+            let remaining = clip.timeline_end().as_secs_f64() - playhead.as_secs_f64();
+            if remaining >= 0.0 && remaining < tr_out.duration_secs && tr_out.duration_secs > 0.0 {
+                let progress = (1.0 - (remaining / tr_out.duration_secs)).clamp(0.0, 1.0) as f32;
+                let next_clip = track
+                    .clips
+                    .iter()
+                    .filter(|c| c.timeline_start >= clip.timeline_end())
+                    .min_by_key(|c| c.timeline_start);
+                if let Some(next) = next_clip {
+                    let next_start_sec = next.source_in.as_secs_f64();
+                    if let Some(frame_b) = self.frame_cache.fetch_frame(&next.source_path, next_start_sec, ctx) {
+                        return crate::media::blend_transition(&base_frame, &frame_b, tr_out.kind, progress);
+                    }
+                }
+                return crate::media::blend_fade_in(&base_frame, tr_out.kind, 1.0 - progress);
+            }
+        }
+
+        base_frame
+    }
+
     /// Update preview frame based on current playhead position with UI repaint callback.
     /// If the playhead is inside an active clip's transition window, dynamically composites
     /// the outgoing and incoming frames using real-time software blending.
@@ -390,32 +451,11 @@ impl VideoEditorApp {
                 if let Some(clip) = track.get_clip_at(playhead) {
                     if clip.has_video {
                         if let Some(source_time) = clip.timeline_to_source_time(playhead) {
-                            let curr_frame = self.frame_cache.fetch_frame(&clip.source_path, source_time.as_secs_f64(), ctx);
-
-                            if let Some(frame_b) = curr_frame {
-                                if let Some(tr) = &clip.transition {
-                                    let elapsed_secs = playhead.as_secs_f64() - clip.timeline_start.as_secs_f64();
-                                    if elapsed_secs >= 0.0 && elapsed_secs < tr.duration_secs && tr.duration_secs > 0.0 {
-                                        let progress = (elapsed_secs / tr.duration_secs) as f32;
-
-                                        // Find preceding clip on this track (if any)
-                                        let prev_clip = track.clips.iter().filter(|c| c.timeline_end() <= clip.timeline_start).max_by_key(|c| c.timeline_start);
-                                        if let Some(prev) = prev_clip {
-                                            let prev_end_sec = prev.source_out.as_secs_f64();
-                                            if let Some(frame_a) = self.frame_cache.fetch_frame(&prev.source_path, prev_end_sec, ctx) {
-                                                found_frame = Some(crate::media::blend_transition(&frame_a, &frame_b, tr.kind, progress));
-                                            } else {
-                                                found_frame = Some(crate::media::blend_fade_in(&frame_b, tr.kind, progress));
-                                            }
-                                        } else {
-                                            found_frame = Some(crate::media::blend_fade_in(&frame_b, tr.kind, progress));
-                                        }
-                                    } else {
-                                        found_frame = Some(frame_b);
-                                    }
-                                } else {
-                                    found_frame = Some(frame_b);
-                                }
+                            let track_id = track.id;
+                            let clip_id = clip.id;
+                            let raw_frame = self.frame_cache.fetch_frame(&clip.source_path, source_time.as_secs_f64(), ctx);
+                            if let Some(base) = raw_frame {
+                                found_frame = Some(self.composite_transition(track_id, clip_id, base, playhead, ctx));
                             }
                             break;
                         }
@@ -486,6 +526,7 @@ impl eframe::App for VideoEditorApp {
             {
                 if let Ok(loaded) = Project::load_from_file(path) {
                     self.project = loaded;
+                    self.pause_playback();
                     self.refresh_preview_frame(Some(ctx));
                 }
             }
@@ -537,29 +578,9 @@ impl eframe::App for VideoEditorApp {
                     self.stream_player.get_frame_for_time(source_sec);
                 if had_new_frame {
                     if let Some(f) = stream_frame {
-                        let mut final_frame = f;
-                        if let Some(clip) = self.project.timeline.get_clip(clip_id) {
-                            if let Some(tr) = &clip.transition {
-                                let playhead = self.project.timeline.playhead;
-                                let elapsed_secs = playhead.as_secs_f64() - clip.timeline_start.as_secs_f64();
-                                if elapsed_secs >= 0.0 && elapsed_secs < tr.duration_secs && tr.duration_secs > 0.0 {
-                                    let progress = (elapsed_secs / tr.duration_secs) as f32;
-                                    if let Some(track) = self.project.timeline.tracks.iter().find(|t| t.id == clip.track_id) {
-                                        let prev_clip = track.clips.iter().filter(|c| c.timeline_end() <= clip.timeline_start).max_by_key(|c| c.timeline_start);
-                                        if let Some(prev) = prev_clip {
-                                            let prev_end_sec = prev.source_out.as_secs_f64();
-                                            if let Some(frame_a) = self.frame_cache.fetch_frame(&prev.source_path, prev_end_sec, Some(ctx)) {
-                                                final_frame = crate::media::blend_transition(&frame_a, &final_frame, tr.kind, progress);
-                                            } else {
-                                                final_frame = crate::media::blend_fade_in(&final_frame, tr.kind, progress);
-                                            }
-                                        } else {
-                                            final_frame = crate::media::blend_fade_in(&final_frame, tr.kind, progress);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        let track_id = self.project.timeline.get_clip(clip_id).map(|c| c.track_id).unwrap_or(0);
+                        let playhead = self.project.timeline.playhead;
+                        let final_frame = self.composite_transition(track_id, clip_id, f, playhead, Some(ctx));
                         self.current_frame = Some(final_frame);
                         self.frame_version += 1;
                     }
@@ -588,6 +609,7 @@ impl eframe::App for VideoEditorApp {
                         {
                             if let Ok(loaded) = Project::load_from_file(path) {
                                 self.project = loaded;
+                                self.pause_playback();
                                 self.refresh_preview_frame(Some(ctx));
                             }
                         }
@@ -610,9 +632,12 @@ impl eframe::App for VideoEditorApp {
                         }
                     }
                     MenuAction::SplitAtPlayhead => {
+                        self.snapshot_timeline();
                         self.project.timeline.split_at_playhead();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     MenuAction::DeleteSelected => {
+                        self.snapshot_timeline();
                         self.project.timeline.delete_selected_clips();
                         self.refresh_preview_frame(Some(ctx));
                     }
@@ -633,69 +658,48 @@ impl eframe::App for VideoEditorApp {
             });
 
         // ==========================================
-        // 6. Render Left Side Panel: Media Bin & Transitions
+        // 6. Left Panel: Media Bin / Transitions Tabs
         // ==========================================
-        egui::SidePanel::left("left_media_bin_panel")
+        egui::SidePanel::left("left_bin_panel")
             .resizable(true)
-            .default_width(280.0)
-            .min_width(220.0)
+            .default_width(300.0)
+            .min_width(240.0)
             .max_width(450.0)
             .show(ctx, |ui| {
-                ui.add_space(4.0);
-
-                // Tab Switcher Header (Files vs Transitions)
                 ui.horizontal(|ui| {
                     let files_active = self.sidebar_tab == crate::ui::SidebarTab::Files;
                     let trans_active = self.sidebar_tab == crate::ui::SidebarTab::Transitions;
 
-                    let tab_w = (ui.available_width() - 8.0) / 2.0;
-
                     let files_btn = Button::new(
                         RichText::new("📁 Your Files")
-                            .size(13.5)
+                            .size(13.0)
                             .strong()
-                            .color(if files_active {
-                                Color32::WHITE
-                            } else {
-                                AppTheme::text_secondary()
-                            }),
+                            .color(if files_active { Color32::WHITE } else { AppTheme::text_secondary() }),
                     )
-                    .fill(if files_active {
-                        AppTheme::accent_blue()
-                    } else {
-                        AppTheme::bg_card()
-                    })
-                    .min_size(egui::vec2(tab_w, 32.0));
+                    .fill(if files_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                    .min_size(egui::vec2(120.0, 30.0));
 
-                    if ui.add(files_btn).clicked() {
+                    if ui.add(files_btn).on_hover_text("Browse and import video, audio, and images").clicked() {
                         self.sidebar_tab = crate::ui::SidebarTab::Files;
                     }
 
                     let trans_btn = Button::new(
                         RichText::new("✨ Transitions")
-                            .size(13.5)
+                            .size(13.0)
                             .strong()
-                            .color(if trans_active {
-                                Color32::WHITE
-                            } else {
-                                AppTheme::text_secondary()
-                            }),
+                            .color(if trans_active { Color32::WHITE } else { AppTheme::text_secondary() }),
                     )
-                    .fill(if trans_active {
-                        AppTheme::accent_blue()
-                    } else {
-                        AppTheme::bg_card()
-                    })
-                    .min_size(egui::vec2(tab_w, 32.0));
+                    .fill(if trans_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                    .min_size(egui::vec2(120.0, 30.0));
 
-                    if ui.add(trans_btn).clicked() {
+                    if ui.add(trans_btn).on_hover_text("Add smooth fades, wipes, and slides between cuts").clicked() {
                         self.sidebar_tab = crate::ui::SidebarTab::Transitions;
                     }
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
                 ui.separator();
-                ui.add_space(2.0);
+                ui.add_space(4.0);
 
                 match self.sidebar_tab {
                     crate::ui::SidebarTab::Files => {
@@ -715,14 +719,13 @@ impl eframe::App for VideoEditorApp {
                             }
                             MediaBinAction::ImportFolder(dir) => {
                                 let files = crate::media::probe::scan_folder_for_media(&dir);
-                                // Just bring the files into 'Your Files' — do NOT auto-place every
-                                // one on the timeline. The user drags/drops what they want.
-                                for path in files {
-                                    self.add_media_to_bin(path);
+                                for file in files {
+                                    self.import_file(file);
                                 }
                                 self.refresh_preview_frame(Some(ctx));
                             }
                             MediaBinAction::AddAssetToTimeline(asset) => {
+                                self.snapshot_timeline();
                                 self.add_asset_to_timeline(asset);
                                 self.refresh_preview_frame(Some(ctx));
                             }
@@ -747,12 +750,22 @@ impl eframe::App for VideoEditorApp {
                         match crate::ui::TransitionBinView::render(ui, &mut self.project.timeline) {
                             crate::ui::TransitionBinAction::SetTransition {
                                 clip_id,
+                                slot,
                                 transition,
                             } => {
-                                if self.project.timeline.get_clip_mut(clip_id).is_some() {
+                                if self.project.timeline.get_clip(clip_id).is_some() {
                                     self.snapshot_timeline();
-                                    self.project.timeline.get_clip_mut(clip_id).unwrap().transition =
-                                        transition;
+                                    if let Some(c) = self.project.timeline.get_clip_mut(clip_id) {
+                                        match slot {
+                                            crate::ui::TransitionSlot::In => {
+                                                c.transition_in = transition;
+                                                c.transition = None;
+                                            }
+                                            crate::ui::TransitionSlot::Out => {
+                                                c.transition_out = transition;
+                                            }
+                                        }
+                                    }
                                     self.refresh_preview_frame(Some(ctx));
                                 }
                             }
@@ -772,7 +785,8 @@ impl eframe::App for VideoEditorApp {
         egui::TopBottomPanel::bottom("bottom_timeline_panel")
             .resizable(true)
             .default_height(280.0)
-            .min_height(200.0)
+            .min_height(160.0)
+            .max_height(500.0)
             .show(ctx, |ui| {
                 match TimelineView::render(
                     ui,
@@ -782,6 +796,7 @@ impl eframe::App for VideoEditorApp {
                     can_redo,
                     has_clipboard,
                 ) {
+                    TimelineAction::None => {}
                     TimelineAction::Seek(time) => {
                         self.seek_to(time, ctx);
                     }
@@ -794,11 +809,23 @@ impl eframe::App for VideoEditorApp {
                         new_start,
                     } => {
                         self.snapshot_timeline();
-                        self.project.timeline.move_clip(clip_id, target_track_id, new_start);
+                        self.project
+                            .timeline
+                            .move_clip(clip_id, target_track_id, new_start);
                         self.refresh_preview_frame(Some(ctx));
                     }
-                    TimelineAction::ClipTrimmed { .. } => {
+                    TimelineAction::ClipTrimmed {
+                        clip_id,
+                        new_in,
+                        new_out,
+                        new_start,
+                    } => {
                         self.snapshot_timeline();
+                        if let Some(clip) = self.project.timeline.get_clip_mut(clip_id) {
+                            clip.source_in = new_in;
+                            clip.source_out = new_out;
+                            clip.timeline_start = new_start;
+                        }
                         self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::SplitAtPlayhead => {
@@ -829,26 +856,31 @@ impl eframe::App for VideoEditorApp {
                     TimelineAction::ApplyFadeIn(clip_id) => {
                         self.snapshot_timeline();
                         self.project.timeline.apply_fade_in(clip_id, 1.0);
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::ApplyFadeOut(clip_id) => {
                         self.snapshot_timeline();
                         self.project.timeline.apply_fade_out(clip_id, 1.0);
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::CopyClip(clip_id) => {
                         if let Some(clip) = self.project.timeline.get_clip(clip_id) {
                             self.clipboard_clip = Some(clip.clone());
                         }
                     }
-                    TimelineAction::PasteClip { track_id, target_time } => {
+                    TimelineAction::PasteClip {
+                        track_id,
+                        target_time,
+                    } => {
                         if let Some(clip) = self.clipboard_clip.clone() {
                             self.snapshot_timeline();
                             self.project.timeline.paste_clip(clip, track_id, target_time);
                             self.refresh_preview_frame(Some(ctx));
                         }
                     }
-                    TimelineAction::DeleteClip(clip_id) => {
+                    TimelineAction::DeleteClip(id) => {
                         self.snapshot_timeline();
-                        self.project.timeline.delete_clip(clip_id);
+                        self.project.timeline.delete_clip(id);
                         self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::DeleteSelected => {
@@ -866,12 +898,58 @@ impl eframe::App for VideoEditorApp {
                     }
                     TimelineAction::SetTransition {
                         clip_id,
+                        slot,
                         transition,
                     } => {
-                        if self.project.timeline.get_clip_mut(clip_id).is_some() {
+                        if self.project.timeline.get_clip(clip_id).is_some() {
                             self.snapshot_timeline();
-                            self.project.timeline.get_clip_mut(clip_id).unwrap().transition =
-                                transition;
+                            if let Some(c) = self.project.timeline.get_clip_mut(clip_id) {
+                                match slot {
+                                    crate::ui::TransitionSlot::In => {
+                                        c.transition_in = transition;
+                                        c.transition = None;
+                                    }
+                                    crate::ui::TransitionSlot::Out => {
+                                        c.transition_out = transition;
+                                    }
+                                }
+                            }
+                            self.refresh_preview_frame(Some(ctx));
+                        }
+                    }
+                    TimelineAction::ReorderTrack { from_id, to_index } => {
+                        self.snapshot_timeline();
+                        self.project.timeline.reorder_track(from_id, to_index);
+                    }
+                    TimelineAction::AddMediaToTimeline {
+                        asset_id,
+                        track_id,
+                        start,
+                    } => {
+                        if let Some(asset) = self
+                            .project
+                            .media_assets
+                            .iter()
+                            .find(|a| a.id == asset_id)
+                            .cloned()
+                        {
+                            self.snapshot_timeline();
+                            let source_dur = TimeCode::from_secs_f64(asset.duration_secs);
+                            let clip_id = self.project.timeline.next_id();
+                            let mut clip = Clip::new(
+                                clip_id,
+                                track_id,
+                                asset.name.clone(),
+                                asset.path.clone(),
+                                source_dur,
+                                asset.has_video,
+                                asset.has_audio,
+                            );
+                            clip.timeline_start = start;
+                            if let Some(track) = self.project.timeline.get_track_mut(track_id) {
+                                track.add_clip(clip);
+                            }
+                            self.refresh_preview_frame(Some(ctx));
                         }
                     }
                     TimelineAction::Undo => {
@@ -897,28 +975,6 @@ impl eframe::App for VideoEditorApp {
                             .timeline
                             .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);
                     }
-                    TimelineAction::ReorderTrack { from_id, to_index } => {
-                        self.snapshot_timeline();
-                        self.project.timeline.reorder_track(from_id, to_index);
-                    }
-                    TimelineAction::AddMediaToTimeline {
-                        asset_id,
-                        track_id,
-                        start,
-                    } => {
-                        if let Some(asset) = self
-                            .project
-                            .media_assets
-                            .iter()
-                            .find(|a| a.id == asset_id)
-                            .cloned()
-                        {
-                            self.snapshot_timeline();
-                            self.place_asset_on_timeline(asset, track_id, start);
-                            self.refresh_preview_frame(Some(ctx));
-                        }
-                    }
-                    TimelineAction::None => {}
                 }
             });
 

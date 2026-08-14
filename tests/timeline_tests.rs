@@ -901,3 +901,159 @@ fn test_export_filtergraph_single_clip_fade_in() {
         fc
     );
 }
+
+#[test]
+fn test_clip_dual_transition_in_and_out_slots() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::transition::{Transition, TransitionKind};
+
+    let mut clip = Clip::new(
+        10,
+        1,
+        "TestClip".to_string(),
+        PathBuf::from("test.mp4"),
+        TimeCode::from_secs_f64(10.0),
+        true,
+        true,
+    );
+
+    // Initial state: no transitions
+    assert!(clip.start_transition().is_none());
+    assert!(clip.end_transition().is_none());
+
+    // Apply Beginning (In) Transition
+    clip.transition_in = Some(Transition::new(TransitionKind::DipToBlack));
+    assert_eq!(clip.start_transition().unwrap().kind, TransitionKind::DipToBlack);
+    assert!(clip.end_transition().is_none());
+
+    // Apply Ending (Out) Transition
+    clip.transition_out = Some(Transition::new(TransitionKind::CrossFade));
+    assert_eq!(clip.start_transition().unwrap().kind, TransitionKind::DipToBlack);
+    assert_eq!(clip.end_transition().unwrap().kind, TransitionKind::CrossFade);
+
+    // Remove In Transition independently
+    clip.transition_in = None;
+    assert!(clip.start_transition().is_none());
+    assert_eq!(clip.end_transition().unwrap().kind, TransitionKind::CrossFade);
+}
+
+#[test]
+fn test_export_filtergraph_single_clip_fade_in_and_fade_out() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::transition::{Transition, TransitionKind};
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+    let mut clip = Clip::new(
+        1,
+        track_id,
+        "Intro".to_string(),
+        PathBuf::from("intro.mp4"),
+        TimeCode::from_secs_f64(6.0),
+        true,
+        false,
+    );
+    clip.transition_in = Some(Transition {
+        kind: TransitionKind::DipToBlack,
+        duration_secs: 1.0,
+    });
+    clip.transition_out = Some(Transition {
+        kind: TransitionKind::DipToWhite,
+        duration_secs: 1.5,
+    });
+    timeline.tracks[0].add_clip(clip);
+
+    let config = ExportConfig {
+        output_path: PathBuf::from("output.mp4"),
+        width: 1280,
+        height: 720,
+        fps: 30.0,
+        ..ExportConfig::default()
+    };
+
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+    let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
+    let fc = &cmd[fc_idx + 1];
+
+    assert!(
+        fc.contains("fade=t=in:st=0:d=1.000:color=black"),
+        "Filter complex must contain leading fade in: {}",
+        fc
+    );
+    assert!(
+        fc.contains("fade=t=out:st=4.500:d=1.500:color=white"),
+        "Filter complex must contain trailing fade out: {}",
+        fc
+    );
+}
+
+#[test]
+fn test_export_filtergraph_multi_clip_in_and_out_xfade() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::transition::{Transition, TransitionKind};
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let mut clip1 = Clip::new(
+        1,
+        track_id,
+        "Clip1".to_string(),
+        PathBuf::from("c1.mp4"),
+        TimeCode::from_secs_f64(4.0),
+        true,
+        false,
+    );
+    clip1.transition_in = Some(Transition {
+        kind: TransitionKind::DipToBlack,
+        duration_secs: 0.5,
+    });
+
+    let mut clip2 = Clip::new(
+        2,
+        track_id,
+        "Clip2".to_string(),
+        PathBuf::from("c2.mp4"),
+        TimeCode::from_secs_f64(4.0),
+        true,
+        false,
+    );
+    clip2.timeline_start = TimeCode::from_secs_f64(4.0);
+    clip2.transition_in = Some(Transition {
+        kind: TransitionKind::WipeLeft,
+        duration_secs: 1.0,
+    });
+    clip2.transition_out = Some(Transition {
+        kind: TransitionKind::DipToBlack,
+        duration_secs: 0.5,
+    });
+
+    timeline.tracks[0].add_clip(clip1);
+    timeline.tracks[0].add_clip(clip2);
+
+    let config = ExportConfig {
+        output_path: PathBuf::from("output.mp4"),
+        width: 1280,
+        height: 720,
+        fps: 30.0,
+        ..ExportConfig::default()
+    };
+
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+    let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
+    let fc = &cmd[fc_idx + 1];
+
+    assert!(fc.contains("fade=t=in:st=0:d=0.500:color=black"));
+    assert!(fc.contains("xfade=transition=wipeleft:duration=1.000"));
+    assert!(fc.contains("fade=t=out:"));
+}

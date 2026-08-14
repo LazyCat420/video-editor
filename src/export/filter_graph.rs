@@ -78,7 +78,7 @@ pub fn build_ffmpeg_export_command(
     let mut filter_chains = Vec::new();
     let mut video_out_labels = Vec::new();
     let mut audio_out_labels = Vec::new();
-    let mut video_meta: Vec<(f64, Option<Transition>)> = Vec::new();
+    let mut video_meta: Vec<(f64, Option<Transition>, Option<Transition>)> = Vec::new();
 
     let mut clip_counter = 0;
 
@@ -113,7 +113,11 @@ pub fn build_ffmpeg_export_command(
                 );
                 filter_chains.push(v_trim);
                 video_out_labels.push(v_label.clone());
-                video_meta.push((clip.duration().as_secs_f64(), clip.transition));
+                video_meta.push((
+                    clip.duration().as_secs_f64(),
+                    clip.start_transition().cloned(),
+                    clip.end_transition().cloned(),
+                ));
             }
 
             // Audio processing
@@ -156,8 +160,8 @@ pub fn build_ffmpeg_export_command(
         ));
     } else if video_out_labels.len() == 1 {
         let mut base_lbl = video_out_labels[0].clone();
-        if let Some(tr) = video_meta[0].1 {
-            let fade_lbl = "v_fade_0".to_string();
+        if let Some(tr) = &video_meta[0].1 {
+            let fade_lbl = "v_fade_in_0".to_string();
             let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
                 "white"
             } else {
@@ -169,12 +173,26 @@ pub fn build_ffmpeg_export_command(
             ));
             base_lbl = fade_lbl;
         }
+        if let Some(tr) = &video_meta[0].2 {
+            let fade_lbl = "v_fade_out_0".to_string();
+            let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
+                "white"
+            } else {
+                "black"
+            };
+            let start_out = (video_meta[0].0 - tr.duration_secs).max(0.0);
+            filter_chains.push(format!(
+                "[{}]fade=t=out:st={:.3}:d={:.3}:color={}[{}]",
+                base_lbl, start_out, tr.duration_secs, col, fade_lbl
+            ));
+            base_lbl = fade_lbl;
+        }
         final_video_label = base_lbl;
     } else {
         // First, if clip 0 has a leading fade-in, apply it
         let mut initial_lbl = video_out_labels[0].clone();
-        if let Some(tr) = video_meta[0].1 {
-            let fade_lbl = "v_fade_0".to_string();
+        if let Some(tr) = &video_meta[0].1 {
+            let fade_lbl = "v_fade_in_0".to_string();
             let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
                 "white"
             } else {
@@ -191,13 +209,25 @@ pub fn build_ffmpeg_export_command(
         // into the next one. Boundaries with no transition use a near-instant crossfade (a
         // quick cut).
         let n = video_out_labels.len();
-        // Overlap feeding INTO clip i (i>=1): the transition duration attached to clip i.
+        // Overlap feeding INTO clip i (i>=1): the transition duration attached to clip i (or out of i-1).
+        let active_transitions: Vec<Option<Transition>> = (0..n)
+            .map(|i| {
+                if i == 0 {
+                    None
+                } else {
+                    video_meta[i].1.or(video_meta[i - 1].2)
+                }
+            })
+            .collect();
+
         let overlaps: Vec<f64> = (0..n)
             .map(|i| {
                 if i == 0 {
                     0.0
                 } else {
-                    video_meta[i].1.map(|t| t.duration_secs).unwrap_or(0.05)
+                    active_transitions[i]
+                        .map(|t| t.duration_secs)
+                        .unwrap_or(0.05)
                 }
             })
             .collect();
@@ -233,8 +263,7 @@ pub fn build_ffmpeg_export_command(
             sum_dur += video_meta[i - 1].0;
             sum_overlap += overlaps[i];
             let offset = (sum_dur - sum_overlap).max(0.0);
-            let kind = video_meta[i]
-                .1
+            let kind = active_transitions[i]
                 .map(|t| t.kind)
                 .unwrap_or(crate::core::transition::TransitionKind::CrossFade);
             let out_lbl = format!("vxo_{}", i);
@@ -249,6 +278,24 @@ pub fn build_ffmpeg_export_command(
             ));
             current = out_lbl;
         }
+
+        // Check if final clip has an End fade out
+        if let Some(tr) = &video_meta[n - 1].2 {
+            let fade_lbl = "v_fade_out_end".to_string();
+            let col = if tr.kind == crate::core::transition::TransitionKind::DipToWhite {
+                "white"
+            } else {
+                "black"
+            };
+            let total_dur = (sum_dur + video_meta[n - 1].0 - sum_overlap).max(0.0);
+            let start_out = (total_dur - tr.duration_secs).max(0.0);
+            filter_chains.push(format!(
+                "[{}]fade=t=out:st={:.3}:d={:.3}:color={}[{}]",
+                current, start_out, tr.duration_secs, col, fade_lbl
+            ));
+            current = fade_lbl;
+        }
+
         final_video_label = current;
     }
 
