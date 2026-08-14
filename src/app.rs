@@ -1,5 +1,6 @@
 use crate::audio::player::AudioPlayer;
 use crate::core::clip::Clip;
+use crate::core::history::TimelineHistory;
 use crate::core::project::{MediaAsset, Project};
 use crate::core::time::TimeCode;
 use crate::core::track::TrackKind;
@@ -29,6 +30,8 @@ pub struct VideoEditorApp {
     pub preview_texture: Option<TextureHandle>,
     pub current_frame: Option<ColorImage>,
     pub current_playing_clip_id: Option<u64>,
+    pub history: TimelineHistory,
+    pub clipboard_clip: Option<Clip>,
     pub frame_version: u64,
     pub last_uploaded_version: u64,
     pub last_frame_time: Option<TimeCode>,
@@ -48,6 +51,8 @@ impl Default for VideoEditorApp {
             preview_texture: None,
             current_frame: None,
             current_playing_clip_id: None,
+            history: TimelineHistory::new(50),
+            clipboard_clip: None,
             frame_version: 0,
             last_uploaded_version: 999999,
             last_frame_time: None,
@@ -61,6 +66,24 @@ impl VideoEditorApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         AppTheme::apply(&cc.egui_ctx);
         Self::default()
+    }
+
+    pub fn snapshot_timeline(&mut self) {
+        self.history.push_snapshot(&self.project.timeline);
+    }
+
+    pub fn undo(&mut self, ctx: Option<&Context>) {
+        if let Some(prev) = self.history.undo(&self.project.timeline) {
+            self.project.timeline = prev;
+            self.refresh_preview_frame(ctx);
+        }
+    }
+
+    pub fn redo(&mut self, ctx: Option<&Context>) {
+        if let Some(next) = self.history.redo(&self.project.timeline) {
+            self.project.timeline = next;
+            self.refresh_preview_frame(ctx);
+        }
     }
 
     /// Import a media file into the project's media bin and automatically place it on timeline if empty.
@@ -270,8 +293,30 @@ impl eframe::App for VideoEditorApp {
         if ctx.input(|i| i.key_pressed(Key::Space)) {
             self.toggle_playback(ctx);
         }
-        if ctx.input(|i| i.key_pressed(Key::S)) {
+        if ctx.input(|i| i.key_pressed(Key::S) && !i.modifiers.ctrl && !i.modifiers.command) {
+            self.snapshot_timeline();
             self.project.timeline.split_at_playhead();
+            self.refresh_preview_frame(Some(ctx));
+        }
+        if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && !i.modifiers.shift && i.key_pressed(Key::Z)) {
+            self.undo(Some(ctx));
+        }
+        if ctx.input(|i| ((i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(Key::Y)) || ((i.modifiers.command || i.modifiers.ctrl) && i.modifiers.shift && i.key_pressed(Key::Z))) {
+            self.redo(Some(ctx));
+        }
+        if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(Key::C)) {
+            if let Some(clip) = self.project.timeline.get_selected_clip() {
+                self.clipboard_clip = Some(clip.clone());
+            }
+        }
+        if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(Key::V)) {
+            if let Some(clip) = self.clipboard_clip.clone() {
+                self.snapshot_timeline();
+                let track_id = self.project.timeline.tracks.first().map(|t| t.id).unwrap_or(0);
+                let playhead = self.project.timeline.playhead;
+                self.project.timeline.paste_clip(clip, track_id, playhead);
+                self.refresh_preview_frame(Some(ctx));
+            }
         }
         if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(Key::E)) {
             self.export_dialog.is_open = true;
@@ -419,12 +464,23 @@ impl eframe::App for VideoEditorApp {
         // ==========================================
         // 7. Render Bottom Panel: Timeline Canvas
         // ==========================================
+        let can_undo = self.history.can_undo();
+        let can_redo = self.history.can_redo();
+        let has_clipboard = self.clipboard_clip.is_some();
+
         egui::TopBottomPanel::bottom("bottom_timeline_panel")
             .resizable(true)
             .default_height(280.0)
             .min_height(200.0)
             .show(ctx, |ui| {
-                match TimelineView::render(ui, &mut self.project.timeline, &self.peak_cache) {
+                match TimelineView::render(
+                    ui,
+                    &mut self.project.timeline,
+                    &self.peak_cache,
+                    can_undo,
+                    can_redo,
+                    has_clipboard,
+                ) {
                     TimelineAction::Seek(time) => {
                         self.seek_to(time, ctx);
                     }
@@ -436,25 +492,88 @@ impl eframe::App for VideoEditorApp {
                         target_track_id,
                         new_start,
                     } => {
+                        self.snapshot_timeline();
                         self.project.timeline.move_clip(clip_id, target_track_id, new_start);
                         self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::ClipTrimmed { .. } => {
+                        self.snapshot_timeline();
                         self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::SplitAtPlayhead => {
+                        self.snapshot_timeline();
                         self.project.timeline.split_at_playhead();
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    TimelineAction::SplitClipAtTime { clip_id, split_time } => {
+                        self.snapshot_timeline();
+                        self.project.timeline.split_clip_at_time(clip_id, split_time);
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    TimelineAction::DivideClipInHalf(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.divide_clip_in_half(clip_id);
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    TimelineAction::TrimStartToPlayhead(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.trim_clip_start_to_playhead(clip_id);
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    TimelineAction::TrimEndToPlayhead(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.trim_clip_end_to_playhead(clip_id);
+                        self.refresh_preview_frame(Some(ctx));
+                    }
+                    TimelineAction::ApplyFadeIn(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.apply_fade_in(clip_id, 1.0);
+                    }
+                    TimelineAction::ApplyFadeOut(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.apply_fade_out(clip_id, 1.0);
+                    }
+                    TimelineAction::CopyClip(clip_id) => {
+                        if let Some(clip) = self.project.timeline.get_clip(clip_id) {
+                            self.clipboard_clip = Some(clip.clone());
+                        }
+                    }
+                    TimelineAction::PasteClip { track_id, target_time } => {
+                        if let Some(clip) = self.clipboard_clip.clone() {
+                            self.snapshot_timeline();
+                            self.project.timeline.paste_clip(clip, track_id, target_time);
+                            self.refresh_preview_frame(Some(ctx));
+                        }
+                    }
+                    TimelineAction::DeleteClip(clip_id) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.delete_clip(clip_id);
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::DeleteSelected => {
+                        self.snapshot_timeline();
                         self.project.timeline.delete_selected_clips();
                         self.refresh_preview_frame(Some(ctx));
                     }
+                    TimelineAction::Undo => {
+                        self.undo(Some(ctx));
+                    }
+                    TimelineAction::Redo => {
+                        self.redo(Some(ctx));
+                    }
+                    TimelineAction::CloseGaps(track_id_opt) => {
+                        self.snapshot_timeline();
+                        self.project.timeline.close_gaps(track_id_opt);
+                        self.refresh_preview_frame(Some(ctx));
+                    }
                     TimelineAction::AddVideoTrack => {
+                        self.snapshot_timeline();
                         self.project
                             .timeline
                             .add_track("🎬 Video Track".to_string(), TrackKind::Video);
                     }
                     TimelineAction::AddAudioTrack => {
+                        self.snapshot_timeline();
                         self.project
                             .timeline
                             .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);

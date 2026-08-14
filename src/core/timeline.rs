@@ -250,4 +250,159 @@ impl Timeline {
 
         false
     }
+
+    /// Retrieve a clip by its ID.
+    pub fn get_clip(&self, clip_id: u64) -> Option<&Clip> {
+        for track in &self.tracks {
+            for clip in &track.clips {
+                if clip.id == clip_id {
+                    return Some(clip);
+                }
+            }
+        }
+        None
+    }
+
+    /// Retrieve a mutable reference to a clip by its ID.
+    pub fn get_clip_mut(&mut self, clip_id: u64) -> Option<&mut Clip> {
+        for track in &mut self.tracks {
+            for clip in &mut track.clips {
+                if clip.id == clip_id {
+                    return Some(clip);
+                }
+            }
+        }
+        None
+    }
+
+    /// Divide a clip into two equal halves.
+    pub fn divide_clip_in_half(&mut self, clip_id: u64) -> bool {
+        let (split_time, track_id) = if let Some(clip) = self.get_clip(clip_id) {
+            let half_micros = clip.duration().micros / 2;
+            let split = clip.timeline_start + TimeCode::from_micros(half_micros);
+            (split, clip.track_id)
+        } else {
+            return false;
+        };
+
+        let mut next_id = self.next_id;
+        let res = if let Some(track) = self.get_track_mut(track_id) {
+            track.split_clip_at(split_time, &mut next_id)
+        } else {
+            false
+        };
+        self.next_id = next_id;
+        res
+    }
+
+    /// Split a specific clip at a designated timeline timestamp.
+    pub fn split_clip_at_time(&mut self, clip_id: u64, split_time: TimeCode) -> bool {
+        let track_id = if let Some(clip) = self.get_clip(clip_id) {
+            clip.track_id
+        } else {
+            return false;
+        };
+
+        let mut next_id = self.next_id;
+        let res = if let Some(track) = self.get_track_mut(track_id) {
+            track.split_clip_at(split_time, &mut next_id)
+        } else {
+            false
+        };
+        self.next_id = next_id;
+        res
+    }
+
+    /// Delete a single clip by its ID across all tracks.
+    pub fn delete_clip(&mut self, clip_id: u64) -> bool {
+        for track in &mut self.tracks {
+            if let Some(pos) = track.clips.iter().position(|c| c.id == clip_id) {
+                track.clips.remove(pos);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Trim clip start point to match the current playhead.
+    pub fn trim_clip_start_to_playhead(&mut self, clip_id: u64) -> bool {
+        let playhead = self.playhead;
+        if let Some(clip) = self.get_clip_mut(clip_id) {
+            if playhead > clip.timeline_start && playhead < clip.timeline_end() {
+                let delta = playhead - clip.timeline_start;
+                clip.source_in += delta;
+                clip.timeline_start = playhead;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Trim clip end point to match the current playhead.
+    pub fn trim_clip_end_to_playhead(&mut self, clip_id: u64) -> bool {
+        let playhead = self.playhead;
+        if let Some(clip) = self.get_clip_mut(clip_id) {
+            if playhead > clip.timeline_start && playhead < clip.timeline_end() {
+                let remaining = playhead - clip.timeline_start;
+                clip.source_out = clip.source_in + remaining;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Apply an automatic volume Fade-In ramp (e.g. 1.0s) to a clip.
+    pub fn apply_fade_in(&mut self, clip_id: u64, dur_secs: f64) -> bool {
+        if let Some(clip) = self.get_clip_mut(clip_id) {
+            let fade_tc = TimeCode::from_secs_f64(dur_secs.min(clip.duration().as_secs_f64()));
+            clip.volume_envelope.nodes.retain(|n| n.time_offset > fade_tc);
+            clip.volume_envelope.add_node(TimeCode::ZERO, 0.0, crate::core::envelope::CurveType::Linear);
+            clip.volume_envelope.add_node(fade_tc, 1.0, crate::core::envelope::CurveType::Linear);
+            return true;
+        }
+        false
+    }
+
+    /// Apply an automatic volume Fade-Out ramp (e.g. 1.0s) to a clip.
+    pub fn apply_fade_out(&mut self, clip_id: u64, dur_secs: f64) -> bool {
+        if let Some(clip) = self.get_clip_mut(clip_id) {
+            let clip_dur = clip.duration();
+            let fade_len = TimeCode::from_secs_f64(dur_secs.min(clip_dur.as_secs_f64()));
+            let start_fade = clip_dur - fade_len;
+            clip.volume_envelope.nodes.retain(|n| n.time_offset < start_fade);
+            clip.volume_envelope.add_node(start_fade, 1.0, crate::core::envelope::CurveType::Linear);
+            clip.volume_envelope.add_node(clip_dur, 0.0, crate::core::envelope::CurveType::Linear);
+            return true;
+        }
+        false
+    }
+
+    /// Paste a copied clip at the target timestamp and track.
+    pub fn paste_clip(&mut self, mut clip: Clip, track_id: u64, target_time: TimeCode) -> u64 {
+        let new_id = self.next_id();
+        clip.id = new_id;
+        clip.track_id = track_id;
+        clip.timeline_start = target_time;
+        clip.is_selected = true;
+
+        self.clear_selection();
+
+        if let Some(track) = self.get_track_mut(track_id) {
+            track.add_clip(clip);
+        }
+        new_id
+    }
+
+    /// Magnetically close all empty gaps between clips on one or all tracks.
+    pub fn close_gaps(&mut self, target_track_id: Option<u64>) {
+        for track in &mut self.tracks {
+            if target_track_id.is_none() || Some(track.id) == target_track_id {
+                let mut current_pos = TimeCode::ZERO;
+                for clip in &mut track.clips {
+                    clip.timeline_start = current_pos;
+                    current_pos = current_pos + clip.duration();
+                }
+            }
+        }
+    }
 }

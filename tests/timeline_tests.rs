@@ -167,3 +167,186 @@ fn test_universal_format_filters() {
     assert!(SUPPORTED_IMAGE_EXTENSIONS.contains(&"jpg"));
     assert!(SUPPORTED_IMAGE_EXTENSIONS.contains(&"png"));
 }
+
+#[test]
+fn test_timeline_history_undo_redo() {
+    use video_editor::core::history::TimelineHistory;
+
+    let mut history = TimelineHistory::new(50);
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    // Initial state: 0 clips
+    assert_eq!(timeline.tracks[0].clips.len(), 0);
+    assert!(!history.can_undo());
+
+    // Action 1: Add a clip
+    history.push_snapshot(&timeline);
+    let clip = Clip::new(
+        1,
+        track_id,
+        "Clip 1".to_string(),
+        PathBuf::from("video.mp4"),
+        TimeCode::from_secs_f64(10.0),
+        true,
+        true,
+    );
+    timeline.tracks[0].add_clip(clip);
+    assert_eq!(timeline.tracks[0].clips.len(), 1);
+    assert!(history.can_undo());
+
+    // Action 2: Split the clip
+    history.push_snapshot(&timeline);
+    timeline.divide_clip_in_half(1);
+    assert_eq!(timeline.tracks[0].clips.len(), 2);
+
+    // Test Undo 1: Revert split -> back to 1 clip
+    if let Some(prev) = history.undo(&timeline) {
+        timeline = prev;
+    }
+    assert_eq!(timeline.tracks[0].clips.len(), 1);
+    assert!(history.can_redo());
+
+    // Test Undo 2: Revert add -> back to 0 clips
+    if let Some(prev) = history.undo(&timeline) {
+        timeline = prev;
+    }
+    assert_eq!(timeline.tracks[0].clips.len(), 0);
+    assert!(!history.can_undo());
+
+    // Test Redo 1: Back to 1 clip
+    if let Some(next) = history.redo(&timeline) {
+        timeline = next;
+    }
+    assert_eq!(timeline.tracks[0].clips.len(), 1);
+
+    // Test Redo 2: Back to 2 clips
+    if let Some(next) = history.redo(&timeline) {
+        timeline = next;
+    }
+    assert_eq!(timeline.tracks[0].clips.len(), 2);
+}
+
+#[test]
+fn test_divide_clip_in_half() {
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let clip = Clip::new(
+        1,
+        track_id,
+        "Clip 10s".to_string(),
+        PathBuf::from("video.mp4"),
+        TimeCode::from_secs_f64(10.0),
+        true,
+        true,
+    );
+    timeline.tracks[0].add_clip(clip);
+
+    let divided = timeline.divide_clip_in_half(1);
+    assert!(divided);
+    assert_eq!(timeline.tracks[0].clips.len(), 2);
+    assert_eq!(timeline.tracks[0].clips[0].duration().as_secs_f64(), 5.0);
+    assert_eq!(timeline.tracks[0].clips[1].duration().as_secs_f64(), 5.0);
+    assert_eq!(timeline.tracks[0].clips[1].timeline_start.as_secs_f64(), 5.0);
+}
+
+#[test]
+fn test_trim_clip_to_playhead() {
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let mut clip = Clip::new(
+        1,
+        track_id,
+        "Clip 10s".to_string(),
+        PathBuf::from("video.mp4"),
+        TimeCode::from_secs_f64(10.0),
+        true,
+        true,
+    );
+    clip.timeline_start = TimeCode::ZERO;
+    timeline.tracks[0].add_clip(clip);
+
+    // Set playhead to 3.0s and trim start
+    timeline.playhead = TimeCode::from_secs_f64(3.0);
+    assert!(timeline.trim_clip_start_to_playhead(1));
+    let c = timeline.get_clip(1).unwrap();
+    assert_eq!(c.timeline_start.as_secs_f64(), 3.0);
+    assert_eq!(c.source_in.as_secs_f64(), 3.0);
+    assert_eq!(c.duration().as_secs_f64(), 7.0);
+
+    // Set playhead to 8.0s and trim end
+    timeline.playhead = TimeCode::from_secs_f64(8.0);
+    assert!(timeline.trim_clip_end_to_playhead(1));
+    let c2 = timeline.get_clip(1).unwrap();
+    assert_eq!(c2.timeline_start.as_secs_f64(), 3.0);
+    assert_eq!(c2.source_out.as_secs_f64(), 8.0);
+    assert_eq!(c2.duration().as_secs_f64(), 5.0);
+}
+
+#[test]
+fn test_close_gaps_magnet() {
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let mut clip1 = Clip::new(
+        1,
+        track_id,
+        "Clip 1".to_string(),
+        PathBuf::from("1.mp4"),
+        TimeCode::from_secs_f64(4.0),
+        true,
+        false,
+    );
+    clip1.timeline_start = TimeCode::from_secs_f64(2.0); // 2s gap at start
+
+    let mut clip2 = Clip::new(
+        2,
+        track_id,
+        "Clip 2".to_string(),
+        PathBuf::from("2.mp4"),
+        TimeCode::from_secs_f64(6.0),
+        true,
+        false,
+    );
+    clip2.timeline_start = TimeCode::from_secs_f64(10.0); // 4s gap between clips
+
+    timeline.tracks[0].add_clip(clip1);
+    timeline.tracks[0].add_clip(clip2);
+
+    // Close all gaps
+    timeline.close_gaps(None);
+
+    let t = &timeline.tracks[0];
+    assert_eq!(t.clips[0].timeline_start.as_secs_f64(), 0.0);
+    assert_eq!(t.clips[0].duration().as_secs_f64(), 4.0);
+    assert_eq!(t.clips[1].timeline_start.as_secs_f64(), 4.0);
+    assert_eq!(t.clips[1].duration().as_secs_f64(), 6.0);
+    assert_eq!(timeline.duration().as_secs_f64(), 10.0);
+}
+
+#[test]
+fn test_paste_clip() {
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let clip = Clip::new(
+        1,
+        track_id,
+        "Original".to_string(),
+        PathBuf::from("source.mp4"),
+        TimeCode::from_secs_f64(8.0),
+        true,
+        true,
+    );
+
+    let pasted_id = timeline.paste_clip(clip, track_id, TimeCode::from_secs_f64(15.0));
+    assert_eq!(pasted_id, 100);
+    assert_eq!(timeline.tracks[0].clips.len(), 1);
+    let pasted = timeline.get_clip(pasted_id).unwrap();
+    assert_eq!(pasted.timeline_start.as_secs_f64(), 15.0);
+    assert_eq!(pasted.duration().as_secs_f64(), 8.0);
+    assert!(pasted.is_selected);
+}
+

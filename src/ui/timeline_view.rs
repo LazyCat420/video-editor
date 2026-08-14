@@ -28,7 +28,25 @@ pub enum TimelineAction {
         new_start: TimeCode,
     },
     SplitAtPlayhead,
+    SplitClipAtTime {
+        clip_id: u64,
+        split_time: TimeCode,
+    },
+    DivideClipInHalf(u64),
+    TrimStartToPlayhead(u64),
+    TrimEndToPlayhead(u64),
+    ApplyFadeIn(u64),
+    ApplyFadeOut(u64),
+    CopyClip(u64),
+    PasteClip {
+        track_id: u64,
+        target_time: TimeCode,
+    },
+    DeleteClip(u64),
     DeleteSelected,
+    Undo,
+    Redo,
+    CloseGaps(Option<u64>),
     AddVideoTrack,
     AddAudioTrack,
 }
@@ -42,6 +60,9 @@ impl TimelineView {
         ui: &mut Ui,
         timeline: &mut Timeline,
         peak_cache: &HashMap<String, WaveformPeaks>,
+        can_undo: bool,
+        can_redo: bool,
+        has_clipboard: bool,
     ) -> TimelineAction {
         let mut action = TimelineAction::None;
 
@@ -49,7 +70,7 @@ impl TimelineView {
         let pps = timeline.zoom_pps;
 
         // Process global hotkeys
-        if ui.input(|i| i.key_pressed(Key::S)) {
+        if ui.input(|i| i.key_pressed(Key::S) && !i.modifiers.ctrl && !i.modifiers.command) {
             action = TimelineAction::SplitAtPlayhead;
         }
         if ui.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
@@ -96,6 +117,89 @@ impl TimelineView {
         };
 
         ui.vertical(|ui| {
+            // ====================================================
+            // 0. Top Toolbar: Undo, Redo, Split, Close Gaps, Zoom
+            // ====================================================
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+
+                if ui
+                    .add_enabled(
+                        can_undo,
+                        Button::new(
+                            RichText::new("↩️ Undo (Ctrl+Z)")
+                                .size(13.0)
+                                .color(if can_undo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
+                        ),
+                    )
+                    .clicked()
+                {
+                    action = TimelineAction::Undo;
+                }
+
+                if ui
+                    .add_enabled(
+                        can_redo,
+                        Button::new(
+                            RichText::new("↪️ Redo (Ctrl+Y)")
+                                .size(13.0)
+                                .color(if can_redo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
+                        ),
+                    )
+                    .clicked()
+                {
+                    action = TimelineAction::Redo;
+                }
+
+                ui.separator();
+
+                if ui
+                    .button(
+                        RichText::new("✂️ Split at Marker (S)")
+                            .size(13.0)
+                            .color(AppTheme::ACCENT_BLUE),
+                    )
+                    .clicked()
+                {
+                    action = TimelineAction::SplitAtPlayhead;
+                }
+
+                if ui
+                    .button(
+                        RichText::new("🧲 Close All Gaps")
+                            .size(13.0)
+                            .color(AppTheme::ACCENT_CYAN),
+                    )
+                    .on_hover_text("Magnetically pull all clips together to remove empty black spaces")
+                    .clicked()
+                {
+                    action = TimelineAction::CloseGaps(None);
+                }
+
+                if ui
+                    .button(
+                        RichText::new("🗑️ Delete Selected")
+                            .size(13.0)
+                            .color(AppTheme::TEXT_SECONDARY),
+                    )
+                    .clicked()
+                {
+                    action = TimelineAction::DeleteSelected;
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    ui.add(
+                        egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
+                            .logarithmic(true)
+                            .show_value(false),
+                    );
+                    ui.label(RichText::new("🔍 Zoom:").size(12.0).color(AppTheme::TEXT_SECONDARY));
+                });
+            });
+
+            ui.add_space(3.0);
+
             ui.horizontal(|ui| {
                 // ==========================================
                 // 1. Left Fixed Column: Track Headers
@@ -149,24 +253,33 @@ impl TimelineView {
                                     );
                                 });
 
-                                ui.add_space(2.0);
+                                ui.add_space(4.0);
 
                                 ui.horizontal(|ui| {
-                                    // Mute Button
-                                    let mute_text = if track.is_muted { "🔇 Muted" } else { "🔊 Mute" };
-                                    let mute_btn = Button::new(RichText::new(mute_text).size(12.0))
-                                        .fill(if track.is_muted { AppTheme::ACCENT_RED } else { AppTheme::BG_CARD });
-                                    if ui.add(mute_btn).clicked() {
+                                    let mute_text = if track.is_muted {
+                                        RichText::new("🔇 Muted").color(Color32::from_rgb(255, 100, 100))
+                                    } else {
+                                        RichText::new("🔊 Mute").color(AppTheme::TEXT_SECONDARY)
+                                    };
+                                    if ui.button(mute_text).clicked() {
                                         track.is_muted = !track.is_muted;
                                     }
 
-                                    // Track Volume percentage slider
-                                    let vol_pct = (track.volume * 100.0).round() as u64;
-                                    ui.label(RichText::new(format!("{}%", vol_pct)).size(12.0).color(AppTheme::TEXT_SECONDARY));
+                                    let solo_text = if track.is_solo {
+                                        RichText::new("⭐ Solo").color(AppTheme::ACCENT_YELLOW)
+                                    } else {
+                                        RichText::new("Solo").color(AppTheme::TEXT_MUTED)
+                                    };
+                                    if ui.button(solo_text).clicked() {
+                                        track.is_solo = !track.is_solo;
+                                    }
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Vol").size(11.0).color(AppTheme::TEXT_MUTED));
                                     ui.add(
                                         egui::Slider::new(&mut track.volume, 0.0..=2.0)
-                                            .show_value(false)
-                                            .text(""),
+                                            .show_value(false),
                                     );
                                 });
                             });
@@ -174,29 +287,42 @@ impl TimelineView {
                     }
 
                     // Add Track Buttons
+                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        if ui.button("+ Video").on_hover_text("Add another video track").clicked() {
+                        if ui
+                            .button(
+                                RichText::new("+ Video Track")
+                                    .size(12.0)
+                                    .color(AppTheme::ACCENT_BLUE),
+                            )
+                            .clicked()
+                        {
                             action = TimelineAction::AddVideoTrack;
                         }
-                        if ui.button("+ Audio").on_hover_text("Add another music/audio track").clicked() {
+                        if ui
+                            .button(
+                                RichText::new("+ Music Track")
+                                    .size(12.0)
+                                    .color(AppTheme::ACCENT_GREEN),
+                            )
+                            .clicked()
+                        {
                             action = TimelineAction::AddAudioTrack;
                         }
                     });
                 });
 
                 // ==========================================
-                // 2. Right Column: Scrollable Timeline Canvas
+                // 2. Right Horizontally Scrollable Timeline Area
                 // ==========================================
-                let canvas_width = (available_size.x - Self::HEADER_WIDTH).max(400.0);
-                let total_dur_secs = timeline.duration().as_secs_f64().max(30.0) + 10.0;
-                let total_timeline_pixels = (total_dur_secs as f32 * pps).max(canvas_width);
+                let track_area_width = available_size.x - Self::HEADER_WIDTH - 20.0;
+                let total_timeline_pixels = (timeline.duration().to_pixels(pps) + 400.0)
+                    .max(track_area_width);
 
                 ScrollArea::horizontal()
-                    .id_salt("timeline_scroll_area")
+                    .id_salt("timeline_scroll")
                     .show(ui, |ui| {
                         ui.vertical(|ui| {
-                            ui.set_width(total_timeline_pixels);
-
                             // ----------------------------------------------------
                             // 2A. Top Time Ruler Canvas
                             // ----------------------------------------------------
@@ -261,7 +387,7 @@ impl TimelineView {
                             // 2B. Multi-Track Canvas & Clips
                             // ----------------------------------------------------
                             for track in &mut timeline.tracks {
-                                let (track_rect, _track_response) = ui.allocate_exact_size(
+                                let (track_rect, track_response) = ui.allocate_exact_size(
                                     Vec2::new(total_timeline_pixels, Self::TRACK_HEIGHT),
                                     Sense::click_and_drag(),
                                 );
@@ -279,6 +405,47 @@ impl TimelineView {
                                     Stroke::new(1.0, AppTheme::BG_HOVER),
                                 );
 
+                                // Right-click context menu on Track Background
+                                track_response.context_menu(|ui| {
+                                    ui.set_min_width(190.0);
+                                    ui.label(
+                                        RichText::new(format!("Track: {}", track.name))
+                                            .strong()
+                                            .size(13.0)
+                                            .color(AppTheme::TEXT_SECONDARY),
+                                    );
+                                    ui.separator();
+
+                                    if ui
+                                        .add_enabled(
+                                            has_clipboard,
+                                            Button::new(
+                                                RichText::new("📋 Paste Clip Here (Ctrl+V)").size(13.0),
+                                            ),
+                                        )
+                                        .clicked()
+                                    {
+                                        let mouse_pos = ui.input(|i| {
+                                            i.pointer.hover_pos().unwrap_or(track_rect.left_top())
+                                        });
+                                        let offset_px = (mouse_pos.x - track_rect.min.x).max(0.0);
+                                        let target_time = TimeCode::from_pixels(offset_px, pps);
+                                        action = TimelineAction::PasteClip {
+                                            track_id: track.id,
+                                            target_time,
+                                        };
+                                        ui.close_menu();
+                                    }
+
+                                    if ui
+                                        .button(RichText::new("🧲 Close Gaps on This Track").size(13.0))
+                                        .clicked()
+                                    {
+                                        action = TimelineAction::CloseGaps(Some(track.id));
+                                        ui.close_menu();
+                                    }
+                                });
+
                                 // Render clips on this track
                                 for clip in &mut track.clips {
                                     let clip_dur = clip.duration();
@@ -291,7 +458,11 @@ impl TimelineView {
                                     );
 
                                     let clip_id_egui = Id::new(format!("clip_{}", clip.id));
-                                    let clip_resp = ui.interact(clip_rect, clip_id_egui, Sense::click_and_drag());
+                                    let clip_resp = ui.interact(
+                                        clip_rect,
+                                        clip_id_egui,
+                                        Sense::click_and_drag(),
+                                    );
 
                                     if clip_resp.clicked() {
                                         action = TimelineAction::ClipSelected(clip.id);
@@ -319,6 +490,137 @@ impl TimelineView {
                                         };
                                     }
 
+                                    // Right-Click Context Menu on Clip
+                                    clip_resp.context_menu(|ui| {
+                                        ui.set_min_width(210.0);
+                                        ui.add_space(3.0);
+                                        ui.label(
+                                            RichText::new(format!("🎬 {}", clip.name))
+                                                .strong()
+                                                .size(13.0)
+                                                .color(AppTheme::ACCENT_CYAN),
+                                        );
+                                        ui.separator();
+
+                                        if ui
+                                            .button(
+                                                RichText::new("✂️ Split / Cut Here (S)")
+                                                    .size(13.0)
+                                                    .color(AppTheme::ACCENT_BLUE),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::SplitClipAtTime {
+                                                clip_id: clip.id,
+                                                split_time: timeline.playhead,
+                                            };
+                                            ui.close_menu();
+                                        }
+
+                                        if ui
+                                            .button(
+                                                RichText::new("➗ Divide in 2 Equal Halves")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::DivideClipInHalf(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui
+                                            .button(
+                                                RichText::new("✂️ Trim Start to Red Marker")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::TrimStartToPlayhead(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        if ui
+                                            .button(
+                                                RichText::new("✂️ Trim End to Red Marker")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::TrimEndToPlayhead(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui
+                                            .button(
+                                                RichText::new("📋 Copy Clip (Ctrl+C)")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::CopyClip(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        if ui
+                                            .add_enabled(
+                                                has_clipboard,
+                                                Button::new(
+                                                    RichText::new("📋 Paste Clip (Ctrl+V)")
+                                                        .size(13.0),
+                                                ),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::PasteClip {
+                                                track_id: track.id,
+                                                target_time: clip.timeline_end(),
+                                            };
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui
+                                            .button(
+                                                RichText::new("📈 Auto Fade In (1.0s)")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::ApplyFadeIn(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        if ui
+                                            .button(
+                                                RichText::new("📉 Auto Fade Out (1.0s)")
+                                                    .size(13.0),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::ApplyFadeOut(clip.id);
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui
+                                            .button(
+                                                RichText::new("🗑️ Delete Clip (Del)")
+                                                    .size(13.0)
+                                                    .color(Color32::from_rgb(255, 100, 100)),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = TimelineAction::DeleteClip(clip.id);
+                                            ui.close_menu();
+                                        }
+                                    });
+
                                     // Draw Clip Background
                                     let clip_painter = ui.painter_at(clip_rect);
                                     let bg_color = if clip.is_selected {
@@ -345,7 +647,11 @@ impl TimelineView {
                                         Rounding::same(6.0),
                                         Stroke::new(
                                             if clip.is_selected { 2.5 } else { 1.0 },
-                                            if clip.is_selected { Color32::WHITE } else { AppTheme::BG_HOVER },
+                                            if clip.is_selected {
+                                                Color32::WHITE
+                                            } else {
+                                                AppTheme::BG_HOVER
+                                            },
                                         ),
                                     );
 
@@ -391,11 +697,14 @@ impl TimelineView {
                             // ----------------------------------------------------
                             // 2C. Playhead Vertical Line & Scrubber Marker
                             // ----------------------------------------------------
-                            let playhead_x = ruler_rect.min.x + timeline.playhead.to_pixels(pps);
-                            let total_canvas_height = Self::RULER_HEIGHT + (timeline.tracks.len() as f32 * Self::TRACK_HEIGHT);
+                            let playhead_x =
+                                ruler_rect.min.x + timeline.playhead.to_pixels(pps);
+                            let total_canvas_height = Self::RULER_HEIGHT
+                                + (timeline.tracks.len() as f32 * Self::TRACK_HEIGHT);
 
                             let playhead_top = Pos2::new(playhead_x, ruler_rect.min.y);
-                            let playhead_bottom = Pos2::new(playhead_x, ruler_rect.min.y + total_canvas_height);
+                            let playhead_bottom =
+                                Pos2::new(playhead_x, ruler_rect.min.y + total_canvas_height);
 
                             let playhead_painter = ui.painter();
 
@@ -432,17 +741,17 @@ impl TimelineView {
                         .color(AppTheme::ACCENT_YELLOW),
                 );
                 ui.label(
-                    RichText::new("1. Click anywhere on the ruler above to move the red marker.")
+                    RichText::new("1. Right-click any clip for Cut, Divide, Copy, Fades, and Delete.")
                         .size(13.0)
                         .color(AppTheme::TEXT_SECONDARY),
                 );
                 ui.label(
-                    RichText::new("2. Click '2. ✂ Cut Video' to slice your clip.")
+                    RichText::new("2. Click '↩ Undo' above if you make any mistake.")
                         .size(13.0)
                         .color(AppTheme::TEXT_SECONDARY),
                 );
                 ui.label(
-                    RichText::new("3. Click and drag the yellow line on music to lower the sound.")
+                    RichText::new("3. Click '🧲 Close All Gaps' to automatically remove empty black spaces.")
                         .size(13.0)
                         .color(AppTheme::TEXT_SECONDARY),
                 );
