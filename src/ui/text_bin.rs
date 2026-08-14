@@ -1,7 +1,8 @@
 use crate::core::clip::Clip;
-use crate::core::text_overlay::{TextOverlay, TextPosition, TextStylePreset, TitleCardTheme};
+use crate::core::text_overlay::{
+    FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition, TitleCardBackground,
+};
 use crate::core::timeline::Timeline;
-use crate::core::transition::TransitionKind;
 use crate::ui::theme::AppTheme;
 use egui::{Button, Color32, Frame, Id, RichText, Rounding, ScrollArea, Ui};
 use std::path::PathBuf;
@@ -15,89 +16,70 @@ pub enum TextBinAction {
         overlay: Option<TextOverlay>,
     },
     InsertTitleCard {
-        title: String,
-        subtitle: Option<String>,
-        theme: TitleCardTheme,
+        name: String,
+        overlay: TextOverlay,
+        bg: TitleCardBackground,
         duration_secs: f64,
         at_start: bool,
-    },
-    CreateVacationSlideshow {
-        paths: Vec<PathBuf>,
-        title: String,
-        subtitle: Option<String>,
-        outro: String,
-        theme: TitleCardTheme,
-        photo_duration_secs: f64,
-        transition: Option<TransitionKind>,
     },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextBinTab {
-    Wizard,
-    TitleCards,
-    SelectedCaption,
+    TitleCardBuilder,
+    SelectedClipText,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackgroundMode {
+    SolidColor,
+    Picture,
 }
 
 impl TextBinView {
     pub fn render(ui: &mut Ui, timeline: &mut Timeline) -> TextBinAction {
         let mut action = TextBinAction::None;
 
-        let tab_id = Id::new("text_bin_subtab");
+        let tab_id = Id::new("text_bin_tab_selection");
         let mut current_tab: TextBinTab = ui
             .data_mut(|d| d.get_temp(tab_id))
-            .unwrap_or(TextBinTab::Wizard);
+            .unwrap_or(TextBinTab::TitleCardBuilder);
 
         let selected_clip: Option<Clip> = timeline.get_selected_clip().cloned();
 
         ui.vertical(|ui| {
             ui.add_space(4.0);
 
-            // Subtab Header
+            // Tab Selector Header
             ui.horizontal(|ui| {
-                let is_wiz = current_tab == TextBinTab::Wizard;
-                let is_cards = current_tab == TextBinTab::TitleCards;
-                let is_caption = current_tab == TextBinTab::SelectedCaption;
+                let is_builder = current_tab == TextBinTab::TitleCardBuilder;
+                let is_clip_text = current_tab == TextBinTab::SelectedClipText;
 
-                let wiz_btn = Button::new(
-                    RichText::new("🌴 Slideshow Wizard")
-                        .size(12.0)
+                let builder_btn = Button::new(
+                    RichText::new("🎬 Title Card Builder")
+                        .size(12.5)
                         .strong()
-                        .color(if is_wiz { Color32::WHITE } else { AppTheme::text_secondary() }),
+                        .color(if is_builder { Color32::WHITE } else { AppTheme::text_secondary() }),
                 )
-                .fill(if is_wiz { AppTheme::accent_blue() } else { AppTheme::bg_card() })
-                .min_size(egui::vec2(130.0, 28.0));
+                .fill(if is_builder { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                .min_size(egui::vec2(140.0, 30.0));
 
-                if ui.add(wiz_btn).on_hover_text("1-Click Vacation Slideshow Creator").clicked() {
-                    current_tab = TextBinTab::Wizard;
+                if ui.add(builder_btn).on_hover_text("Create standalone title card with solid color or photo background").clicked() {
+                    current_tab = TextBinTab::TitleCardBuilder;
                     ui.data_mut(|d| d.insert_temp(tab_id, current_tab));
                 }
 
-                let cards_btn = Button::new(
-                    RichText::new("🎬 Title Cards")
-                        .size(12.0)
+                let clip_btn = Button::new(
+                    RichText::new("💬 Text on Clip")
+                        .size(12.5)
                         .strong()
-                        .color(if is_cards { Color32::WHITE } else { AppTheme::text_secondary() }),
+                        .color(if is_clip_text { Color32::WHITE } else { AppTheme::text_secondary() }),
                 )
-                .fill(if is_cards { AppTheme::accent_blue() } else { AppTheme::bg_card() })
-                .min_size(egui::vec2(95.0, 28.0));
+                .fill(if is_clip_text { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                .min_size(egui::vec2(110.0, 30.0));
 
-                if ui.add(cards_btn).on_hover_text("Add Opening or Ending Title Cards").clicked() {
-                    current_tab = TextBinTab::TitleCards;
-                    ui.data_mut(|d| d.insert_temp(tab_id, current_tab));
-                }
-
-                let cap_btn = Button::new(
-                    RichText::new("💬 Captions")
-                        .size(12.0)
-                        .strong()
-                        .color(if is_caption { Color32::WHITE } else { AppTheme::text_secondary() }),
-                )
-                .fill(if is_caption { AppTheme::accent_blue() } else { AppTheme::bg_card() })
-                .min_size(egui::vec2(80.0, 28.0));
-
-                if ui.add(cap_btn).on_hover_text("Add text overlay to the selected picture").clicked() {
-                    current_tab = TextBinTab::SelectedCaption;
+                if ui.add(clip_btn).on_hover_text("Add text/captions directly on top of selected video/photo").clicked() {
+                    current_tab = TextBinTab::SelectedClipText;
                     ui.data_mut(|d| d.insert_temp(tab_id, current_tab));
                 }
             });
@@ -108,14 +90,11 @@ impl TextBinView {
 
             ScrollArea::vertical().show(ui, |ui| {
                 match current_tab {
-                    TextBinTab::Wizard => {
-                        Self::render_wizard(ui, &mut action);
+                    TextBinTab::TitleCardBuilder => {
+                        Self::render_title_card_builder(ui, &mut action);
                     }
-                    TextBinTab::TitleCards => {
-                        Self::render_title_cards(ui, &mut action);
-                    }
-                    TextBinTab::SelectedCaption => {
-                        Self::render_caption_editor(ui, selected_clip.as_ref(), &mut action);
+                    TextBinTab::SelectedClipText => {
+                        Self::render_clip_text_editor(ui, selected_clip.as_ref(), &mut action);
                     }
                 }
             });
@@ -124,263 +103,258 @@ impl TextBinView {
         action
     }
 
-    fn render_wizard(ui: &mut Ui, action: &mut TextBinAction) {
+    /// Standalone Title Card Builder
+    fn render_title_card_builder(ui: &mut Ui, action: &mut TextBinAction) {
         Frame::none()
             .fill(AppTheme::bg_card())
             .rounding(Rounding::same(8.0))
             .inner_margin(12.0)
             .show(ui, |ui| {
                 ui.label(
-                    RichText::new("🌴 1-Click Vacation Slideshow Wizard")
-                        .size(15.0)
+                    RichText::new("🎬 Create Standalone Title Card")
+                        .size(14.5)
                         .strong()
                         .color(AppTheme::accent_yellow()),
                 );
                 ui.label(
-                    RichText::new("Turn a folder of vacation photos into a movie with titles & smooth transitions.")
+                    RichText::new("Add opening titles, chapters, or photo slides with formatted text.")
                         .size(12.0)
                         .color(AppTheme::text_secondary()),
                 );
 
-                ui.add_space(10.0);
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
 
-                // Step 1: Photos storage in UI state
-                let photos_id = Id::new("wizard_selected_photos");
-                let mut photos: Vec<PathBuf> = ui.data_mut(|d| d.get_temp(photos_id)).unwrap_or_default();
+                // 1. Background Selection: Solid Color vs Picture
+                let bg_mode_id = Id::new("builder_bg_mode");
+                let solid_col_id = Id::new("builder_solid_color");
+                let pic_path_id = Id::new("builder_picture_path");
+
+                let mut bg_mode: BackgroundMode = ui
+                    .data_mut(|d| d.get_temp(bg_mode_id))
+                    .unwrap_or(BackgroundMode::SolidColor);
+                let mut solid_color: Color32 = ui
+                    .data_mut(|d| d.get_temp(solid_col_id))
+                    .unwrap_or_else(|| Color32::from_rgb(18, 18, 26));
+                let mut pic_path: Option<PathBuf> = ui.data_mut(|d| d.get_temp(pic_path_id));
 
                 ui.label(
-                    RichText::new("Step 1: Pick Vacation Photos")
+                    RichText::new("1. Card Background:")
                         .size(13.0)
                         .strong()
                         .color(Color32::WHITE),
                 );
 
-                let pick_btn = Button::new(
-                    RichText::new(format!("📂 Select Photos ({} chosen)", photos.len()))
-                        .size(13.5)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(AppTheme::accent_blue())
-                .min_size(egui::vec2(ui.available_width(), 32.0));
+                ui.horizontal(|ui| {
+                    if ui.selectable_value(&mut bg_mode, BackgroundMode::SolidColor, "🎨 Solid Color").clicked() {
+                        ui.data_mut(|d| d.insert_temp(bg_mode_id, bg_mode));
+                    }
+                    if ui.selectable_value(&mut bg_mode, BackgroundMode::Picture, "🖼 Picture / Photo").clicked() {
+                        ui.data_mut(|d| d.insert_temp(bg_mode_id, bg_mode));
+                    }
+                });
 
-                if ui.add(pick_btn).clicked() {
-                    if let Some(files) = crate::media::probe::create_media_file_dialog().pick_files() {
-                        photos = files;
-                        ui.data_mut(|d| d.insert_temp(photos_id, photos.clone()));
+                ui.add_space(4.0);
+
+                match bg_mode {
+                    BackgroundMode::SolidColor => {
+                        ui.horizontal_wrapped(|ui| {
+                            let swatches = [
+                                ("⬛ Black", Color32::from_rgb(12, 12, 16)),
+                                ("🟦 Navy", Color32::from_rgb(15, 30, 60)),
+                                ("🟩 Forest", Color32::from_rgb(18, 48, 28)),
+                                ("🟫 Sand", Color32::from_rgb(55, 42, 28)),
+                                ("🟥 Crimson", Color32::from_rgb(55, 18, 25)),
+                                ("⬜ White", Color32::from_rgb(240, 240, 245)),
+                            ];
+
+                            for (lbl, col) in swatches {
+                                let is_active = solid_color == col;
+                                if ui
+                                    .add(
+                                        Button::new(
+                                            RichText::new(lbl)
+                                                .size(11.5)
+                                                .color(if is_active { Color32::WHITE } else { AppTheme::text_secondary() }),
+                                        )
+                                        .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_panel() }),
+                                    )
+                                    .clicked()
+                                {
+                                    solid_color = col;
+                                    ui.data_mut(|d| d.insert_temp(solid_col_id, solid_color));
+                                }
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Custom Color:").size(12.0).color(AppTheme::text_secondary()));
+                            let mut rgb = [solid_color.r(), solid_color.g(), solid_color.b()];
+                            if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                solid_color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                                ui.data_mut(|d| d.insert_temp(solid_col_id, solid_color));
+                            }
+                        });
+                    }
+                    BackgroundMode::Picture => {
+                        ui.horizontal(|ui| {
+                            let pic_lbl = if let Some(ref p) = pic_path {
+                                p.file_name().and_then(|n| n.to_str()).unwrap_or("Picture")
+                            } else {
+                                "No picture selected"
+                            };
+
+                            ui.label(RichText::new(pic_lbl).size(12.0).color(AppTheme::accent_cyan()));
+
+                            if ui
+                                .add(
+                                    Button::new(RichText::new("📂 Pick Photo...").size(12.0).strong().color(Color32::WHITE))
+                                        .fill(AppTheme::accent_blue()),
+                                )
+                                .clicked()
+                            {
+                                if let Some(path) = crate::media::probe::create_media_file_dialog().pick_file() {
+                                    pic_path = Some(path.clone());
+                                    ui.data_mut(|d| d.insert_temp(pic_path_id, Some(path)));
+                                }
+                            }
+                        });
                     }
                 }
 
                 ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(8.0);
 
-                // Step 2: Vacation Titles
-                let title_id = Id::new("wizard_title_text");
-                let sub_id = Id::new("wizard_subtitle_text");
-                let outro_id = Id::new("wizard_outro_text");
-
-                let mut title_text: String = ui.data_mut(|d| d.get_temp(title_id)).unwrap_or_else(|| "Our Hawaii Vacation 2026".to_string());
-                let mut sub_text: String = ui.data_mut(|d| d.get_temp(sub_id)).unwrap_or_else(|| "Family Memories".to_string());
-                let mut outro_text: String = ui.data_mut(|d| d.get_temp(outro_id)).unwrap_or_else(|| "The End ❤️".to_string());
+                // 2. Text Content & Typography Controls
+                let text_id = Id::new("builder_text_overlay");
+                let mut overlay: TextOverlay = ui.data_mut(|d| d.get_temp(text_id)).unwrap_or_else(|| {
+                    let mut o = TextOverlay::new("VACATION MEMORIES\nSummer 2026");
+                    o.font_size = 44.0;
+                    o.position = TextPosition::Center;
+                    o
+                });
 
                 ui.label(
-                    RichText::new("Step 2: Vacation Title & Names")
+                    RichText::new("2. Title Text & Words:")
                         .size(13.0)
                         .strong()
                         .color(Color32::WHITE),
                 );
 
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Title:").size(12.0).color(AppTheme::text_secondary()));
-                    if ui.text_edit_singleline(&mut title_text).changed() {
-                        ui.data_mut(|d| d.insert_temp(title_id, title_text.clone()));
-                    }
-                });
+                let mut text_buf = overlay.text.clone();
+                if ui
+                    .add(
+                        egui::TextEdit::multiline(&mut text_buf)
+                            .hint_text("Type your title here...\n(Press Enter for second line)")
+                            .desired_rows(2)
+                            .desired_width(ui.available_width()),
+                    )
+                    .changed()
+                {
+                    overlay.text = text_buf;
+                    ui.data_mut(|d| d.insert_temp(text_id, overlay.clone()));
+                }
 
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Subtitle:").size(12.0).color(AppTheme::text_secondary()));
-                    if ui.text_edit_singleline(&mut sub_text).changed() {
-                        ui.data_mut(|d| d.insert_temp(sub_id, sub_text.clone()));
-                    }
-                });
+                ui.add_space(8.0);
 
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Outro:").size(12.0).color(AppTheme::text_secondary()));
-                    if ui.text_edit_singleline(&mut outro_text).changed() {
-                        ui.data_mut(|d| d.insert_temp(outro_id, outro_text.clone()));
-                    }
-                });
+                // Render Typography and Formatting Controls
+                if Self::render_typography_controls(ui, &mut overlay, "builder") {
+                    ui.data_mut(|d| d.insert_temp(text_id, overlay.clone()));
+                }
 
                 ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(8.0);
 
-                // Step 3: Theme & Pace
-                let theme_id = Id::new("wizard_theme");
-                let dur_id = Id::new("wizard_photo_dur");
-
-                let mut chosen_theme: TitleCardTheme = ui.data_mut(|d| d.get_temp(theme_id)).unwrap_or(TitleCardTheme::SunsetGlow);
-                let mut photo_dur: f64 = ui.data_mut(|d| d.get_temp(dur_id)).unwrap_or(4.0);
-
-                ui.label(
-                    RichText::new("Step 3: Theme & Speed")
-                        .size(13.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                );
+                // 3. Duration & Insertion
+                let dur_id = Id::new("builder_card_dur");
+                let mut card_dur: f64 = ui.data_mut(|d| d.get_temp(dur_id)).unwrap_or(4.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Theme:").size(12.0).color(AppTheme::text_secondary()));
-                    egui::ComboBox::from_id_salt("wizard_theme_cb")
-                        .selected_text(chosen_theme.label())
-                        .show_ui(ui, |ui| {
-                            for th in TitleCardTheme::all() {
-                                if ui.selectable_value(&mut chosen_theme, *th, th.label()).clicked() {
-                                    ui.data_mut(|d| d.insert_temp(theme_id, chosen_theme));
-                                }
-                            }
-                        });
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Pace:").size(12.0).color(AppTheme::text_secondary()));
+                    ui.label(RichText::new("Duration:").size(12.5).strong().color(Color32::WHITE));
                     if crate::ui::small_slider(ui, 12.0, |ui| {
                         ui.add_sized(
                             [120.0, 12.0],
-                            egui::Slider::new(&mut photo_dur, 2.0..=8.0)
-                                .custom_formatter(|v, _| format!("{:.1}s / photo", v))
+                            egui::Slider::new(&mut card_dur, 1.0..=20.0)
+                                .custom_formatter(|v, _| format!("{:.1} seconds", v))
                                 .step_by(0.5),
                         )
                     })
                     .changed()
                     {
-                        ui.data_mut(|d| d.insert_temp(dur_id, photo_dur));
+                        ui.data_mut(|d| d.insert_temp(dur_id, card_dur));
                     }
                 });
 
-                ui.add_space(14.0);
+                ui.add_space(12.0);
 
-                // Step 4: Big Action Button
-                let can_create = !photos.is_empty() && !title_text.trim().is_empty();
-                let create_btn = Button::new(
-                    RichText::new("✨ CREATE VACATION SLIDESHOW")
-                        .size(14.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(if can_create { AppTheme::accent_green() } else { AppTheme::bg_panel() })
-                .min_size(egui::vec2(ui.available_width(), 38.0));
+                let bg = match bg_mode {
+                    BackgroundMode::SolidColor => TitleCardBackground::SolidColor(solid_color),
+                    BackgroundMode::Picture => {
+                        if let Some(p) = pic_path {
+                            TitleCardBackground::Picture(p)
+                        } else {
+                            TitleCardBackground::SolidColor(solid_color)
+                        }
+                    }
+                };
 
-                if ui
-                    .add_enabled(can_create, create_btn)
-                    .on_hover_text("Build full slideshow with opening title, photos with crossfades, and ending card")
-                    .clicked()
-                {
-                    *action = TextBinAction::CreateVacationSlideshow {
-                        paths: photos,
-                        title: title_text,
-                        subtitle: if sub_text.trim().is_empty() { None } else { Some(sub_text) },
-                        outro: outro_text,
-                        theme: chosen_theme,
-                        photo_duration_secs: photo_dur,
-                        transition: Some(TransitionKind::CrossFade),
-                    };
-                }
+                let card_name = if overlay.text.trim().is_empty() {
+                    "Title Card".to_string()
+                } else {
+                    overlay.text.lines().next().unwrap_or("Title Card").to_string()
+                };
+
+                ui.horizontal(|ui| {
+                    let at_playhead_btn = Button::new(
+                        RichText::new("➕ Insert at Playhead")
+                            .size(13.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(AppTheme::accent_green())
+                    .min_size(egui::vec2((ui.available_width() - 8.0) / 2.0, 34.0));
+
+                    if ui.add(at_playhead_btn).on_hover_text("Insert this title card at the current playhead").clicked() {
+                        *action = TextBinAction::InsertTitleCard {
+                            name: card_name.clone(),
+                            overlay: overlay.clone(),
+                            bg: bg.clone(),
+                            duration_secs: card_dur,
+                            at_start: false,
+                        };
+                    }
+
+                    let at_start_btn = Button::new(
+                        RichText::new("⏮ Insert at Start")
+                            .size(13.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(AppTheme::accent_blue())
+                    .min_size(egui::vec2(ui.available_width(), 34.0));
+
+                    if ui.add(at_start_btn).on_hover_text("Insert this title card at the beginning of video (00:00)").clicked() {
+                        *action = TextBinAction::InsertTitleCard {
+                            name: card_name,
+                            overlay: overlay.clone(),
+                            bg,
+                            duration_secs: card_dur,
+                            at_start: true,
+                        };
+                    }
+                });
             });
     }
 
-    fn render_title_cards(ui: &mut Ui, action: &mut TextBinAction) {
-        Frame::none()
-            .fill(AppTheme::bg_card())
-            .rounding(Rounding::same(8.0))
-            .inner_margin(12.0)
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new("🎬 Create Opening / Ending Title Cards")
-                        .size(14.0)
-                        .strong()
-                        .color(AppTheme::accent_yellow()),
-                );
-
-                ui.add_space(8.0);
-
-                let title_id = Id::new("card_title_text");
-                let sub_id = Id::new("card_subtitle_text");
-                let theme_id = Id::new("card_theme");
-
-                let mut title_text: String = ui.data_mut(|d| d.get_temp(title_id)).unwrap_or_else(|| "Vacation Memories".to_string());
-                let mut sub_text: String = ui.data_mut(|d| d.get_temp(sub_id)).unwrap_or_else(|| "Summer 2026".to_string());
-                let mut theme: TitleCardTheme = ui.data_mut(|d| d.get_temp(theme_id)).unwrap_or(TitleCardTheme::OceanBlue);
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Title:").size(12.0).color(AppTheme::text_secondary()));
-                    if ui.text_edit_singleline(&mut title_text).changed() {
-                        ui.data_mut(|d| d.insert_temp(title_id, title_text.clone()));
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Subtitle:").size(12.0).color(AppTheme::text_secondary()));
-                    if ui.text_edit_singleline(&mut sub_text).changed() {
-                        ui.data_mut(|d| d.insert_temp(sub_id, sub_text.clone()));
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Theme:").size(12.0).color(AppTheme::text_secondary()));
-                    egui::ComboBox::from_id_salt("card_theme_cb")
-                        .selected_text(theme.label())
-                        .show_ui(ui, |ui| {
-                            for th in TitleCardTheme::all() {
-                                if ui.selectable_value(&mut theme, *th, th.label()).clicked() {
-                                    ui.data_mut(|d| d.insert_temp(theme_id, theme));
-                                }
-                            }
-                        });
-                });
-
-                ui.add_space(10.0);
-
-                let start_btn = Button::new(
-                    RichText::new("➕ Insert Opening Card at Start")
-                        .size(12.5)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(AppTheme::accent_blue())
-                .min_size(egui::vec2(ui.available_width(), 30.0));
-
-                if ui.add(start_btn).clicked() {
-                    *action = TextBinAction::InsertTitleCard {
-                        title: title_text.clone(),
-                        subtitle: if sub_text.trim().is_empty() { None } else { Some(sub_text.clone()) },
-                        theme,
-                        duration_secs: 4.0,
-                        at_start: true,
-                    };
-                }
-
-                ui.add_space(4.0);
-
-                let end_btn = Button::new(
-                    RichText::new("➕ Insert Ending Card at Finish")
-                        .size(12.5)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(Color32::from_rgb(60, 45, 80))
-                .min_size(egui::vec2(ui.available_width(), 30.0));
-
-                if ui.add(end_btn).clicked() {
-                    *action = TextBinAction::InsertTitleCard {
-                        title: title_text,
-                        subtitle: if sub_text.trim().is_empty() { None } else { Some(sub_text) },
-                        theme,
-                        duration_secs: 4.0,
-                        at_start: false,
-                    };
-                }
-            });
-    }
-
-    fn render_caption_editor(ui: &mut Ui, selected_clip: Option<&Clip>, action: &mut TextBinAction) {
+    /// Direct On-Clip Text Overlay Editor
+    fn render_clip_text_editor(
+        ui: &mut Ui,
+        selected_clip: Option<&Clip>,
+        action: &mut TextBinAction,
+    ) {
         Frame::none()
             .fill(AppTheme::bg_card())
             .rounding(Rounding::same(8.0))
@@ -403,95 +377,38 @@ impl TextBinView {
                     });
 
                     ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
 
                     let mut overlay = clip.text_overlay.clone().unwrap_or_default();
                     let has_overlay = clip.text_overlay.is_some();
 
                     ui.label(
-                        RichText::new("On-Screen Caption / Location:")
-                            .size(12.5)
+                        RichText::new("Words on Top of this Clip:")
+                            .size(13.0)
                             .strong()
                             .color(Color32::WHITE),
                     );
 
-                    let changed = ui
+                    let mut text_buf = overlay.text.clone();
+                    let text_changed = ui
                         .add(
-                            egui::TextEdit::singleline(&mut overlay.text)
-                                .hint_text("e.g. Snorkeling at Turtle Bay — Day 2"),
+                            egui::TextEdit::multiline(&mut text_buf)
+                                .hint_text("Type words to show directly on this video or photo...")
+                                .desired_rows(2)
+                                .desired_width(ui.available_width()),
                         )
                         .changed();
 
-                    ui.add_space(6.0);
+                    if text_changed {
+                        overlay.text = text_buf;
+                    }
 
-                    // Position Picker
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Position:").size(12.0).color(AppTheme::text_secondary()));
-                        egui::ComboBox::from_id_salt("caption_pos_cb")
-                            .selected_text(overlay.position.label())
-                            .show_ui(ui, |ui| {
-                                for pos in TextPosition::all() {
-                                    if ui.selectable_value(&mut overlay.position, *pos, pos.label()).clicked() {
-                                        *action = TextBinAction::SetClipTextOverlay {
-                                            clip_id: clip.id,
-                                            overlay: Some(overlay.clone()),
-                                        };
-                                    }
-                                }
-                            });
-                    });
+                    ui.add_space(8.0);
 
-                    // Style Picker
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Style:").size(12.0).color(AppTheme::text_secondary()));
-                        egui::ComboBox::from_id_salt("caption_style_cb")
-                            .selected_text(overlay.style.label())
-                            .show_ui(ui, |ui| {
-                                for st in TextStylePreset::all() {
-                                    if ui.selectable_value(&mut overlay.style, *st, st.label()).clicked() {
-                                        *action = TextBinAction::SetClipTextOverlay {
-                                            clip_id: clip.id,
-                                            overlay: Some(overlay.clone()),
-                                        };
-                                    }
-                                }
-                            });
-                    });
+                    let styling_changed = Self::render_typography_controls(ui, &mut overlay, "clip");
 
-                    // Size Slider
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Size:").size(12.0).color(AppTheme::text_secondary()));
-                        if crate::ui::small_slider(ui, 12.0, |ui| {
-                            ui.add_sized(
-                                [110.0, 12.0],
-                                egui::Slider::new(&mut overlay.font_size, 18.0..=56.0)
-                                    .custom_formatter(|v, _| format!("{:.0} pt", v))
-                                    .step_by(2.0),
-                            )
-                        })
-                        .changed()
-                        {
-                            *action = TextBinAction::SetClipTextOverlay {
-                                clip_id: clip.id,
-                                overlay: Some(overlay.clone()),
-                            };
-                        }
-                    });
-
-                    // Legibility dark backing box toggle
-                    ui.horizontal(|ui| {
-                        if ui
-                            .checkbox(&mut overlay.show_box, "High-Contrast Background Box")
-                            .on_hover_text("Adds a semi-transparent dark backing box for 100% legibility on sunny photos")
-                            .changed()
-                        {
-                            *action = TextBinAction::SetClipTextOverlay {
-                                clip_id: clip.id,
-                                overlay: Some(overlay.clone()),
-                            };
-                        }
-                    });
-
-                    if changed {
+                    if text_changed || styling_changed {
                         if overlay.text.trim().is_empty() {
                             *action = TextBinAction::SetClipTextOverlay {
                                 clip_id: clip.id,
@@ -506,14 +423,14 @@ impl TextBinView {
                     }
 
                     if has_overlay {
-                        ui.add_space(8.0);
+                        ui.add_space(12.0);
                         let remove_btn = Button::new(
-                            RichText::new("❌ Remove Caption")
-                                .size(12.0)
-                                .color(Color32::from_rgb(255, 130, 130)),
+                            RichText::new("❌ Remove Words from this Clip")
+                                .size(12.5)
+                                .color(Color32::from_rgb(255, 140, 140)),
                         )
-                        .min_size(egui::vec2(ui.available_width(), 26.0))
-                        .fill(Color32::from_rgb(55, 25, 25));
+                        .min_size(egui::vec2(ui.available_width(), 28.0))
+                        .fill(Color32::from_rgb(60, 25, 25));
 
                         if ui.add(remove_btn).clicked() {
                             *action = TextBinAction::SetClipTextOverlay {
@@ -524,20 +441,247 @@ impl TextBinView {
                     }
                 } else {
                     ui.vertical_centered(|ui| {
+                        ui.add_space(20.0);
                         ui.label(
-                            RichText::new("ℹ No Picture Selected")
+                            RichText::new("ℹ No Clip Selected on Timeline")
                                 .strong()
-                                .size(13.0)
+                                .size(14.0)
                                 .color(AppTheme::text_secondary()),
                         );
-                        ui.add_space(2.0);
+                        ui.add_space(6.0);
                         ui.label(
-                            RichText::new("Click a photo or video on the timeline to add captions.")
+                            RichText::new("Click any video clip or picture on the timeline to add words directly on top.")
                                 .size(12.0)
                                 .color(AppTheme::text_muted()),
                         );
+                        ui.add_space(20.0);
                     });
                 }
             });
+    }
+
+    /// Common Typography & Formatting Controls
+    fn render_typography_controls(ui: &mut Ui, overlay: &mut TextOverlay, id_prefix: &str) -> bool {
+        let mut changed = false;
+
+        // 1. Visual Font Picker with Previews
+        ui.label(
+            RichText::new("Font Style:")
+                .size(12.5)
+                .strong()
+                .color(Color32::WHITE),
+        );
+
+        let combo_id = format!("{}_font_combo", id_prefix);
+        egui::ComboBox::from_id_salt(combo_id)
+            .selected_text(
+                RichText::new(format!("🔤 {}  ({})", overlay.font_family.label(), overlay.font_family.preview_sample()))
+                    .size(13.0)
+                    .strong(),
+            )
+            .width(ui.available_width() - 8.0)
+            .show_ui(ui, |ui| {
+                for font in FontFamilyPreset::all() {
+                    let is_sel = overlay.font_family == *font;
+                    let text = format!("{}  -  {}", font.preview_sample(), font.description());
+
+                    let mut rich = RichText::new(text).size(13.0);
+                    if is_sel {
+                        rich = rich.strong().color(AppTheme::accent_yellow());
+                    }
+
+                    if ui.selectable_label(is_sel, rich).clicked() {
+                        overlay.font_family = *font;
+                        changed = true;
+                    }
+                }
+            });
+
+        ui.add_space(6.0);
+
+        // 2. Formatting Toggles (Bold, Italic, ALL CAPS)
+        ui.horizontal(|ui| {
+            let bold_btn = Button::new(
+                RichText::new("B Bold")
+                    .size(12.0)
+                    .strong()
+                    .color(if overlay.is_bold { Color32::WHITE } else { AppTheme::text_secondary() }),
+            )
+            .fill(if overlay.is_bold { AppTheme::accent_blue() } else { AppTheme::bg_panel() })
+            .min_size(egui::vec2(60.0, 24.0));
+
+            if ui.add(bold_btn).clicked() {
+                overlay.is_bold = !overlay.is_bold;
+                changed = true;
+            }
+
+            let italic_btn = Button::new(
+                RichText::new("I Italic")
+                    .size(12.0)
+                    .color(if overlay.is_italic { Color32::WHITE } else { AppTheme::text_secondary() }),
+            )
+            .fill(if overlay.is_italic { AppTheme::accent_blue() } else { AppTheme::bg_panel() })
+            .min_size(egui::vec2(60.0, 24.0));
+
+            if ui.add(italic_btn).clicked() {
+                overlay.is_italic = !overlay.is_italic;
+                changed = true;
+            }
+
+            let caps_btn = Button::new(
+                RichText::new("ALL CAPS")
+                    .size(11.5)
+                    .strong()
+                    .color(if overlay.is_all_caps { Color32::WHITE } else { AppTheme::text_secondary() }),
+            )
+            .fill(if overlay.is_all_caps { AppTheme::accent_blue() } else { AppTheme::bg_panel() })
+            .min_size(egui::vec2(75.0, 24.0));
+
+            if ui.add(caps_btn).clicked() {
+                overlay.is_all_caps = !overlay.is_all_caps;
+                changed = true;
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 3. Alignment Buttons
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Align:").size(12.0).color(AppTheme::text_secondary()));
+            for align in TextAlignment::all() {
+                let is_sel = overlay.alignment == *align;
+                let btn_text = match align {
+                    TextAlignment::Left => "⇤ Left",
+                    TextAlignment::Center => "≡ Center",
+                    TextAlignment::Right => "⇥ Right",
+                };
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new(btn_text)
+                                .size(11.5)
+                                .color(if is_sel { Color32::WHITE } else { AppTheme::text_secondary() }),
+                        )
+                        .fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }),
+                    )
+                    .clicked()
+                {
+                    overlay.alignment = *align;
+                    changed = true;
+                }
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 4. Position Picker
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Position:").size(12.0).color(AppTheme::text_secondary()));
+            let pos_combo = format!("{}_pos_combo", id_prefix);
+            egui::ComboBox::from_id_salt(pos_combo)
+                .selected_text(overlay.position.label())
+                .show_ui(ui, |ui| {
+                    for pos in TextPosition::all() {
+                        if ui.selectable_value(&mut overlay.position, *pos, pos.label()).clicked() {
+                            changed = true;
+                        }
+                    }
+                });
+        });
+
+        ui.add_space(6.0);
+
+        // 5. Size Slider
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Font Size:").size(12.0).color(AppTheme::text_secondary()));
+            if crate::ui::small_slider(ui, 12.0, |ui| {
+                ui.add_sized(
+                    [120.0, 12.0],
+                    egui::Slider::new(&mut overlay.font_size, 14.0..=100.0)
+                        .custom_formatter(|v, _| format!("{:.0} pt", v))
+                        .step_by(2.0),
+                )
+            })
+            .changed()
+            {
+                changed = true;
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 6. Text Color Swatches & Custom
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Color:").size(12.0).color(AppTheme::text_secondary()));
+            let colors = [
+                ("⚪ White", Color32::WHITE),
+                ("🟡 Gold", Color32::from_rgb(255, 215, 90)),
+                ("🔵 Cyan", Color32::from_rgb(0, 230, 255)),
+                ("🔴 Coral", Color32::from_rgb(255, 140, 110)),
+                ("🟢 Lime", Color32::from_rgb(140, 255, 120)),
+                ("⚫ Black", Color32::from_rgb(15, 15, 15)),
+            ];
+
+            for (lbl, c) in colors {
+                let is_sel = overlay.text_color == c;
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new(lbl)
+                                .size(11.0)
+                                .color(if is_sel { Color32::WHITE } else { AppTheme::text_secondary() }),
+                        )
+                        .fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }),
+                    )
+                    .clicked()
+                {
+                    overlay.text_color = c;
+                    changed = true;
+                }
+            }
+
+            let mut rgb = [overlay.text_color.r(), overlay.text_color.g(), overlay.text_color.b()];
+            if ui.color_edit_button_srgb(&mut rgb).changed() {
+                overlay.text_color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                changed = true;
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 7. Backing Box / Pill
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Backing:").size(12.0).color(AppTheme::text_secondary()));
+            let box_combo = format!("{}_box_combo", id_prefix);
+            egui::ComboBox::from_id_salt(box_combo)
+                .selected_text(overlay.box_style.label())
+                .show_ui(ui, |ui| {
+                    for st in TextBoxStyle::all() {
+                        if ui.selectable_value(&mut overlay.box_style, *st, st.label()).clicked() {
+                            changed = true;
+                        }
+                    }
+                });
+        });
+
+        if overlay.box_style != TextBoxStyle::None {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Box Opacity:").size(11.5).color(AppTheme::text_secondary()));
+                if crate::ui::small_slider(ui, 12.0, |ui| {
+                    ui.add_sized(
+                        [100.0, 12.0],
+                        egui::Slider::new(&mut overlay.box_opacity, 0.1..=1.0)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                            .step_by(0.05),
+                    )
+                })
+                .changed()
+                {
+                    changed = true;
+                }
+            });
+        }
+
+        changed
     }
 }

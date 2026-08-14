@@ -1,26 +1,47 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TextOverlay {
     pub text: String,
     #[serde(default)]
-    pub subtitle: Option<String>,
-    #[serde(default)]
-    pub position: TextPosition,
-    #[serde(default)]
-    pub style: TextStylePreset,
+    pub font_family: FontFamilyPreset,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
-    #[serde(default = "default_show_box")]
-    pub show_box: bool,
+    #[serde(default)]
+    pub is_bold: bool,
+    #[serde(default)]
+    pub is_italic: bool,
+    #[serde(default)]
+    pub is_all_caps: bool,
+    #[serde(default)]
+    pub alignment: TextAlignment,
+    #[serde(default)]
+    pub position: TextPosition,
+    #[serde(default = "default_text_color")]
+    pub text_color: Color32,
+    #[serde(default)]
+    pub box_style: TextBoxStyle,
+    #[serde(default = "default_box_opacity")]
+    pub box_opacity: f32,
+    #[serde(default = "default_true")]
+    pub show_shadow: bool,
 }
 
 fn default_font_size() -> f32 {
-    30.0
+    38.0
 }
 
-fn default_show_box() -> bool {
+fn default_text_color() -> Color32 {
+    Color32::WHITE
+}
+
+fn default_box_opacity() -> f32 {
+    0.65
+}
+
+fn default_true() -> bool {
     true
 }
 
@@ -28,11 +49,17 @@ impl Default for TextOverlay {
     fn default() -> Self {
         Self {
             text: String::new(),
-            subtitle: None,
-            position: TextPosition::BottomBanner,
-            style: TextStylePreset::DarkBoxWhiteText,
-            font_size: 30.0,
-            show_box: true,
+            font_family: FontFamilyPreset::SansSerif,
+            font_size: 38.0,
+            is_bold: true,
+            is_italic: false,
+            is_all_caps: false,
+            alignment: TextAlignment::Center,
+            position: TextPosition::Center,
+            text_color: Color32::WHITE,
+            box_style: TextBoxStyle::None,
+            box_opacity: 0.65,
+            show_shadow: true,
         }
     }
 }
@@ -44,36 +71,139 @@ impl TextOverlay {
             ..Default::default()
         }
     }
+
+    /// Processed text taking into account ALL CAPS formatting
+    pub fn formatted_text(&self) -> String {
+        if self.is_all_caps {
+            self.text.to_uppercase()
+        } else {
+            self.text.clone()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FontFamilyPreset {
+    SansSerif,
+    Serif,
+    Monospace,
+    Impact,
+    Handwritten,
+}
+
+impl Default for FontFamilyPreset {
+    fn default() -> Self {
+        Self::SansSerif
+    }
+}
+
+impl FontFamilyPreset {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::SansSerif => "Modern Sans",
+            Self::Serif => "Classic Serif",
+            Self::Monospace => "Typewriter Mono",
+            Self::Impact => "Cinematic Impact",
+            Self::Handwritten => "Handwritten Script",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::SansSerif => "Clean, crisp & geometric",
+            Self::Serif => "Elegant, literary & timeless",
+            Self::Monospace => "Retro code & typewriter",
+            Self::Impact => "Heavy, bold blockbuster headline",
+            Self::Handwritten => "Casual & personal cursive style",
+        }
+    }
+
+    pub fn preview_sample(&self) -> &'static str {
+        match self {
+            Self::SansSerif => "Aa Modern",
+            Self::Serif => "Aa Elegant",
+            Self::Monospace => "Aa [Type]",
+            Self::Impact => "AA IMPACT",
+            Self::Handwritten => "Aa Script",
+        }
+    }
+
+    pub fn ffmpeg_font_name(&self) -> &'static str {
+        match self {
+            Self::SansSerif => "Arial",
+            Self::Serif => "Times New Roman",
+            Self::Monospace => "Courier New",
+            Self::Impact => "Impact",
+            Self::Handwritten => "Comic Sans MS",
+        }
+    }
+
+    pub fn all() -> &'static [FontFamilyPreset] {
+        &[
+            Self::SansSerif,
+            Self::Serif,
+            Self::Monospace,
+            Self::Impact,
+            Self::Handwritten,
+        ]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl Default for TextAlignment {
+    fn default() -> Self {
+        Self::Center
+    }
+}
+
+impl TextAlignment {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Left => "Left Align",
+            Self::Center => "Center Align",
+            Self::Right => "Right Align",
+        }
+    }
+
+    pub fn all() -> &'static [TextAlignment] {
+        &[Self::Left, Self::Center, Self::Right]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TextPosition {
-    BottomBanner,
-    CenterTitle,
     TopHeader,
+    Center,
+    BottomBanner,
     LowerThird,
 }
 
 impl Default for TextPosition {
     fn default() -> Self {
-        Self::BottomBanner
+        Self::Center
     }
 }
 
 impl TextPosition {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::BottomBanner => "Bottom Banner (Recommended)",
-            Self::CenterTitle => "Centered Big Title",
             Self::TopHeader => "Top Header",
+            Self::Center => "Dead Center",
+            Self::BottomBanner => "Bottom Banner",
             Self::LowerThird => "Lower Third Left",
         }
     }
 
     pub fn all() -> &'static [TextPosition] {
         &[
+            Self::Center,
             Self::BottomBanner,
-            Self::CenterTitle,
             Self::TopHeader,
             Self::LowerThird,
         ]
@@ -81,95 +211,40 @@ impl TextPosition {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum TextStylePreset {
-    DarkBoxWhiteText,
-    GoldElegance,
-    SunsetGlow,
-    CinemaClean,
+pub enum TextBoxStyle {
+    None,
+    TranslucentBox,
+    SolidBanner,
 }
 
-impl Default for TextStylePreset {
+impl Default for TextBoxStyle {
     fn default() -> Self {
-        Self::DarkBoxWhiteText
+        Self::None
     }
 }
 
-impl TextStylePreset {
+impl TextBoxStyle {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::DarkBoxWhiteText => "Classic White + Dark Box",
-            Self::GoldElegance => "Warm Vacation Gold",
-            Self::SunsetGlow => "Sunset Coral & Orange",
-            Self::CinemaClean => "Cinema Pure White",
+            Self::None => "None (Shadow Only)",
+            Self::TranslucentBox => "Translucent Box",
+            Self::SolidBanner => "Full Solid Banner",
         }
     }
 
-    pub fn text_color(&self) -> Color32 {
-        match self {
-            Self::DarkBoxWhiteText => Color32::WHITE,
-            Self::GoldElegance => Color32::from_rgb(255, 220, 110),
-            Self::SunsetGlow => Color32::from_rgb(255, 185, 120),
-            Self::CinemaClean => Color32::from_rgb(245, 245, 255),
-        }
-    }
-
-    pub fn all() -> &'static [TextStylePreset] {
-        &[
-            Self::DarkBoxWhiteText,
-            Self::GoldElegance,
-            Self::SunsetGlow,
-            Self::CinemaClean,
-        ]
+    pub fn all() -> &'static [TextBoxStyle] {
+        &[Self::None, Self::TranslucentBox, Self::SolidBanner]
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum TitleCardTheme {
-    SunsetGlow,
-    OceanBlue,
-    TropicalCoral,
-    WarmSand,
-    CinemaBlack,
-    EmeraldForest,
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum TitleCardBackground {
+    SolidColor(Color32),
+    Picture(PathBuf),
 }
 
-impl Default for TitleCardTheme {
+impl Default for TitleCardBackground {
     fn default() -> Self {
-        Self::SunsetGlow
-    }
-}
-
-impl TitleCardTheme {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::SunsetGlow => "🌅 Sunset Glow",
-            Self::OceanBlue => "🌊 Ocean Blue",
-            Self::TropicalCoral => "🌴 Tropical Coral",
-            Self::WarmSand => "🏖 Warm Sand",
-            Self::CinemaBlack => "🎬 Cinema Black",
-            Self::EmeraldForest => "🌲 Emerald Forest",
-        }
-    }
-
-    pub fn colors(&self) -> (Color32, Color32) {
-        match self {
-            Self::SunsetGlow => (Color32::from_rgb(60, 20, 35), Color32::from_rgb(25, 15, 30)),
-            Self::OceanBlue => (Color32::from_rgb(15, 35, 65), Color32::from_rgb(10, 20, 40)),
-            Self::TropicalCoral => (Color32::from_rgb(55, 25, 30), Color32::from_rgb(20, 20, 35)),
-            Self::WarmSand => (Color32::from_rgb(50, 40, 25), Color32::from_rgb(30, 25, 20)),
-            Self::CinemaBlack => (Color32::from_rgb(18, 18, 22), Color32::from_rgb(10, 10, 12)),
-            Self::EmeraldForest => (Color32::from_rgb(15, 45, 30), Color32::from_rgb(10, 25, 20)),
-        }
-    }
-
-    pub fn all() -> &'static [TitleCardTheme] {
-        &[
-            Self::SunsetGlow,
-            Self::OceanBlue,
-            Self::TropicalCoral,
-            Self::WarmSand,
-            Self::CinemaBlack,
-            Self::EmeraldForest,
-        ]
+        Self::SolidColor(Color32::from_rgb(18, 18, 24))
     }
 }

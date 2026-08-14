@@ -454,95 +454,6 @@ impl VideoEditorApp {
         None
     }
 
-    /// 1-Click Vacation Slideshow Creator: Builds a complete movie timeline with intro, photos, crossfades, and outro
-    pub fn create_vacation_slideshow(
-        &mut self,
-        paths: Vec<std::path::PathBuf>,
-        title: String,
-        subtitle: Option<String>,
-        outro: String,
-        theme: crate::core::text_overlay::TitleCardTheme,
-        photo_duration_secs: f64,
-        transition: Option<TransitionKind>,
-        ctx: Option<&Context>,
-    ) {
-        self.snapshot_timeline();
-        self.project.timeline.tracks.clear();
-        let video_track_id = self
-            .project
-            .timeline
-            .add_track("🎬 Vacation Slideshow".to_string(), TrackKind::Video);
-
-        let trans_kind = transition.unwrap_or(TransitionKind::CrossFade);
-
-        // 1. Opening Intro Title Card (4.0s)
-        let intro_id = self.project.timeline.next_id();
-        let mut intro_card = Clip::new_title_card(
-            intro_id,
-            video_track_id,
-            title,
-            subtitle,
-            theme,
-            4.0,
-        );
-        intro_card.timeline_start = TimeCode::ZERO;
-        intro_card.transition_in = Some(Transition::new(TransitionKind::DipToBlack));
-        intro_card.transition_out = Some(Transition::new(trans_kind));
-
-        let mut current_time = intro_card.duration();
-        if let Some(track) = self.project.timeline.get_track_mut(video_track_id) {
-            track.add_clip(intro_card);
-        }
-
-        // 2. Photos & Media
-        for path in paths {
-            if let Ok(meta) = crate::media::probe_media_file(&path) {
-                let name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Photo")
-                    .to_string();
-                let clip_id = self.project.timeline.next_id();
-                let clip_dur = TimeCode::from_secs_f64(photo_duration_secs);
-                let mut clip = Clip::new(
-                    clip_id,
-                    video_track_id,
-                    name,
-                    path.clone(),
-                    clip_dur,
-                    meta.has_video,
-                    meta.has_audio,
-                );
-                clip.timeline_start = current_time;
-                clip.transition_in = Some(Transition::new(trans_kind));
-                current_time = current_time + clip_dur;
-                if let Some(track) = self.project.timeline.get_track_mut(video_track_id) {
-                    track.add_clip(clip);
-                }
-            }
-        }
-
-        // 3. Ending Outro Card (4.0s)
-        let outro_id = self.project.timeline.next_id();
-        let mut outro_card = Clip::new_title_card(
-            outro_id,
-            video_track_id,
-            outro,
-            None,
-            theme,
-            4.0,
-        );
-        outro_card.timeline_start = current_time;
-        outro_card.transition_in = Some(Transition::new(trans_kind));
-        outro_card.transition_out = Some(Transition::new(TransitionKind::DipToBlack));
-        if let Some(track) = self.project.timeline.get_track_mut(video_track_id) {
-            track.add_clip(outro_card);
-        }
-
-        self.project.timeline.playhead = TimeCode::ZERO;
-        self.refresh_preview_frame(ctx);
-    }
-
     /// Update preview frame based on current playhead position with UI repaint callback.
     /// If the playhead is inside an active clip's transition window, dynamically composites
     /// the outgoing and incoming frames using real-time software blending.
@@ -558,11 +469,15 @@ impl VideoEditorApp {
                         let track_id = track.id;
                         let clip_id = clip.id;
                         let raw_frame = if clip.is_title_card {
-                            Some(crate::media::generate_title_card_frame(
-                                clip.title_card_theme.unwrap_or_default(),
-                                640,
-                                360,
-                            ))
+                            match clip.title_card_bg {
+                                Some(crate::core::text_overlay::TitleCardBackground::SolidColor(color)) => {
+                                    Some(crate::media::generate_solid_color_frame(color, 640, 360))
+                                }
+                                Some(crate::core::text_overlay::TitleCardBackground::Picture(ref path)) => {
+                                    self.frame_cache.fetch_frame(path, 0.0, ctx)
+                                }
+                                None => Some(crate::media::generate_solid_color_frame(egui::Color32::from_rgb(18, 18, 24), 640, 360)),
+                            }
                         } else if let Some(source_time) = clip.timeline_to_source_time(playhead) {
                             self.frame_cache.fetch_frame(&clip.source_path, source_time.as_secs_f64(), ctx)
                         } else {
@@ -912,9 +827,9 @@ impl eframe::App for VideoEditorApp {
                                 }
                             }
                             crate::ui::TextBinAction::InsertTitleCard {
-                                title,
-                                subtitle,
-                                theme,
+                                name,
+                                overlay,
+                                bg,
                                 duration_secs,
                                 at_start,
                             } => {
@@ -935,9 +850,9 @@ impl eframe::App for VideoEditorApp {
                                 let mut card = Clip::new_title_card(
                                     next_id,
                                     track_id,
-                                    title,
-                                    subtitle,
-                                    theme,
+                                    name,
+                                    overlay,
+                                    bg,
                                     duration_secs,
                                 );
                                 if at_start {
@@ -952,35 +867,13 @@ impl eframe::App for VideoEditorApp {
                                         track.add_clip(card);
                                     }
                                 } else {
-                                    let end_time = self.project.timeline.duration();
-                                    card.timeline_start = end_time;
-                                    card.transition_in = Some(Transition::new(TransitionKind::CrossFade));
-                                    card.transition_out = Some(Transition::new(TransitionKind::DipToBlack));
+                                    let target_time = self.project.timeline.playhead;
+                                    card.timeline_start = target_time;
                                     if let Some(track) = self.project.timeline.get_track_mut(track_id) {
                                         track.add_clip(card);
                                     }
                                 }
                                 self.refresh_preview_frame(Some(ctx));
-                            }
-                            crate::ui::TextBinAction::CreateVacationSlideshow {
-                                paths,
-                                title,
-                                subtitle,
-                                outro,
-                                theme,
-                                photo_duration_secs,
-                                transition,
-                            } => {
-                                self.create_vacation_slideshow(
-                                    paths,
-                                    title,
-                                    subtitle,
-                                    outro,
-                                    theme,
-                                    photo_duration_secs,
-                                    transition,
-                                    Some(ctx),
-                                );
                             }
                             crate::ui::TextBinAction::None => {}
                         }

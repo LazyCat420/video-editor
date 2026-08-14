@@ -50,13 +50,18 @@ pub fn build_ffmpeg_export_command(
     let mut args = Vec::new();
     args.push("-y".to_string()); // Overwrite output file
 
-    // 1. Collect unique media source paths (excluding synthetic title cards)
+    // 1. Collect unique media source paths (excluding synthetic solid color title cards)
     let mut unique_sources: Vec<PathBuf> = Vec::new();
     let mut source_to_input_idx: HashMap<PathBuf, usize> = HashMap::new();
 
     for track in &timeline.tracks {
         for clip in &track.clips {
-            if !clip.is_title_card && !source_to_input_idx.contains_key(&clip.source_path) {
+            let is_solid_color_card = clip.is_title_card
+                && matches!(
+                    clip.title_card_bg,
+                    Some(crate::core::text_overlay::TitleCardBackground::SolidColor(_)) | None
+                );
+            if !is_solid_color_card && !source_to_input_idx.contains_key(&clip.source_path) {
                 let idx = unique_sources.len();
                 source_to_input_idx.insert(clip.source_path.clone(), idx);
                 unique_sources.push(clip.source_path.clone());
@@ -93,13 +98,21 @@ pub fn build_ffmpeg_export_command(
             let out_sec = clip.source_out.as_secs_f64();
             let start_ms = (clip.timeline_start.as_secs_f64() * 1000.0).round() as i64;
 
+            let is_solid_color_card = clip.is_title_card
+                && matches!(
+                    clip.title_card_bg,
+                    Some(crate::core::text_overlay::TitleCardBackground::SolidColor(_)) | None
+                );
+
             // Video processing
             if clip.has_video && track.kind == TrackKind::Video {
                 let v_label = format!("v{}", clip_counter);
-                let mut v_filter = if clip.is_title_card {
-                    let theme = clip.title_card_theme.unwrap_or_default();
-                    let (c1, _) = theme.colors();
-                    let hex = format!("0x{:02X}{:02X}{:02X}", c1.r(), c1.g(), c1.b());
+                let mut v_filter = if is_solid_color_card {
+                    let color = match clip.title_card_bg {
+                        Some(crate::core::text_overlay::TitleCardBackground::SolidColor(c)) => c,
+                        _ => egui::Color32::from_rgb(18, 18, 24),
+                    };
+                    let hex = format!("0x{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
                     format!(
                         "color=c={}:s={}x{}:d={:.3}:r={}",
                         hex,
@@ -415,66 +428,71 @@ fn build_drawtext_filter(
     overlay: &crate::core::text_overlay::TextOverlay,
     config: &ExportConfig,
 ) -> String {
-    use crate::core::text_overlay::TextPosition;
+    use crate::core::text_overlay::{TextAlignment, TextBoxStyle, TextPosition};
     let mut out = String::new();
 
-    let escaped_text = overlay
-        .text
-        .replace('\\', "\\\\")
-        .replace('\'', "'\\''")
-        .replace(':', "\\:")
-        .replace('%', "\\%");
+    let formatted = overlay.formatted_text();
+    let lines: Vec<&str> = formatted.lines().collect();
+    if lines.is_empty() {
+        return out;
+    }
 
     let font_size = ((overlay.font_size / 720.0) * (config.height as f32))
-        .max(16.0)
+        .max(14.0)
         .round() as u32;
 
-    let (x_expr, y_expr) = match overlay.position {
-        TextPosition::CenterTitle => {
-            if overlay.subtitle.is_some() {
-                ("(w-text_w)/2", "(h-text_h)/2-30")
+    let font_name = overlay.font_family.ffmpeg_font_name();
+    let col = overlay.text_color;
+    let hex_color = format!("0x{:02X}{:02X}{:02X}", col.r(), col.g(), col.b());
+
+    let (x_expr, y_base) = match overlay.position {
+        TextPosition::Center => match overlay.alignment {
+            TextAlignment::Left => ("(w-text_w)/2", "(h-text_h)/2"),
+            TextAlignment::Center => ("(w-text_w)/2", "(h-text_h)/2"),
+            TextAlignment::Right => ("(w-text_w)/2", "(h-text_h)/2"),
+        },
+        TextPosition::TopHeader => ("(w-text_w)/2", "60"),
+        TextPosition::BottomBanner => ("(w-text_w)/2", "h-text_h-60"),
+        TextPosition::LowerThird => ("60", "h-text_h-60"),
+    };
+
+    let box_str = match overlay.box_style {
+        TextBoxStyle::None => {
+            if overlay.show_shadow {
+                ":shadowcolor=black@0.8:shadowx=2:shadowy=2".to_string()
             } else {
-                ("(w-text_w)/2", "(h-text_h)/2")
+                String::new()
             }
         }
-        TextPosition::BottomBanner => ("(w-text_w)/2", "h-text_h-50"),
-        TextPosition::TopHeader => ("(w-text_w)/2", "50"),
-        TextPosition::LowerThird => ("60", "h-text_h-50"),
+        TextBoxStyle::TranslucentBox => {
+            format!(":box=1:boxcolor=black@{:.2}:boxborderw=16", overlay.box_opacity)
+        }
+        TextBoxStyle::SolidBanner => {
+            format!(":box=1:boxcolor=black@{:.2}:boxborderw=24", overlay.box_opacity)
+        }
     };
 
-    let col_str = match overlay.style {
-        crate::core::text_overlay::TextStylePreset::GoldElegance => "gold",
-        crate::core::text_overlay::TextStylePreset::SunsetGlow => "coral",
-        _ => "white",
-    };
-
-    let box_str = if overlay.show_box {
-        ":box=1:boxcolor=black@0.65:boxborderw=14"
-    } else {
-        ":shadowcolor=black@0.8:shadowx=2:shadowy=2"
-    };
-
-    out.push_str(&format!(
-        ",drawtext=text='{}':fontsize={}:fontcolor={}{}:x={}:y={}",
-        escaped_text, font_size, col_str, box_str, x_expr, y_expr
-    ));
-
-    if let Some(sub) = &overlay.subtitle {
-        let escaped_sub = sub
+    for (i, line) in lines.iter().enumerate() {
+        let escaped_line = line
             .replace('\\', "\\\\")
             .replace('\'', "'\\''")
             .replace(':', "\\:")
             .replace('%', "\\%");
-        let sub_font_size = ((font_size as f32) * 0.65).max(12.0).round() as u32;
-        let sub_y = match overlay.position {
-            TextPosition::CenterTitle => "(h-text_h)/2+40",
-            TextPosition::BottomBanner => "h-text_h-20",
-            TextPosition::TopHeader => "110",
-            TextPosition::LowerThird => "h-text_h-20",
+
+        let line_y_expr = if lines.len() == 1 {
+            y_base.to_string()
+        } else {
+            let offset = (i as i32 - (lines.len() as i32 / 2)) * (font_size as i32 + 10);
+            if offset >= 0 {
+                format!("{}+{}", y_base, offset)
+            } else {
+                format!("{}-{}", y_base, -offset)
+            }
         };
+
         out.push_str(&format!(
-            ",drawtext=text='{}':fontsize={}:fontcolor=lightgray{}:x={}:y={}",
-            escaped_sub, sub_font_size, box_str, x_expr, sub_y
+            ",drawtext=text='{}':font='{}':fontsize={}:fontcolor={}{}:x={}:y={}",
+            escaped_line, font_name, font_size, hex_color, box_str, x_expr, line_y_expr
         ));
     }
 

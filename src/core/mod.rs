@@ -9,7 +9,9 @@ pub mod timeline;
 pub mod track;
 
 pub mod text_overlay;
-pub use text_overlay::{TextOverlay, TextPosition, TextStylePreset, TitleCardTheme};
+pub use text_overlay::{
+    FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition, TitleCardBackground,
+};
 
 pub use clip::Clip;
 pub use envelope::{CurveType, VolumeEnvelope, VolumeNode};

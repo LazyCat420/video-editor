@@ -1060,70 +1060,99 @@ fn test_export_filtergraph_multi_clip_in_and_out_xfade() {
 
 #[test]
 fn test_text_overlay_model_and_card_creation() {
+    use egui::Color32;
     use video_editor::core::clip::Clip;
-    use video_editor::core::text_overlay::{TextOverlay, TextPosition, TextStylePreset, TitleCardTheme};
+    use video_editor::core::text_overlay::{
+        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition,
+        TitleCardBackground,
+    };
 
-    let mut overlay = TextOverlay::new("Our Hawaii Trip 2026");
-    overlay.subtitle = Some("Family Memories".to_string());
-    overlay.position = TextPosition::CenterTitle;
-    overlay.style = TextStylePreset::GoldElegance;
+    let mut overlay = TextOverlay::new("Our Hawaii Trip 2026\nSummer Memories");
+    overlay.font_family = FontFamilyPreset::Serif;
+    overlay.alignment = TextAlignment::Center;
+    overlay.position = TextPosition::Center;
+    overlay.is_bold = true;
+    overlay.is_italic = true;
     overlay.font_size = 48.0;
+    overlay.box_style = TextBoxStyle::TranslucentBox;
+    overlay.box_opacity = 0.7;
 
-    assert_eq!(overlay.text, "Our Hawaii Trip 2026");
-    assert_eq!(overlay.subtitle.as_deref(), Some("Family Memories"));
-    assert_eq!(overlay.position, TextPosition::CenterTitle);
-    assert_eq!(overlay.style, TextStylePreset::GoldElegance);
+    assert_eq!(overlay.text, "Our Hawaii Trip 2026\nSummer Memories");
+    assert_eq!(overlay.font_family, FontFamilyPreset::Serif);
+    assert_eq!(overlay.alignment, TextAlignment::Center);
+    assert_eq!(overlay.position, TextPosition::Center);
+    assert!(overlay.is_bold);
+    assert!(overlay.is_italic);
 
+    let solid_bg = TitleCardBackground::SolidColor(Color32::from_rgb(15, 30, 60));
     let card = Clip::new_title_card(
         100,
         1,
         "Hawaii 2026".to_string(),
-        Some("Summer Vacation".to_string()),
-        TitleCardTheme::SunsetGlow,
+        overlay.clone(),
+        solid_bg.clone(),
         4.0,
     );
 
     assert!(card.is_title_card);
-    assert_eq!(card.title_card_theme, Some(TitleCardTheme::SunsetGlow));
+    assert_eq!(card.title_card_bg, Some(solid_bg));
     assert_eq!(card.duration().as_secs_f64(), 4.0);
     assert!(card.has_video);
     assert!(!card.has_audio);
     assert!(card.text_overlay.is_some());
-    assert_eq!(card.text_overlay.as_ref().unwrap().text, "Hawaii 2026");
+    assert_eq!(
+        card.text_overlay.as_ref().unwrap().text,
+        "Our Hawaii Trip 2026\nSummer Memories"
+    );
 }
 
 #[test]
-fn test_generate_title_card_gradient_frame() {
-    use video_editor::core::text_overlay::TitleCardTheme;
-    use video_editor::media::generate_title_card_frame;
+fn test_generate_title_card_solid_color_frame() {
+    use egui::Color32;
+    use video_editor::core::text_overlay::TitleCardBackground;
+    use video_editor::media::{generate_solid_color_frame, generate_title_card_frame};
 
-    let frame = generate_title_card_frame(TitleCardTheme::OceanBlue, 320, 180);
+    let color = Color32::from_rgb(20, 40, 80);
+    let frame = generate_solid_color_frame(color, 320, 180);
     assert_eq!(frame.size, [320, 180]);
     assert_eq!(frame.pixels.len(), 320 * 180);
+    assert_eq!(frame.pixels[0], color);
+    assert_eq!(frame.pixels[frame.pixels.len() - 1], color);
 
-    // Verify top vs bottom gradient interpolation
-    let top_px = frame.pixels[0];
-    let bot_px = frame.pixels[frame.pixels.len() - 1];
-    assert_ne!(top_px, bot_px);
+    let bg = TitleCardBackground::SolidColor(color);
+    let frame2 = generate_title_card_frame(&bg, 320, 180);
+    assert_eq!(frame2.pixels[0], color);
 }
 
 #[test]
 fn test_export_filtergraph_title_card_with_drawtext() {
+    use egui::Color32;
     use std::path::PathBuf;
     use video_editor::core::clip::Clip;
-    use video_editor::core::text_overlay::TitleCardTheme;
+    use video_editor::core::text_overlay::{
+        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition,
+        TitleCardBackground,
+    };
     use video_editor::core::timeline::Timeline;
     use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
 
     let mut timeline = Timeline::new(30.0);
     let track_id = timeline.tracks[0].id;
 
+    let mut overlay = TextOverlay::new("Welcome to Hawaii\nTrip of a Lifetime");
+    overlay.font_family = FontFamilyPreset::SansSerif;
+    overlay.alignment = TextAlignment::Center;
+    overlay.position = TextPosition::Center;
+    overlay.box_style = TextBoxStyle::TranslucentBox;
+    overlay.box_opacity = 0.65;
+
+    let bg = TitleCardBackground::SolidColor(Color32::from_rgb(18, 24, 36));
     let intro_card = Clip::new_title_card(
         1,
         track_id,
-        "Welcome to Hawaii".to_string(),
-        Some("Trip of a Lifetime".to_string()),
-        TitleCardTheme::SunsetGlow,
+        "Welcome Card".to_string(),
+        overlay,
+        bg,
         4.0,
     );
     timeline.tracks[0].add_clip(intro_card);
@@ -1140,7 +1169,19 @@ fn test_export_filtergraph_title_card_with_drawtext() {
     let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
     let fc = &cmd[fc_idx + 1];
 
-    assert!(fc.contains("color=c="), "Must use color generator for title card: {}", fc);
-    assert!(fc.contains("drawtext=text='Welcome to Hawaii'"), "Must have drawtext filter: {}", fc);
-    assert!(fc.contains("drawtext=text='Trip of a Lifetime'"), "Must have subtitle drawtext: {}", fc);
+    assert!(
+        fc.contains("color=c="),
+        "Must use color generator for title card: {}",
+        fc
+    );
+    assert!(
+        fc.contains("drawtext=text='Welcome to Hawaii'"),
+        "Must have drawtext line 1: {}",
+        fc
+    );
+    assert!(
+        fc.contains("drawtext=text='Trip of a Lifetime'"),
+        "Must have drawtext line 2: {}",
+        fc
+    );
 }

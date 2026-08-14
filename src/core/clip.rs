@@ -40,12 +40,12 @@ pub struct Clip {
     /// On-screen text/caption overlay (e.g. "Hawaii Beach Day 1", "The End").
     #[serde(default)]
     pub text_overlay: Option<crate::core::text_overlay::TextOverlay>,
-    /// True if this clip is a generated intro/outro title card rather than a media file.
+    /// True if this clip is a generated standalone title card rather than a raw media file.
     #[serde(default)]
     pub is_title_card: bool,
-    /// Background theme if this clip is a title card.
+    /// Background configuration (Solid Color or Picture) if this clip is a title card.
     #[serde(default)]
-    pub title_card_theme: Option<crate::core::text_overlay::TitleCardTheme>,
+    pub title_card_bg: Option<crate::core::text_overlay::TitleCardBackground>,
     pub has_video: bool,
     pub has_audio: bool,
     /// Is the clip currently selected in the UI?
@@ -82,36 +82,36 @@ impl Clip {
             transition: None,
             text_overlay: None,
             is_title_card: false,
-            title_card_theme: None,
+            title_card_bg: None,
             has_video,
             has_audio,
             is_selected: false,
         }
     }
 
-    /// Create a dedicated Intro or Outro Title Card clip
+    /// Create a dedicated Title Card clip with either a solid color or picture background
     pub fn new_title_card(
         id: u64,
         track_id: u64,
-        title: String,
-        subtitle: Option<String>,
-        theme: crate::core::text_overlay::TitleCardTheme,
+        name: String,
+        overlay: crate::core::text_overlay::TextOverlay,
+        bg: crate::core::text_overlay::TitleCardBackground,
         duration_secs: f64,
     ) -> Self {
         let dur = TimeCode::from_secs_f64(duration_secs);
         let volume_envelope = VolumeEnvelope::default_for_duration(dur);
-        let mut overlay = crate::core::text_overlay::TextOverlay::new(title.clone());
-        overlay.subtitle = subtitle;
-        overlay.position = crate::core::text_overlay::TextPosition::CenterTitle;
-        overlay.style = crate::core::text_overlay::TextStylePreset::GoldElegance;
-        overlay.font_size = 42.0;
-        overlay.show_box = false;
+        let source_path = match &bg {
+            crate::core::text_overlay::TitleCardBackground::SolidColor(_) => {
+                PathBuf::from(format!("__title_card_color_{}.png", id))
+            }
+            crate::core::text_overlay::TitleCardBackground::Picture(path) => path.clone(),
+        };
 
         Self {
             id,
             track_id,
-            name: title,
-            source_path: PathBuf::from(format!("__title_card_{}_{:?}.png", id, theme)),
+            name,
+            source_path,
             proxy_path: None,
             peak_path: None,
             source_duration: dur,
@@ -125,7 +125,7 @@ impl Clip {
             transition: None,
             text_overlay: Some(overlay),
             is_title_card: true,
-            title_card_theme: Some(theme),
+            title_card_bg: Some(bg),
             has_video: true,
             has_audio: false,
             is_selected: false,

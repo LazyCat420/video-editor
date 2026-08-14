@@ -184,123 +184,159 @@ impl PreviewPlayerView {
         rect: Rect,
         overlay: &crate::core::text_overlay::TextOverlay,
     ) {
-        use crate::core::text_overlay::TextPosition;
+        use crate::core::text_overlay::{FontFamilyPreset, TextAlignment, TextBoxStyle, TextPosition};
 
-        let scale = (rect.height() / 400.0).clamp(0.6, 2.0);
-        let font_size = overlay.font_size * scale * 0.65;
-        let font_id = egui::FontId::proportional(font_size.max(14.0));
-        let sub_font_id = egui::FontId::proportional((font_size * 0.65).max(11.0));
-        let text_color = overlay.style.text_color();
+        let raw_text = overlay.formatted_text();
+        let lines: Vec<&str> = raw_text.lines().collect();
+        if lines.is_empty() {
+            return;
+        }
 
-        let (anchor_pos, align) = match overlay.position {
-            TextPosition::CenterTitle => (rect.center(), egui::Align2::CENTER_CENTER),
+        let scale = (rect.height() / 400.0).clamp(0.6, 2.5);
+        let font_size = (overlay.font_size * scale * 0.55).max(12.0);
+
+        let font_family = match overlay.font_family {
+            FontFamilyPreset::Monospace => egui::FontFamily::Monospace,
+            _ => egui::FontFamily::Proportional,
+        };
+
+        let font_id = egui::FontId::new(font_size, font_family);
+        let text_color = overlay.text_color;
+
+        let line_galleys: Vec<_> = lines
+            .iter()
+            .map(|l| painter.layout_no_wrap(l.to_string(), font_id.clone(), text_color))
+            .collect();
+
+        let max_line_w = line_galleys
+            .iter()
+            .map(|g| g.size().x)
+            .fold(0.0f32, |a, b| a.max(b));
+        let total_text_h = line_galleys
+            .iter()
+            .map(|g| g.size().y)
+            .sum::<f32>()
+            + ((line_galleys.len().saturating_sub(1)) as f32 * 4.0 * scale);
+
+        let pad_x = 20.0 * scale;
+        let pad_y = 10.0 * scale;
+
+        let (anchor_pos, v_align) = match overlay.position {
+            TextPosition::Center => (rect.center(), egui::Align2::CENTER_CENTER),
             TextPosition::BottomBanner => (
-                Pos2::new(rect.center().x, rect.max.y - 30.0 * scale),
+                Pos2::new(rect.center().x, rect.max.y - 35.0 * scale),
                 egui::Align2::CENTER_BOTTOM,
             ),
             TextPosition::TopHeader => (
-                Pos2::new(rect.center().x, rect.min.y + 20.0 * scale),
+                Pos2::new(rect.center().x, rect.min.y + 25.0 * scale),
                 egui::Align2::CENTER_TOP,
             ),
             TextPosition::LowerThird => (
-                Pos2::new(rect.min.x + 30.0 * scale, rect.max.y - 30.0 * scale),
+                Pos2::new(rect.min.x + 35.0 * scale, rect.max.y - 35.0 * scale),
                 egui::Align2::LEFT_BOTTOM,
             ),
         };
 
-        let main_galley = painter.layout_no_wrap(overlay.text.clone(), font_id, text_color);
-        let sub_galley = overlay
-            .subtitle
-            .as_ref()
-            .map(|s| painter.layout_no_wrap(s.clone(), sub_font_id.clone(), AppTheme::text_secondary()));
-
-        let text_w = main_galley
-            .size()
-            .x
-            .max(sub_galley.as_ref().map(|g| g.size().x).unwrap_or(0.0));
-        let text_h = main_galley.size().y
-            + sub_galley
-                .as_ref()
-                .map(|g| g.size().y + 4.0 * scale)
-                .unwrap_or(0.0);
-
-        let pad_x = 16.0 * scale;
-        let pad_y = 8.0 * scale;
-
-        let box_rect = match align {
-            egui::Align2::CENTER_CENTER => Rect::from_center_size(
-                anchor_pos,
-                egui::vec2(text_w + pad_x * 2.0, text_h + pad_y * 2.0),
-            ),
-            egui::Align2::CENTER_BOTTOM => Rect::from_min_max(
-                Pos2::new(anchor_pos.x - text_w / 2.0 - pad_x, anchor_pos.y - text_h - pad_y),
-                Pos2::new(anchor_pos.x + text_w / 2.0 + pad_x, anchor_pos.y + pad_y),
-            ),
-            egui::Align2::CENTER_TOP => Rect::from_min_max(
-                Pos2::new(anchor_pos.x - text_w / 2.0 - pad_x, anchor_pos.y - pad_y),
-                Pos2::new(anchor_pos.x + text_w / 2.0 + pad_x, anchor_pos.y + text_h + pad_y),
-            ),
-            egui::Align2::LEFT_BOTTOM => Rect::from_min_max(
-                Pos2::new(anchor_pos.x - pad_x, anchor_pos.y - text_h - pad_y),
-                Pos2::new(anchor_pos.x + text_w + pad_x, anchor_pos.y + pad_y),
-            ),
-            _ => Rect::from_center_size(anchor_pos, egui::vec2(text_w + pad_x * 2.0, text_h + pad_y * 2.0)),
+        // Calculate Box Bounds
+        let box_rect = match overlay.box_style {
+            TextBoxStyle::None => Rect::ZERO,
+            TextBoxStyle::TranslucentBox => match v_align {
+                egui::Align2::CENTER_CENTER => Rect::from_center_size(
+                    anchor_pos,
+                    egui::vec2(max_line_w + pad_x * 2.0, total_text_h + pad_y * 2.0),
+                ),
+                egui::Align2::CENTER_BOTTOM => Rect::from_min_max(
+                    Pos2::new(anchor_pos.x - max_line_w / 2.0 - pad_x, anchor_pos.y - total_text_h - pad_y),
+                    Pos2::new(anchor_pos.x + max_line_w / 2.0 + pad_x, anchor_pos.y + pad_y),
+                ),
+                egui::Align2::CENTER_TOP => Rect::from_min_max(
+                    Pos2::new(anchor_pos.x - max_line_w / 2.0 - pad_x, anchor_pos.y - pad_y),
+                    Pos2::new(anchor_pos.x + max_line_w / 2.0 + pad_x, anchor_pos.y + total_text_h + pad_y),
+                ),
+                egui::Align2::LEFT_BOTTOM => Rect::from_min_max(
+                    Pos2::new(anchor_pos.x - pad_x, anchor_pos.y - total_text_h - pad_y),
+                    Pos2::new(anchor_pos.x + max_line_w + pad_x, anchor_pos.y + pad_y),
+                ),
+                _ => Rect::from_center_size(anchor_pos, egui::vec2(max_line_w + pad_x * 2.0, total_text_h + pad_y * 2.0)),
+            },
+            TextBoxStyle::SolidBanner => {
+                let box_top = match v_align {
+                    egui::Align2::CENTER_BOTTOM => anchor_pos.y - total_text_h - pad_y * 1.5,
+                    egui::Align2::CENTER_TOP => anchor_pos.y - pad_y * 0.5,
+                    _ => anchor_pos.y - total_text_h / 2.0 - pad_y,
+                };
+                Rect::from_min_max(
+                    Pos2::new(rect.min.x, box_top),
+                    Pos2::new(rect.max.x, box_top + total_text_h + pad_y * 2.0),
+                )
+            }
         };
 
-        if overlay.show_box {
-            painter.rect_filled(box_rect, Rounding::same(6.0), Color32::from_black_alpha(175));
+        if overlay.box_style != TextBoxStyle::None {
+            let alpha = ((overlay.box_opacity * 255.0).clamp(10.0, 255.0)) as u8;
+            painter.rect_filled(box_rect, Rounding::same(6.0), Color32::from_black_alpha(alpha));
             painter.rect_stroke(
                 box_rect,
                 Rounding::same(6.0),
-                egui::Stroke::new(1.0, Color32::from_white_alpha(40)),
+                egui::Stroke::new(1.0, Color32::from_white_alpha((alpha / 4).max(10))),
             );
         }
 
-        // Draw shadow behind text
-        let shadow_offset = egui::vec2(1.5, 1.5);
-        let text_draw_pos = match align {
-            egui::Align2::CENTER_CENTER => Pos2::new(anchor_pos.x, anchor_pos.y - text_h / 2.0 + main_galley.size().y / 2.0),
-            egui::Align2::CENTER_BOTTOM => Pos2::new(anchor_pos.x, anchor_pos.y - text_h + main_galley.size().y / 2.0),
-            egui::Align2::CENTER_TOP => Pos2::new(anchor_pos.x, anchor_pos.y + main_galley.size().y / 2.0),
-            egui::Align2::LEFT_BOTTOM => Pos2::new(anchor_pos.x + main_galley.size().x / 2.0, anchor_pos.y - text_h + main_galley.size().y / 2.0),
-            _ => anchor_pos,
+        // Draw Multi-line Text
+        let top_start_y = match v_align {
+            egui::Align2::CENTER_CENTER => anchor_pos.y - total_text_h / 2.0,
+            egui::Align2::CENTER_BOTTOM => anchor_pos.y - total_text_h,
+            egui::Align2::CENTER_TOP => anchor_pos.y,
+            egui::Align2::LEFT_BOTTOM => anchor_pos.y - total_text_h,
+            _ => anchor_pos.y - total_text_h / 2.0,
         };
 
-        painter.text(
-            text_draw_pos + shadow_offset,
-            egui::Align2::CENTER_CENTER,
-            &overlay.text,
-            egui::FontId::proportional(font_size.max(14.0)),
-            Color32::BLACK,
-        );
+        let mut cur_y = top_start_y;
+        let shadow_offset = egui::vec2(1.5 * scale, 1.5 * scale);
 
-        painter.text(
-            text_draw_pos,
-            egui::Align2::CENTER_CENTER,
-            &overlay.text,
-            egui::FontId::proportional(font_size.max(14.0)),
-            text_color,
-        );
+        for (i, line) in lines.iter().enumerate() {
+            let line_w = line_galleys[i].size().x;
+            let line_h = line_galleys[i].size().y;
 
-        if let Some(ref sub) = overlay.subtitle {
-            let sub_y = text_draw_pos.y + (main_galley.size().y / 2.0) + (sub_galley.as_ref().map(|g| g.size().y / 2.0).unwrap_or(0.0)) + 4.0 * scale;
-            let sub_pos = Pos2::new(text_draw_pos.x, sub_y);
+            let line_center_x = match overlay.alignment {
+                TextAlignment::Left => {
+                    if overlay.position == TextPosition::LowerThird {
+                        anchor_pos.x + line_w / 2.0
+                    } else {
+                        anchor_pos.x - max_line_w / 2.0 + line_w / 2.0
+                    }
+                }
+                TextAlignment::Center => anchor_pos.x,
+                TextAlignment::Right => {
+                    if overlay.position == TextPosition::LowerThird {
+                        anchor_pos.x + max_line_w - line_w / 2.0
+                    } else {
+                        anchor_pos.x + max_line_w / 2.0 - line_w / 2.0
+                    }
+                }
+            };
+
+            let line_pos = Pos2::new(line_center_x, cur_y + line_h / 2.0);
+
+            if overlay.show_shadow {
+                painter.text(
+                    line_pos + shadow_offset,
+                    egui::Align2::CENTER_CENTER,
+                    *line,
+                    font_id.clone(),
+                    Color32::from_black_alpha(220),
+                );
+            }
 
             painter.text(
-                sub_pos + shadow_offset,
+                line_pos,
                 egui::Align2::CENTER_CENTER,
-                sub,
-                sub_font_id.clone(),
-                Color32::BLACK,
+                *line,
+                font_id.clone(),
+                text_color,
             );
 
-            painter.text(
-                sub_pos,
-                egui::Align2::CENTER_CENTER,
-                sub,
-                sub_font_id,
-                Color32::from_rgb(220, 225, 235),
-            );
+            cur_y += line_h + 4.0 * scale;
         }
     }
 }
