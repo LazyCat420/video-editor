@@ -46,7 +46,7 @@ impl ExportDialog {
                 ui.set_width(380.0);
 
                 // Resolution Presets
-                ui.heading(RichText::new("Export Settings").size(15.0).color(AppTheme::TEXT_PRIMARY));
+                ui.heading(RichText::new("Export Settings").size(15.0).color(AppTheme::text_primary()));
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
@@ -127,7 +127,7 @@ impl ExportDialog {
                 ui.horizontal(|ui| {
                     ui.label("Destination:");
                     let path_str = self.config.output_path.to_str().unwrap_or("output.mp4");
-                    ui.label(RichText::new(path_str).monospace().size(11.0).color(AppTheme::ACCENT_CYAN));
+                    ui.label(RichText::new(path_str).monospace().size(11.0).color(AppTheme::accent_cyan()));
                     if ui.button("Browse...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("MP4 Video", &["mp4"])
@@ -146,16 +146,16 @@ impl ExportDialog {
                         RenderProgress::Rendering { progress_pct, current_time_secs, fps } => {
                             ui.add_space(8.0);
                             ui.add(ProgressBar::new(progress_pct / 100.0).text(format!("{:.1}% (render time: {:.1}s)", progress_pct, current_time_secs)));
-                            ui.label(RichText::new(format!("Rendering at {:.1} FPS...", fps)).size(11.0).color(AppTheme::TEXT_SECONDARY));
+                            ui.label(RichText::new(format!("Rendering at {:.1} FPS...", fps)).size(11.0).color(AppTheme::text_secondary()));
                         }
                         RenderProgress::Completed { output_path } => {
                             ui.add_space(8.0);
-                            ui.label(RichText::new("✅ Render Complete!").color(AppTheme::ACCENT_GREEN).strong());
+                            ui.label(RichText::new("✅ Render Complete!").color(AppTheme::accent_green()).strong());
                             ui.label(RichText::new(format!("Saved to: {}", output_path.display())).size(11.0));
                         }
                         RenderProgress::Failed { error } => {
                             ui.add_space(8.0);
-                            ui.label(RichText::new(format!("❌ Render Failed: {}", error)).color(AppTheme::ACCENT_RED));
+                            ui.label(RichText::new(format!("❌ Render Failed: {}", error)).color(AppTheme::accent_red()));
                         }
                         _ => {}
                     }
@@ -168,7 +168,7 @@ impl ExportDialog {
                     });
 
                     let render_btn = Button::new(RichText::new("Start Render").color(Color32::WHITE).strong())
-                        .fill(AppTheme::ACCENT_GREEN);
+                        .fill(AppTheme::accent_green());
 
                     if ui.add_enabled(!is_rendering, render_btn).clicked() {
                         action = ExportDialogAction::StartExport(self.config.clone());

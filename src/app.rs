@@ -14,11 +14,27 @@ use crate::ui::export_dialog::{ExportDialog, ExportDialogAction};
 use crate::ui::media_bin::{MediaBinAction, MediaBinView};
 use crate::ui::menu_bar::{MenuAction, MenuBarView};
 use crate::ui::preview_player::{PlayerAction, PreviewPlayerView};
-use crate::ui::theme::AppTheme;
+use crate::ui::theme::{AppTheme, ThemeKind};
 use crate::ui::timeline_view::{TimelineAction, TimelineView};
-use egui::{Button, ColorImage, Context, Key, RichText, TextureHandle};
+use egui::{Button, Color32, ColorImage, Context, Key, RichText, TextureHandle};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+/// User-chosen program-wide settings (theme + text size).
+#[derive(Clone, Copy, Debug)]
+pub struct AppSettings {
+    pub theme: ThemeKind,
+    pub font_scale: f32,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeKind::Dark,
+            font_scale: 1.0,
+        }
+    }
+}
 
 pub struct VideoEditorApp {
     pub project: Project,
@@ -39,6 +55,8 @@ pub struct VideoEditorApp {
     pub media_bin_collapsed: HashSet<String>,
     pub thumb_textures: HashMap<u64, TextureHandle>,
     pub thumbnail_frames: HashMap<u64, ColorImage>,
+    pub settings: AppSettings,
+    pub show_settings_dialog: bool,
     pub show_help_dialog: bool,
 }
 
@@ -63,6 +81,8 @@ impl Default for VideoEditorApp {
             media_bin_collapsed: HashSet::new(),
             thumb_textures: HashMap::new(),
             thumbnail_frames: HashMap::new(),
+            settings: AppSettings::default(),
+            show_settings_dialog: false,
             show_help_dialog: false,
         }
     }
@@ -70,8 +90,9 @@ impl Default for VideoEditorApp {
 
 impl VideoEditorApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        AppTheme::apply(&cc.egui_ctx);
-        Self::default()
+        let s = Self::default();
+        AppTheme::configure(&cc.egui_ctx, s.settings.theme, s.settings.font_scale);
+        s
     }
 
     pub fn snapshot_timeline(&mut self) {
@@ -535,6 +556,9 @@ impl eframe::App for VideoEditorApp {
                     MenuAction::ToggleHelp => {
                         self.show_help_dialog = !self.show_help_dialog;
                     }
+                    MenuAction::OpenSettings => {
+                        self.show_settings_dialog = true;
+                    }
                     MenuAction::None => {}
                 }
             });
@@ -794,6 +818,81 @@ impl eframe::App for VideoEditorApp {
         }
 
         // ==========================================
+        // 9.5. Settings Dialog (theme + text size)
+        // ==========================================
+        if self.show_settings_dialog {
+            let mut changed = false;
+            egui::Window::new("⚙ Settings")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(370.0)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("🎨 Colors")
+                            .strong()
+                            .size(15.0)
+                            .color(AppTheme::accent_blue()),
+                    );
+                    ui.add_space(3.0);
+                    ui.horizontal(|ui| {
+                        for t in ThemeKind::all() {
+                            let sel = self.settings.theme == t;
+                            let btn = Button::new(
+                                RichText::new(t.label()).color(Color32::WHITE).strong(),
+                            )
+                            .fill(if sel {
+                                AppTheme::accent_blue()
+                            } else {
+                                AppTheme::bg_card()
+                            })
+                            .min_size(egui::vec2(128.0, 34.0));
+                            if ui.add(btn).clicked() {
+                                self.settings.theme = t;
+                                changed = true;
+                            }
+                        }
+                    });
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("🔠 Text Size")
+                                .strong()
+                                .size(15.0)
+                                .color(AppTheme::accent_blue()),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut self.settings.font_scale, 0.8..=1.5)
+                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                                .fixed_decimals(0),
+                        );
+                    });
+                    ui.label(
+                        RichText::new("Make the words bigger or smaller.")
+                            .size(12.0)
+                            .color(AppTheme::text_muted()),
+                    );
+                    ui.add_space(12.0);
+                    ui.vertical_centered(|ui| {
+                        if ui
+                            .add(
+                                Button::new(RichText::new("Done, Close").size(15.0).strong())
+                                    .min_size(egui::vec2(130.0, 34.0)),
+                            )
+                            .clicked()
+                        {
+                            self.show_settings_dialog = false;
+                        }
+                    });
+                });
+            if changed {
+                AppTheme::configure(ctx, self.settings.theme, self.settings.font_scale);
+            }
+        }
+
+        // ==========================================
         // 10. Senior Help / How-To Dialog Modal
         // ==========================================
         if self.show_help_dialog {
@@ -804,7 +903,7 @@ impl eframe::App for VideoEditorApp {
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
-                        ui.heading(RichText::new("How to Edit Your Video").color(AppTheme::ACCENT_BLUE).size(18.0));
+                        ui.heading(RichText::new("How to Edit Your Video").color(AppTheme::accent_blue()).size(18.0));
                         ui.add_space(8.0);
 
                         ui.label(RichText::new("1. Add Videos & Music:").strong().size(15.0));

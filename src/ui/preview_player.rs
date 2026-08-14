@@ -43,7 +43,7 @@ impl PreviewPlayerView {
 
             let painter = ui.painter_at(rect);
             painter.rect_filled(rect, Rounding::same(8.0), Color32::BLACK);
-            painter.rect_stroke(rect, Rounding::same(8.0), egui::Stroke::new(1.5, AppTheme::BG_HOVER));
+            painter.rect_stroke(rect, Rounding::same(8.0), egui::Stroke::new(1.5, AppTheme::bg_hover()));
 
             let total_dur = timeline.duration();
 
@@ -68,7 +68,7 @@ impl PreviewPlayerView {
                     egui::Align2::CENTER_CENTER,
                     "🏁 End of video reached.\nClick '⏮ Rewind to Start' below to watch again.",
                     egui::FontId::proportional(16.0),
-                    AppTheme::TEXT_SECONDARY,
+                    AppTheme::text_secondary(),
                 );
             } else if total_dur.as_secs_f64() > 0.0 {
                 // Loading or empty timeline slot message
@@ -77,7 +77,7 @@ impl PreviewPlayerView {
                     egui::Align2::CENTER_CENTER,
                     "🎞 Loading preview frame...",
                     egui::FontId::proportional(16.0),
-                    AppTheme::ACCENT_CYAN,
+                    AppTheme::accent_cyan(),
                 );
             } else {
                 // Initial prompt when no video is loaded
@@ -86,7 +86,7 @@ impl PreviewPlayerView {
                     egui::Align2::CENTER_CENTER,
                     "🎬 Welcome! Click '1. 📂 Open Video / Music' above to start.",
                     egui::FontId::proportional(16.0),
-                    AppTheme::TEXT_MUTED,
+                    AppTheme::text_muted(),
                 );
             }
 
@@ -99,7 +99,7 @@ impl PreviewPlayerView {
                 // Rewind to start
                 let rewind_btn = Button::new(RichText::new("⏮ Rewind").size(15.0).strong())
                     .min_size(egui::vec2(100.0, 40.0))
-                    .fill(AppTheme::BG_CARD);
+                    .fill(AppTheme::bg_card());
                 if ui.add(rewind_btn).on_hover_text("Jump back to the beginning").clicked() {
                     action = PlayerAction::Seek(TimeCode::ZERO);
                 }
@@ -107,7 +107,7 @@ impl PreviewPlayerView {
                 // Step Back 1 second
                 let back_btn = Button::new(RichText::new("⏪ -1s").size(14.0))
                     .min_size(egui::vec2(65.0, 40.0))
-                    .fill(AppTheme::BG_CARD);
+                    .fill(AppTheme::bg_card());
                 if ui.add(back_btn).on_hover_text("Go back 1 second").clicked() {
                     action = PlayerAction::StepSeconds(-1.0);
                 }
@@ -122,7 +122,7 @@ impl PreviewPlayerView {
                         .color(Color32::WHITE),
                 )
                 .min_size(egui::vec2(130.0, 40.0))
-                .fill(if is_playing { AppTheme::ACCENT_YELLOW } else { AppTheme::ACCENT_BLUE });
+                .fill(if is_playing { AppTheme::accent_yellow() } else { AppTheme::accent_blue() });
 
                 if ui.add(play_btn).on_hover_text("Play or Pause video (Spacebar)").clicked() {
                     action = PlayerAction::PlayPauseToggle;
@@ -131,7 +131,7 @@ impl PreviewPlayerView {
                 // Step Forward 1 second
                 let fwd_btn = Button::new(RichText::new("⏩ +1s").size(14.0))
                     .min_size(egui::vec2(65.0, 40.0))
-                    .fill(AppTheme::BG_CARD);
+                    .fill(AppTheme::bg_card());
                 if ui.add(fwd_btn).on_hover_text("Go forward 1 second").clicked() {
                     action = PlayerAction::StepSeconds(1.0);
                 }
@@ -139,7 +139,7 @@ impl PreviewPlayerView {
                 // Stop Button
                 let stop_btn = Button::new(RichText::new("⏹ Stop").size(14.0))
                     .min_size(egui::vec2(75.0, 40.0))
-                    .fill(AppTheme::BG_CARD);
+                    .fill(AppTheme::bg_card());
                 if ui.add(stop_btn).on_hover_text("Stop and return to start").clicked() {
                     action = PlayerAction::Stop;
                 }
@@ -163,7 +163,7 @@ impl PreviewPlayerView {
                     RichText::new(time_label)
                         .size(16.0)
                         .strong()
-                        .color(AppTheme::ACCENT_CYAN),
+                        .color(AppTheme::accent_cyan()),
                 );
 
                 // Big Scrub Slider across remaining width

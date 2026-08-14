@@ -14,6 +14,7 @@ pub enum MenuAction {
     DeleteSelected,
     OpenExportDialog,
     ToggleHelp,
+    OpenSettings,
 }
 
 impl MenuBarView {
@@ -31,7 +32,7 @@ impl MenuBarView {
                     .color(Color32::WHITE),
             )
             .min_size(egui::vec2(190.0, 36.0))
-            .fill(AppTheme::ACCENT_BLUE);
+            .fill(AppTheme::accent_blue());
 
             if ui
                 .add(open_btn)
@@ -53,7 +54,7 @@ impl MenuBarView {
                     .color(Color32::WHITE),
             )
             .min_size(egui::vec2(140.0, 36.0))
-            .fill(AppTheme::BG_CARD);
+            .fill(AppTheme::bg_card());
 
             if ui
                 .add(split_btn)
@@ -66,10 +67,10 @@ impl MenuBarView {
             let del_btn = Button::new(
                 RichText::new("🗑 Delete Clip")
                     .size(14.0)
-                    .color(AppTheme::TEXT_PRIMARY),
+                    .color(AppTheme::text_primary()),
             )
             .min_size(egui::vec2(120.0, 36.0))
-            .fill(AppTheme::BG_CARD);
+            .fill(AppTheme::bg_card());
 
             if ui
                 .add(del_btn)
@@ -108,7 +109,7 @@ impl MenuBarView {
                         .color(Color32::WHITE),
                 )
                 .min_size(egui::vec2(210.0, 36.0))
-                .fill(AppTheme::ACCENT_GREEN);
+                .fill(AppTheme::accent_green());
 
                 if ui
                     .add(export_btn)
@@ -122,10 +123,10 @@ impl MenuBarView {
                 let help_btn = Button::new(
                     RichText::new("❓ Help")
                         .size(14.0)
-                        .color(AppTheme::TEXT_PRIMARY),
+                        .color(AppTheme::text_primary()),
                 )
                 .min_size(egui::vec2(75.0, 36.0))
-                .fill(AppTheme::BG_CARD);
+                .fill(AppTheme::bg_card());
 
                 if ui
                     .add(help_btn)
@@ -133,6 +134,23 @@ impl MenuBarView {
                     .clicked()
                 {
                     action = MenuAction::ToggleHelp;
+                }
+
+                // Settings button (theme + text size)
+                let settings_btn = Button::new(
+                    RichText::new("⚙ Settings")
+                        .size(14.0)
+                        .color(AppTheme::text_primary()),
+                )
+                .min_size(egui::vec2(100.0, 36.0))
+                .fill(AppTheme::bg_card());
+
+                if ui
+                    .add(settings_btn)
+                    .on_hover_text("Change the colors and text size")
+                    .clicked()
+                {
+                    action = MenuAction::OpenSettings;
                 }
 
                 // Project Menu (File/Save)

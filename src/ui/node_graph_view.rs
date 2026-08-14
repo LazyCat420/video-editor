@@ -32,7 +32,7 @@ pub fn render_audio_envelope_graph(
 
             painter.line_segment(
                 [Pos2::new(x, top_y), Pos2::new(x, bot_y)],
-                Stroke::new(1.5, AppTheme::WAVEFORM_COLOR),
+                Stroke::new(1.5, AppTheme::waveform_color()),
             );
         }
     }
@@ -99,7 +99,7 @@ pub fn render_audio_envelope_graph(
     for window in curve_points.windows(2) {
         painter.line_segment(
             [window[0], window[1]],
-            Stroke::new(2.0, AppTheme::ENVELOPE_LINE_COLOR),
+            Stroke::new(2.0, AppTheme::envelope_line_color()),
         );
     }
 
@@ -120,9 +120,9 @@ pub fn render_audio_envelope_graph(
         // Draw node circle
         let radius = if is_hovered { 6.5 } else { 4.5 };
         let fill = if is_hovered {
-            AppTheme::NODE_HOVER_COLOR
+            AppTheme::node_hover_color()
         } else {
-            AppTheme::NODE_COLOR
+            AppTheme::node_color()
         };
         painter.circle(node_pos, radius, fill, Stroke::new(1.5, Color32::WHITE));
 

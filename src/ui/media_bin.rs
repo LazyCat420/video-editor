@@ -32,7 +32,7 @@ impl MediaBinView {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("📁 Your Files")
-                        .color(AppTheme::TEXT_PRIMARY)
+                        .color(AppTheme::text_primary())
                         .strong()
                         .size(17.0),
                 );
@@ -48,7 +48,7 @@ impl MediaBinView {
                     .color(Color32::WHITE),
             )
             .min_size(egui::vec2(ui.available_width(), 36.0))
-            .fill(AppTheme::ACCENT_GREEN);
+            .fill(AppTheme::accent_green());
 
             if ui
                 .add(folder_btn)
@@ -72,7 +72,7 @@ impl MediaBinView {
                     .color(Color32::WHITE),
             )
             .min_size(egui::vec2(ui.available_width(), 36.0))
-            .fill(AppTheme::ACCENT_BLUE);
+            .fill(AppTheme::accent_blue());
 
             if ui.add(add_btn).clicked() {
                 if let Some(files) = crate::media::probe::create_media_file_dialog().pick_files() {
@@ -95,7 +95,7 @@ impl MediaBinView {
 
             if project.media_assets.is_empty() {
                 Frame::none()
-                    .fill(AppTheme::BG_CARD)
+                    .fill(AppTheme::bg_card())
                     .rounding(Rounding::same(8.0))
                     .inner_margin(16.0)
                     .show(ui, |ui| {
@@ -103,13 +103,13 @@ impl MediaBinView {
                             ui.label(
                                 RichText::new("📂 No videos loaded yet")
                                     .size(15.0)
-                                    .color(AppTheme::TEXT_SECONDARY),
+                                    .color(AppTheme::text_secondary()),
                             );
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Click '+ Add Entire Folder' to bring in a whole folder of videos at once, or '+ Add Video / Music' for a single file.")
                                     .size(13.0)
-                                    .color(AppTheme::TEXT_MUTED),
+                                    .color(AppTheme::text_muted()),
                             );
                         });
                     });
@@ -183,11 +183,11 @@ impl MediaBinView {
                             }
 
                             let cp = ui.painter_at(card_rect);
-                            cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::BG_CARD);
+                            cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_card());
                             cp.rect_stroke(
                                 card_rect,
                                 Rounding::same(8.0),
-                                egui::Stroke::new(1.5, AppTheme::BG_HOVER),
+                                egui::Stroke::new(1.5, AppTheme::bg_hover()),
                             );
 
                             // Thumbnail / icon on the left.
@@ -213,13 +213,13 @@ impl MediaBinView {
                                     egui::Align2::CENTER_CENTER,
                                     icon,
                                     egui::FontId::proportional(22.0),
-                                    AppTheme::TEXT_SECONDARY,
+                                    AppTheme::text_secondary(),
                                 );
                             }
                             cp.rect_stroke(
                                 thumb,
                                 Rounding::same(4.0),
-                                egui::Stroke::new(1.0, AppTheme::BG_HOVER),
+                                egui::Stroke::new(1.0, AppTheme::bg_hover()),
                             );
 
                             // Name + duration next to the thumbnail.
@@ -229,7 +229,7 @@ impl MediaBinView {
                                 egui::Align2::LEFT_TOP,
                                 &asset.name,
                                 egui::FontId::proportional(14.0),
-                                AppTheme::TEXT_PRIMARY,
+                                AppTheme::text_primary(),
                             );
                             let dur_m = (asset.duration_secs / 60.0).floor() as u64;
                             let dur_s = (asset.duration_secs % 60.0).floor() as u64;
@@ -243,7 +243,7 @@ impl MediaBinView {
                                 egui::Align2::LEFT_TOP,
                                 dur_text,
                                 egui::FontId::proportional(12.0),
-                                AppTheme::TEXT_MUTED,
+                                AppTheme::text_muted(),
                             );
 
                             // Buttons placed on top (top-right): X to remove, + to put on
@@ -271,7 +271,7 @@ impl MediaBinView {
                             let put_btn = Button::new(
                                 RichText::new("+").size(13.0).strong().color(Color32::WHITE),
                             )
-                            .fill(AppTheme::ACCENT_BLUE);
+                            .fill(AppTheme::accent_blue());
 
                             if ui
                                 .put(plus_rect, put_btn)
@@ -295,9 +295,9 @@ impl MediaBinView {
                             RichText::new(format!("{} 📁 {}", chevron, folder_name))
                                 .size(13.0)
                                 .strong()
-                                .color(AppTheme::TEXT_PRIMARY),
+                                .color(AppTheme::text_primary()),
                         )
-                        .fill(AppTheme::BG_HOVER)
+                        .fill(AppTheme::bg_hover())
                         .min_size(egui::vec2(ui.available_width(), 26.0));
 
                         if ui.add(header_btn).clicked() {

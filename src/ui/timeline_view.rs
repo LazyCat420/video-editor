@@ -133,7 +133,7 @@ impl TimelineView {
                         Button::new(
                             RichText::new("↩ Undo")
                                 .size(14.0)
-                                .color(if can_undo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
+                                .color(if can_undo { Color32::WHITE } else { AppTheme::text_muted() }),
                         ),
                     )
                     .clicked()
@@ -147,7 +147,7 @@ impl TimelineView {
                         Button::new(
                             RichText::new("↪ Redo")
                                 .size(14.0)
-                                .color(if can_redo { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
+                                .color(if can_redo { Color32::WHITE } else { AppTheme::text_muted() }),
                         ),
                     )
                     .clicked()
@@ -161,7 +161,7 @@ impl TimelineView {
                     .button(
                         RichText::new("✂ Cut Video Here (S)")
                             .size(14.0)
-                            .color(AppTheme::ACCENT_BLUE),
+                            .color(AppTheme::accent_blue()),
                     )
                     .clicked()
                 {
@@ -172,7 +172,7 @@ impl TimelineView {
                     .button(
                         RichText::new("🗑 Delete Clip (Del)")
                             .size(14.0)
-                            .color(AppTheme::TEXT_SECONDARY),
+                            .color(AppTheme::text_secondary()),
                     )
                     .clicked()
                 {
@@ -186,7 +186,7 @@ impl TimelineView {
                             .logarithmic(true)
                             .show_value(false),
                     );
-                    ui.label(RichText::new("Zoom:").size(13.0).color(AppTheme::TEXT_SECONDARY));
+                    ui.label(RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()));
                 });
             });
 
@@ -217,13 +217,13 @@ impl TimelineView {
                         Sense::hover(),
                     );
                     let painter = ui.painter_at(corner_rect);
-                    painter.rect_filled(corner_rect, Rounding::ZERO, AppTheme::BG_CARD);
+                    painter.rect_filled(corner_rect, Rounding::ZERO, AppTheme::bg_card());
                     painter.text(
                         corner_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "Tracks",
                         egui::FontId::proportional(14.0),
-                        AppTheme::TEXT_PRIMARY,
+                        AppTheme::text_primary(),
                     );
 
                     // Track Controls Column
@@ -231,16 +231,16 @@ impl TimelineView {
                         let track_id = track.id;
                         let header_resp = Frame::none()
                             .fill(if track.kind == TrackKind::Video {
-                                AppTheme::TRACK_VIDEO_BG
+                                AppTheme::track_video_bg()
                             } else {
-                                AppTheme::TRACK_AUDIO_BG
+                                AppTheme::track_audio_bg()
                             })
                             .stroke(Stroke::new(
                                 1.5,
                                 if track.kind == TrackKind::Video {
-                                    AppTheme::TRACK_VIDEO_BORDER
+                                    AppTheme::track_video_border()
                                 } else {
-                                    AppTheme::TRACK_AUDIO_BORDER
+                                    AppTheme::track_audio_border()
                                 },
                             ))
                             .rounding(Rounding::same(4.0))
@@ -265,7 +265,7 @@ impl TimelineView {
                                     egui::Align2::LEFT_CENTER,
                                     format!("≡  {}", track.name),
                                     egui::FontId::proportional(12.5),
-                                    AppTheme::TEXT_PRIMARY,
+                                    AppTheme::text_primary(),
                                 );
 
                                 ui.add_space(2.0);
@@ -274,16 +274,16 @@ impl TimelineView {
                                     let mute_text = if track.is_muted {
                                         RichText::new("Muted").size(12.0).color(Color32::from_rgb(255, 100, 100))
                                     } else {
-                                        RichText::new("Mute").size(12.0).color(AppTheme::TEXT_SECONDARY)
+                                        RichText::new("Mute").size(12.0).color(AppTheme::text_secondary())
                                     };
                                     if ui.button(mute_text).clicked() {
                                         track.is_muted = !track.is_muted;
                                     }
 
                                     let solo_text = if track.is_solo {
-                                        RichText::new("Solo").size(12.0).color(AppTheme::ACCENT_YELLOW)
+                                        RichText::new("Solo").size(12.0).color(AppTheme::accent_yellow())
                                     } else {
-                                        RichText::new("Solo").size(12.0).color(AppTheme::TEXT_MUTED)
+                                        RichText::new("Solo").size(12.0).color(AppTheme::text_muted())
                                     };
                                     if ui.button(solo_text).clicked() {
                                         track.is_solo = !track.is_solo;
@@ -303,7 +303,7 @@ impl TimelineView {
                                 });
 
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Vol").size(11.0).color(AppTheme::TEXT_MUTED));
+                                    ui.label(RichText::new("Vol").size(11.0).color(AppTheme::text_muted()));
                                     ui.add(
                                         egui::Slider::new(&mut track.volume, 0.0..=2.0)
                                             .show_value(false),
@@ -319,7 +319,7 @@ impl TimelineView {
                                 hp.rect_stroke(
                                     header_resp.rect.expand(2.0),
                                     Rounding::same(6.0),
-                                    Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                    Stroke::new(2.5, AppTheme::accent_blue()),
                                 );
                             }
                         }
@@ -346,7 +346,7 @@ impl TimelineView {
                             .button(
                                 RichText::new("+ Video Track")
                                     .size(12.0)
-                                    .color(AppTheme::ACCENT_BLUE),
+                                    .color(AppTheme::accent_blue()),
                             )
                             .clicked()
                         {
@@ -356,7 +356,7 @@ impl TimelineView {
                             .button(
                                 RichText::new("+ Music Track")
                                     .size(12.0)
-                                    .color(AppTheme::ACCENT_GREEN),
+                                    .color(AppTheme::accent_green()),
                             )
                             .clicked()
                         {
@@ -387,7 +387,7 @@ impl TimelineView {
                             ruler_painter.rect_filled(
                                 ruler_rect,
                                 Rounding::ZERO,
-                                AppTheme::BG_APP,
+                                AppTheme::bg_app(),
                             );
 
                             // Click or drag on ruler to seek
@@ -418,7 +418,7 @@ impl TimelineView {
                                 if x <= ruler_rect.max.x {
                                     ruler_painter.line_segment(
                                         [Pos2::new(x, ruler_rect.min.y + 16.0), Pos2::new(x, ruler_rect.max.y)],
-                                        Stroke::new(1.0, AppTheme::TEXT_MUTED),
+                                        Stroke::new(1.0, AppTheme::text_muted()),
                                     );
 
                                     let cur_m = (cur_sec / 60.0).floor() as u64;
@@ -430,7 +430,7 @@ impl TimelineView {
                                         egui::Align2::LEFT_TOP,
                                         label_str,
                                         egui::FontId::proportional(12.0),
-                                        AppTheme::TEXT_SECONDARY,
+                                        AppTheme::text_secondary(),
                                     );
                                 }
                                 cur_sec += sec_interval;
@@ -530,14 +530,14 @@ impl TimelineView {
                                 track_painter.rect_filled(
                                     track_rect,
                                     Rounding::ZERO,
-                                    AppTheme::BG_PANEL,
+                                    AppTheme::bg_panel(),
                                 );
                                 track_painter.line_segment(
                                     [
                                         Pos2::new(track_rect.min.x, track_rect.max.y),
                                         Pos2::new(track_rect.max.x, track_rect.max.y),
                                     ],
-                                    Stroke::new(1.0, AppTheme::BG_HOVER),
+                                    Stroke::new(1.0, AppTheme::bg_hover()),
                                 );
 
                                 // Right-click context menu on Track Background
@@ -547,7 +547,7 @@ impl TimelineView {
                                         RichText::new(&track.name)
                                             .strong()
                                             .size(13.0)
-                                            .color(AppTheme::TEXT_SECONDARY),
+                                            .color(AppTheme::text_secondary()),
                                     );
                                     ui.separator();
 
@@ -557,7 +557,7 @@ impl TimelineView {
                                             Button::new(
                                                 RichText::new("📋 Paste Clip")
                                                     .size(14.0)
-                                                    .color(if has_clipboard { Color32::WHITE } else { AppTheme::TEXT_MUTED }),
+                                                    .color(if has_clipboard { Color32::WHITE } else { AppTheme::text_muted() }),
                                             ),
                                         )
                                         .clicked()
@@ -582,14 +582,14 @@ impl TimelineView {
                                     hover_painter.rect_stroke(
                                         track_rect,
                                         Rounding::same(6.0),
-                                        Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                        Stroke::new(2.5, AppTheme::accent_blue()),
                                     );
                                     hover_painter.text(
                                         track_rect.center(),
                                         egui::Align2::CENTER_CENTER,
                                         "➕ Put file here",
                                         egui::FontId::proportional(15.0),
-                                        AppTheme::ACCENT_BLUE,
+                                        AppTheme::accent_blue(),
                                     );
                                 }
                                 if let Some(drop) = track_response.dnd_release_payload::<MediaAssetDrag>() {
@@ -670,7 +670,7 @@ impl TimelineView {
                                             RichText::new(&clip.name)
                                                 .strong()
                                                 .size(14.0)
-                                                .color(AppTheme::ACCENT_CYAN),
+                                                .color(AppTheme::accent_cyan()),
                                         );
                                         ui.separator();
 
@@ -678,7 +678,7 @@ impl TimelineView {
                                             .button(
                                                 RichText::new("✂ Cut Video Here")
                                                     .size(15.0)
-                                                    .color(AppTheme::ACCENT_BLUE),
+                                                    .color(AppTheme::accent_blue()),
                                             )
                                             .clicked()
                                         {
@@ -724,7 +724,7 @@ impl TimelineView {
                                                         .color(if has_clipboard {
                                                             Color32::WHITE
                                                         } else {
-                                                            AppTheme::TEXT_MUTED
+                                                            AppTheme::text_muted()
                                                         }),
                                                 ),
                                             )
@@ -756,15 +756,15 @@ impl TimelineView {
                                     let clip_painter = ui.painter_at(clip_rect);
                                     let bg_color = if clip.is_selected {
                                         if track.kind == TrackKind::Video {
-                                            AppTheme::CLIP_VIDEO_SELECTED
+                                            AppTheme::clip_video_selected()
                                         } else {
-                                            AppTheme::CLIP_AUDIO_SELECTED
+                                            AppTheme::clip_audio_selected()
                                         }
                                     } else {
                                         if track.kind == TrackKind::Video {
-                                            AppTheme::CLIP_VIDEO_BG
+                                            AppTheme::clip_video_bg()
                                         } else {
-                                            AppTheme::CLIP_AUDIO_BG
+                                            AppTheme::clip_audio_bg()
                                         }
                                     };
 
@@ -781,7 +781,7 @@ impl TimelineView {
                                             if clip.is_selected {
                                                 Color32::WHITE
                                             } else {
-                                                AppTheme::BG_HOVER
+                                                AppTheme::bg_hover()
                                             },
                                         ),
                                     );
@@ -839,9 +839,9 @@ impl TimelineView {
 
                                         // Floating translucent card with a bright outline.
                                         let fill = if track.kind == TrackKind::Video {
-                                            AppTheme::CLIP_VIDEO_BG
+                                            AppTheme::clip_video_bg()
                                         } else {
-                                            AppTheme::CLIP_AUDIO_BG
+                                            AppTheme::clip_audio_bg()
                                         }
                                         .gamma_multiply(0.85);
                                         gp.rect_filled(
@@ -852,7 +852,7 @@ impl TimelineView {
                                         gp.rect_stroke(
                                             ghost_rect,
                                             Rounding::same(8.0),
-                                            Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                            Stroke::new(2.5, AppTheme::accent_blue()),
                                         );
                                         gp.text(
                                             ghost_rect.left_top() + egui::vec2(8.0, 6.0),
@@ -889,7 +889,7 @@ impl TimelineView {
                                         Pos2::new(area_left, ly),
                                         Pos2::new(area_left + total_timeline_pixels, ly),
                                     ],
-                                    Stroke::new(2.0, AppTheme::ACCENT_BLUE),
+                                    Stroke::new(2.0, AppTheme::accent_blue()),
                                 );
                             }
 
@@ -907,7 +907,7 @@ impl TimelineView {
                             // Glowing vertical line
                             playhead_painter.line_segment(
                                 [playhead_top, playhead_bottom],
-                                Stroke::new(2.5, AppTheme::PLAYHEAD_COLOR),
+                                Stroke::new(2.5, AppTheme::playhead_color()),
                             );
 
                             // Triangular Playhead Cap on Ruler
@@ -919,7 +919,7 @@ impl TimelineView {
                             ];
                             playhead_painter.add(egui::Shape::convex_polygon(
                                 cap_tri,
-                                AppTheme::PLAYHEAD_COLOR,
+                                AppTheme::playhead_color(),
                                 Stroke::new(1.2, Color32::WHITE),
                             ));
                         });
@@ -934,12 +934,12 @@ impl TimelineView {
                     RichText::new("Tips:")
                         .strong()
                         .size(13.0)
-                        .color(AppTheme::ACCENT_YELLOW),
+                        .color(AppTheme::accent_yellow()),
                 );
                 ui.label(
                     RichText::new("Right-click any clip to Cut, Copy, or Delete.")
                         .size(13.0)
-                        .color(AppTheme::TEXT_SECONDARY),
+                        .color(AppTheme::text_secondary()),
                 );
             });
         });
