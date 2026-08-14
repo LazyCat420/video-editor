@@ -380,11 +380,18 @@ impl eframe::App for VideoEditorApp {
                 }
             }
 
-            // C. Consume frames from the continuous streaming decoder synchronized to PTS
+            // C. Consume frames from the continuous streaming decoder synchronized to PTS.
+            // Only update the preview when a genuinely NEW frame was decoded, so we do not
+            // re-clone a ~691 KB ColorImage (and re-upload it) on every UI tick at 2x the
+            // 30 FPS video rate.
             if let Some((_, _, source_sec, _)) = active_clip {
-                if let Some(stream_frame) = self.stream_player.get_frame_for_time(source_sec) {
-                    self.current_frame = Some(stream_frame);
-                    self.frame_version += 1;
+                let (had_new_frame, stream_frame) =
+                    self.stream_player.get_frame_for_time(source_sec);
+                if had_new_frame {
+                    if let Some(f) = stream_frame {
+                        self.current_frame = Some(f);
+                        self.frame_version += 1;
+                    }
                 }
             }
 

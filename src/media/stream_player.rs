@@ -4,7 +4,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::thread;
 
 use crate::media::frame_cache::find_ffmpeg_executable;
@@ -12,6 +14,37 @@ use crate::media::frame_cache::find_ffmpeg_executable;
 pub const STREAM_WIDTH: usize = 640;
 pub const STREAM_HEIGHT: usize = 360;
 pub const STREAM_BYTES_PER_FRAME: usize = STREAM_WIDTH * STREAM_HEIGHT * 3;
+
+/// Build the ffmpeg CLI args for a rawvideo stream starting at `start_secs`.
+///
+/// Deliberately does **not** pass `-t`: a continuous stream must run to end-of-file
+/// so that a preserved deck keeps decoding across adjacent timeline cuts of the same
+/// source instead of silently EOF-ing at the first sub-clip's boundary (which froze
+/// every subsequent cut in the multi-cut lag bug). Decode output is bounded in the
+/// consumer by the lookahead buffer backpressure and the explicit `stop()` calls at
+/// gaps/jump cuts, not by a producer-side duration cap.
+fn build_stream_args(path: &str, start_secs: f64) -> Vec<String> {
+    let ts_str = format!("{:.3}", start_secs.max(0.0));
+    let vf_filter = format!(
+        "scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black,fps=30",
+        STREAM_WIDTH, STREAM_HEIGHT, STREAM_WIDTH, STREAM_HEIGHT
+    );
+    vec![
+        "-ss".to_string(),
+        ts_str,
+        "-i".to_string(),
+        path.to_string(),
+        "-vf".to_string(),
+        vf_filter,
+        "-f".to_string(),
+        "rawvideo".to_string(),
+        "-pix_fmt".to_string(),
+        "rgb24".to_string(),
+        "-v".to_string(),
+        "error".to_string(),
+        "-".to_string(),
+    ]
+}
 
 /// Continuous video playback decoder using a single lightweight FFmpeg rawvideo stream.
 pub struct StreamVideoPlayer {
@@ -72,9 +105,7 @@ impl StreamVideoPlayer {
             });
         }
 
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
-        }
+        self.buffer.lock().clear();
 
         self.active_path = None;
         self.current_frame = None;
@@ -86,7 +117,7 @@ impl StreamVideoPlayer {
         &mut self,
         path: P,
         start_secs: f64,
-        duration_secs: Option<f64>,
+        _duration_secs: Option<f64>,
         ctx: Option<&Context>,
     ) {
         self.stop();
@@ -97,7 +128,7 @@ impl StreamVideoPlayer {
         self.current_frame = None;
         self.last_pts = Some(start_secs);
 
-        let mut err_lock = self.last_error.lock().unwrap();
+        let mut err_lock = self.last_error.lock();
         *err_lock = None;
         drop(err_lock);
 
@@ -107,10 +138,9 @@ impl StreamVideoPlayer {
         let ffmpeg_bin = self.ffmpeg_bin.clone();
         let ctx_clone = ctx.cloned();
 
-        let ts_str = format!("{:.3}", start_secs.max(0.0));
-        let vf_filter = format!(
-            "scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black,fps=30",
-            STREAM_WIDTH, STREAM_HEIGHT, STREAM_WIDTH, STREAM_HEIGHT
+        let stream_args = build_stream_args(
+            path_buf.to_str().unwrap_or_default(),
+            start_secs,
         );
 
         let mut cmd = Command::new(&ffmpeg_bin);
@@ -120,33 +150,7 @@ impl StreamVideoPlayer {
             cmd.creation_flags(0x08000000);
         }
 
-        let mut args = vec![
-            "-ss".to_string(),
-            ts_str,
-            "-i".to_string(),
-            path_buf.to_str().unwrap_or_default().to_string(),
-        ];
-
-        if let Some(dur) = duration_secs {
-            if dur > 0.0 {
-                args.push("-t".to_string());
-                args.push(format!("{:.3}", dur));
-            }
-        }
-
-        args.extend([
-            "-vf".to_string(),
-            vf_filter,
-            "-f".to_string(),
-            "rawvideo".to_string(),
-            "-pix_fmt".to_string(),
-            "rgb24".to_string(),
-            "-v".to_string(),
-            "error".to_string(),
-            "-".to_string(),
-        ]);
-
-        cmd.args(&args)
+        cmd.args(&stream_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
@@ -154,9 +158,7 @@ impl StreamVideoPlayer {
             Ok(c) => c,
             Err(e) => {
                 let msg = format!("Failed to start FFmpeg playback stream: {}", e);
-                if let Ok(mut l) = err_arc.lock() {
-                    *l = Some(msg);
-                }
+                *err_arc.lock() = Some(msg);
                 self.is_running.store(false, Ordering::SeqCst);
                 return;
             }
@@ -172,13 +174,13 @@ impl StreamVideoPlayer {
 
             while is_running_arc.load(Ordering::SeqCst) {
                 // Backpressure: pause reader when lookahead buffer has 30 frames
-                if let Ok(buf) = buffer_arc.lock() {
-                    if buf.len() >= 30 {
-                        drop(buf);
-                        thread::sleep(std::time::Duration::from_millis(15));
-                        continue;
-                    }
+                let buf = buffer_arc.lock();
+                if buf.len() >= 30 {
+                    drop(buf);
+                    thread::sleep(std::time::Duration::from_millis(15));
+                    continue;
                 }
+                drop(buf);
 
                 match stdout.read_exact(&mut raw_buf) {
                     Ok(_) => {
@@ -190,9 +192,7 @@ impl StreamVideoPlayer {
                             &raw_buf,
                         );
 
-                        if let Ok(mut buf) = buffer_arc.lock() {
-                            buf.push_back((pts, color_img));
-                        }
+                        buffer_arc.lock().push_back((pts, color_img));
 
                         if let Some(ref c) = ctx_clone {
                             c.request_repaint();
@@ -212,25 +212,29 @@ impl StreamVideoPlayer {
     }
 
     /// Retrieve the video frame corresponding to the current source playback time.
-    /// Pops all frames whose PTS <= current_source_time, returning the most up-to-date frame.
-    pub fn get_frame_for_time(&mut self, current_source_time: f64) -> Option<ColorImage> {
-        if let Ok(mut buf) = self.buffer.lock() {
-            let mut advanced = false;
-            while let Some((pts, _)) = buf.front() {
-                if *pts <= current_source_time {
-                    let (pts_val, frame) = buf.pop_front().unwrap();
-                    self.current_frame = Some(frame);
-                    self.last_pts = Some(pts_val);
-                    advanced = true;
-                } else {
-                    break;
-                }
-            }
-            if advanced {
-                return self.current_frame.clone();
+    /// Pops all frames whose PTS <= current_source_time.
+    ///
+    /// Returns `(had_new_frame, frame)`: `had_new_frame` is true ONLY when a brand-new
+    /// decoded frame was popped during this call. The caller must only re-upload the
+    /// texture (and clone the ~691 KB `ColorImage`) when that flag is true, otherwise a
+    /// 60 FPS UI re-clones the frame at 2x the 30 FPS video rate for no visible gain.
+    pub fn get_frame_for_time(&mut self, current_source_time: f64) -> (bool, Option<ColorImage>) {
+        let mut buf = self.buffer.lock();
+        let mut advanced = false;
+        while let Some((pts, _)) = buf.front() {
+            if *pts <= current_source_time {
+                let (pts_val, frame) = buf.pop_front().unwrap();
+                self.current_frame = Some(frame);
+                self.last_pts = Some(pts_val);
+                advanced = true;
+            } else {
+                break;
             }
         }
-        self.current_frame.clone()
+        if advanced {
+            return (true, self.current_frame.clone());
+        }
+        (false, None)
     }
 }
 
@@ -366,7 +370,11 @@ impl DualDeckPlayer {
     }
 
     /// Retrieve the current video frame from the active deck synchronized to PTS.
-    pub fn get_frame_for_time(&mut self, current_source_time: f64) -> Option<ColorImage> {
+    /// Returns `(had_new_frame, frame)`; see `StreamVideoPlayer::get_frame_for_time`.
+    pub fn get_frame_for_time(
+        &mut self,
+        current_source_time: f64,
+    ) -> (bool, Option<ColorImage>) {
         if self.active_is_a {
             self.deck_a.get_frame_for_time(current_source_time)
         } else {
@@ -380,5 +388,60 @@ impl DualDeckPlayer {
         self.deck_b.stop();
         self.active_clip_id = None;
         self.prewarmed_clip_id = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_frame(pts: f64) -> (f64, ColorImage) {
+        let px = vec![0u8; 4 * 4 * 3];
+        (pts, ColorImage::from_rgb([4, 4], &px))
+    }
+
+    /// Pins the multi-cut lag fix: a continuous (preserved) stream must NOT carry a
+    /// producer-side `-t` cap, otherwise it EOFs at the first sub-clip's boundary and
+    /// every subsequent adjacent cut freezes.
+    #[test]
+    fn continuous_stream_args_have_no_duration_cap() {
+        let args = build_stream_args("movie.mp4", 1.5);
+        assert!(
+            !args.iter().any(|a| a == "-t"),
+            "stream args must not contain '-t': {args:?}"
+        );
+        // Sanity: the seek point and input path are still present.
+        assert!(args.contains(&"-ss".to_string()));
+        assert!(args.contains(&"1.500".to_string()));
+        assert!(args.contains(&"movie.mp4".to_string()));
+    }
+
+    /// Pins the Step-2 contract: the caller learns whether a genuinely NEW frame was
+    /// decoded, so the UI only re-clones/re-uploads when it must (not every 60 FPS tick).
+    #[test]
+    fn get_frame_for_time_reports_new_frame_advanced() {
+        let mut p = StreamVideoPlayer::default();
+        {
+            let mut buf = p.buffer.lock();
+            buf.push_back(small_frame(0.000));
+            buf.push_back(small_frame(0.033));
+            buf.push_back(small_frame(0.066));
+        }
+
+        // First pull advances past 0.0 and 0.033 -> a new frame is available.
+        let (adv, frame) = p.get_frame_for_time(0.05);
+        assert!(adv, "a new frame should have been decoded for t=0.05");
+        assert!(frame.is_some());
+
+        // Same playhead again: nothing new to pop -> no clone/re-upload needed.
+        let (adv, frame) = p.get_frame_for_time(0.05);
+        assert!(!adv, "no new frame for a repeated playhead");
+        assert!(frame.is_none());
+
+        // Advancing past the last frame pops it; beyond that there is nothing left.
+        let (adv, _) = p.get_frame_for_time(0.066);
+        assert!(adv);
+        let (adv, _) = p.get_frame_for_time(1.0);
+        assert!(!adv);
     }
 }
