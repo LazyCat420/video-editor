@@ -872,14 +872,14 @@ impl eframe::App for VideoEditorApp {
                                 .size(15.0)
                                 .color(AppTheme::accent_blue()),
                         );
-                        ui.add(
-                            egui::Slider::new(&mut self.settings.font_scale, 0.8..=1.5)
+                        ui.add_sized(
+                            [150.0, 20.0],
+                            egui::Slider::new(&mut self.settings.font_scale, 0.7..=1.15)
                                 .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
-                                .fixed_decimals(0),
+                                .step_by(0.05),
                         )
                         .changed()
-                        .then(|| changed = true)
-                        ;
+                        .then(|| changed = true);
                     });
                     ui.label(
                         RichText::new("Make the words bigger or smaller.")

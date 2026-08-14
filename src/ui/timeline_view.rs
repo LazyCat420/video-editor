@@ -163,7 +163,7 @@ impl TimelineView {
                     RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()),
                 );
                 ui.add_sized(
-                    [90.0, 24.0],
+                    [90.0, 20.0],
                     egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
                         .logarithmic(true)
                         .show_value(false),
@@ -179,7 +179,7 @@ impl TimelineView {
                 let max_secs = timeline.duration().as_secs_f64().max(1.0);
                 let mut marker_val = timeline.playhead.as_secs_f64();
                 let marker_resp = ui.add_sized(
-                    [150.0, 24.0],
+                    [150.0, 20.0],
                     egui::Slider::new(&mut marker_val, 0.0..=max_secs).show_value(false),
                 );
                 if marker_resp.changed() || marker_resp.dragged() {
@@ -326,7 +326,7 @@ impl TimelineView {
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new("Vol").size(11.0).color(AppTheme::text_muted()));
                                     ui.add_sized(
-                                        [ui.available_width(), 20.0],
+                                        [ui.available_width(), 18.0],
                                         egui::Slider::new(&mut track.volume, 0.0..=2.0)
                                             .show_value(false),
                                     );
