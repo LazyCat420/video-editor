@@ -37,6 +37,7 @@ pub struct VideoEditorApp {
     pub last_frame_time: Option<TimeCode>,
     pub proxy_tasks: HashMap<u64, tokio::sync::watch::Receiver<ProxyStatus>>,
     pub media_bin_collapsed: HashSet<String>,
+    pub thumb_textures: HashMap<u64, TextureHandle>,
     pub show_help_dialog: bool,
 }
 
@@ -59,6 +60,7 @@ impl Default for VideoEditorApp {
             last_frame_time: None,
             proxy_tasks: HashMap::new(),
             media_bin_collapsed: HashSet::new(),
+            thumb_textures: HashMap::new(),
             show_help_dialog: false,
         }
     }
@@ -533,6 +535,8 @@ impl eframe::App for VideoEditorApp {
                     ui,
                     &mut self.project,
                     &mut self.media_bin_collapsed,
+                    &self.frame_cache,
+                    &mut self.thumb_textures,
                 ) {
                     MediaBinAction::ImportFiles(paths) => {
                         for path in paths {

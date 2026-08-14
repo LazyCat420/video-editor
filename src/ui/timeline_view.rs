@@ -193,6 +193,11 @@ impl TimelineView {
             ui.add_space(3.0);
 
             ui.horizontal(|ui| {
+                // Shared reorder-drag state: which header is being dragged, and the
+                // hovered target row. Filled in by the header column, read by the body.
+                let mut active_reorder_id: Option<u64> = None;
+                let mut reorder_target_idx: Option<usize> = None;
+
                 // ==========================================
                 // 1. Left Fixed Column: Track Headers
                 // ==========================================
@@ -302,6 +307,8 @@ impl TimelineView {
 
                         // Reorder drop target: atop this header, show a highlight border.
                         if let Some(payload) = header_resp.dnd_hover_payload::<TrackReorderDrag>() {
+                            active_reorder_id = Some(payload.0);
+                            reorder_target_idx = Some(track_index);
                             if payload.0 != track_id {
                                 let hp = ui.painter();
                                 hp.rect_stroke(
@@ -421,11 +428,69 @@ impl TimelineView {
                             }
 
                             // ----------------------------------------------------
-                            // 2B. Multi-Track Canvas & Clips
+                            // 2B. Multi-Track Canvas & Clips (animated reorder rows)
                             // ----------------------------------------------------
-                            for track in &mut timeline.tracks {
-                                let (track_rect, track_response) = ui.allocate_exact_size(
-                                    Vec2::new(total_timeline_pixels, Self::TRACK_HEIGHT),
+
+                            // Visual order of rows: while a track header is being dragged, show
+                            // it inserted at the hovered row so the other rows visibly make room
+                            // (slide down / up) instead of swapping instantly.
+                            let natural_ids: Vec<u64> =
+                                timeline.tracks.iter().map(|t| t.id).collect();
+                            let visual_order: Vec<u64> =
+                                if let (Some(drag), Some(_t)) =
+                                    (active_reorder_id, reorder_target_idx)
+                                {
+                                    let tidx = reorder_target_idx
+                                        .unwrap()
+                                        .min(natural_ids.len());
+                                    let mut v: Vec<u64> = natural_ids
+                                        .iter()
+                                        .copied()
+                                        .filter(|&id| id != drag)
+                                        .collect();
+                                    v.insert(tidx, drag);
+                                    v
+                                } else {
+                                    natural_ids
+                                };
+
+                            let row_gap = 2.0;
+                            let row_h = Self::TRACK_HEIGHT;
+                            let track_count = timeline.tracks.len();
+                            let total_tracks_h = (track_count as f32) * (row_h + row_gap);
+
+                            // Reserve the full vertical space once, so the playhead & scroll
+                            // geometry stay correct while individual rows animate.
+                            let (_bg_block, _bg_resp) = ui.allocate_exact_size(
+                                Vec2::new(total_timeline_pixels, total_tracks_h),
+                                Sense::hover(),
+                            );
+                            let area_left = _bg_block.min.x;
+                            let area_top = _bg_block.min.y;
+                            let content_bottom = _bg_block.max.y;
+
+                            for (track_index, track) in timeline.tracks.iter_mut().enumerate() {
+                                let display_index = visual_order
+                                    .iter()
+                                    .position(|&id| id == track.id)
+                                    .unwrap_or(track_index);
+                                let target_top =
+                                    area_top + display_index as f32 * (row_h + row_gap);
+                                let anim_top = ui
+                                    .ctx()
+                                    .animate_value_with_time(
+                                        Id::new(("track_row_anim", track.id)),
+                                        target_top,
+                                        0.16,
+                                    );
+
+                                let track_rect = Rect::from_min_size(
+                                    Pos2::new(area_left, anim_top),
+                                    Vec2::new(total_timeline_pixels, row_h),
+                                );
+                                let track_response = ui.interact(
+                                    track_rect,
+                                    Id::new(("track_body", track.id)),
                                     Sense::click_and_drag(),
                                 );
                                 let track_painter = ui.painter_at(track_rect);
@@ -718,12 +783,9 @@ impl TimelineView {
                             // ----------------------------------------------------
                             let playhead_x =
                                 ruler_rect.min.x + timeline.playhead.to_pixels(pps);
-                            let total_canvas_height = Self::RULER_HEIGHT
-                                + (timeline.tracks.len() as f32 * Self::TRACK_HEIGHT);
 
                             let playhead_top = Pos2::new(playhead_x, ruler_rect.min.y);
-                            let playhead_bottom =
-                                Pos2::new(playhead_x, ruler_rect.min.y + total_canvas_height);
+                            let playhead_bottom = Pos2::new(playhead_x, content_bottom);
 
                             let playhead_painter = ui.painter();
 

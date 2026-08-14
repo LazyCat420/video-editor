@@ -1,8 +1,9 @@
 use crate::core::project::{MediaAsset, Project};
+use crate::media::frame_cache::FrameCache;
 use crate::ui::theme::AppTheme;
 use crate::ui::MediaAssetDrag;
-use egui::{Button, Color32, Frame, Id, RichText, Rounding, ScrollArea, Ui};
-use std::collections::HashSet;
+use egui::{Button, Color32, Frame, Id, RichText, Rounding, ScrollArea, TextureHandle, TextureOptions, Ui};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct MediaBinView;
@@ -19,6 +20,8 @@ impl MediaBinView {
         ui: &mut Ui,
         project: &mut Project,
         collapsed: &mut HashSet<String>,
+        frame_cache: &FrameCache,
+        thumbs: &mut HashMap<u64, TextureHandle>,
     ) -> MediaBinAction {
         let mut action = MediaBinAction::None;
 
@@ -140,12 +143,56 @@ impl MediaBinView {
                                     .rounding(Rounding::same(8.0))
                                     .inner_margin(10.0)
                                     .show(ui, |ui| {
-                                        ui.vertical(|ui| {
-                                            ui.horizontal(|ui| {
-                                                let icon = if asset.has_video { "🎬" } else { "🎵" };
-                                                ui.label(RichText::new(icon).size(22.0));
+                                            ui.vertical(|ui| {
+                                                let tex = if asset.has_video {
+                                                    if frame_cache
+                                                        .get_cached(&asset.path, 0.0)
+                                                        .is_none()
+                                                    {
+                                                        frame_cache.fetch_frame(
+                                                            &asset.path,
+                                                            0.0,
+                                                            Some(ui.ctx()),
+                                                        );
+                                                    }
+                                                    frame_cache
+                                                        .get_cached(&asset.path, 0.0)
+                                                        .and_then(|img| {
+                                                            if let Some(t) =
+                                                                thumbs.get(&asset.id)
+                                                            {
+                                                                return Some(t.clone());
+                                                            }
+                                                            let t = ui.ctx().load_texture(
+                                                                format!("asset_thumb_{}", asset.id),
+                                                                img,
+                                                                TextureOptions::LINEAR,
+                                                            );
+                                                            thumbs.insert(asset.id, t.clone());
+                                                            Some(t)
+                                                        })
+                                                } else {
+                                                    None
+                                                };
 
-                                                ui.vertical(|ui| {
+                                                ui.horizontal(|ui| {
+                                                    if let Some(t) = &tex {
+                                                        ui.add(
+                                                            egui::Image::from_texture(t)
+                                                                .fit_to_exact_size(egui::vec2(72.0, 40.0)),
+                                                        );
+                                                    } else {
+                                                        let icon = if asset.has_video {
+                                                            "🎬"
+                                                        } else {
+                                                            "🎵"
+                                                        };
+                                                        ui.label(
+                                                            RichText::new(icon).size(22.0),
+                                                        );
+                                                    }
+
+                                                    ui.vertical(|ui| {
                                                     ui.label(
                                                         RichText::new(&asset.name)
                                                             .strong()
