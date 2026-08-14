@@ -253,7 +253,9 @@ impl VideoEditorApp {
         }
     }
 
-    /// Place a media asset onto a specific track at a specific timeline start time.
+    /// Place a media asset onto a specific track, so it never overlaps the last clip:
+    /// it starts after the end of the last clip on that track (or further out, if the
+    /// requested `start` is beyond it).
     pub fn place_asset_on_timeline(
         &mut self,
         asset: MediaAsset,
@@ -275,7 +277,9 @@ impl VideoEditorApp {
         );
 
         if let Some(track) = self.project.timeline.get_track_mut(target_track_id) {
-            clip.timeline_start = start;
+            // Never overlap the last clip: start after its end (keeping the dropped time only
+            // if the user aimed past the end of the track).
+            clip.timeline_start = start.max(track.duration());
             track.add_clip(clip);
         }
 

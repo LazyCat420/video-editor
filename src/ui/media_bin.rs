@@ -219,27 +219,47 @@ impl MediaBinView {
                                                     );
                                                 });
 
-                                                // Right-aligned remove-from-list button.
+                                                // Right column: ✕ to remove + the Put on
+                                                // Timeline button, both beside the title.
                                                 ui.with_layout(
-                                                    egui::Layout::right_to_left(
-                                                        egui::Align::Center,
+                                                    egui::Layout::top_down(
+                                                        egui::Align::Max,
                                                     ),
                                                     |ui| {
                                                         if ui
                                                             .add(
                                                                 Button::new(
-                                                                    RichText::new("✕").size(15.0),
+                                                                    RichText::new("✕")
+                                                                        .size(15.0),
                                                                 )
                                                                 .min_size(egui::vec2(
-                                                                    24.0, 24.0,
+                                                                    24.0, 22.0,
                                                                 )),
                                                             )
-                                                            .on_hover_text("Remove from list")
+                                                            .on_hover_text(
+                                                                "Remove from list",
+                                                            )
                                                             .clicked()
                                                         {
                                                             action =
                                                                 MediaBinAction::RemoveAsset(
                                                                     asset.id,
+                                                                );
+                                                        }
+
+                                                        let put_btn = Button::new(
+                                                            RichText::new("▶ Put on Timeline")
+                                                                .size(12.0)
+                                                                .strong()
+                                                                .color(Color32::WHITE),
+                                                        )
+                                                        .min_size(egui::vec2(120.0, 26.0))
+                                                        .fill(AppTheme::ACCENT_BLUE);
+
+                                                        if ui.add(put_btn).clicked() {
+                                                            action =
+                                                                MediaBinAction::AddAssetToTimeline(
+                                                                    asset.clone(),
                                                                 );
                                                         }
                                                     },
@@ -250,21 +270,8 @@ impl MediaBinView {
                             );
 
                             ui.add_space(6.0);
-
-                            // Put on Timeline (separate from the drag strip, so it always clicks).
-                            let add_to_timeline_btn = Button::new(
-                                RichText::new("▶ Put on Timeline")
-                                    .size(13.0)
-                                    .strong()
-                                    .color(Color32::WHITE),
-                            )
-                            .min_size(egui::vec2(ui.available_width(), 30.0))
-                            .fill(AppTheme::ACCENT_BLUE);
-
-                            if ui.add(add_to_timeline_btn).clicked() {
-                                action = MediaBinAction::AddAssetToTimeline(asset.clone());
-                            }
                         });
+
                         ui.add_space(4.0);
                     };
 
