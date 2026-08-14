@@ -54,7 +54,7 @@ impl StreamVideoPlayer {
             return false;
         }
         if let Some(last) = self.last_pts {
-            (source_time - last).abs() < 0.8
+            (source_time - last).abs() < 1.0
         } else {
             true
         }
@@ -267,7 +267,17 @@ impl DualDeckPlayer {
         Self::default()
     }
 
-    /// Pre-warm the standby deck on an upcoming cut clip in the background.
+    /// Check if active deck is already continuously decoding this stream
+    pub fn is_active_continuous_with(&self, path: &Path, source_time: f64) -> bool {
+        let active_deck = if self.active_is_a {
+            &self.deck_a
+        } else {
+            &self.deck_b
+        };
+        active_deck.is_continuous_with(path, source_time)
+    }
+
+    /// Pre-warm the standby deck on an upcoming cut clip in the background only if it's a discontinuity.
     pub fn prewarm<P: AsRef<Path>>(
         &mut self,
         clip_id: u64,
@@ -276,6 +286,13 @@ impl DualDeckPlayer {
         duration_secs: Option<f64>,
         ctx: Option<&Context>,
     ) {
+        let path_ref = path.as_ref();
+
+        // If the active deck already continuously streams this upcoming section, NEVER pre-warm!
+        if self.is_active_continuous_with(path_ref, start_secs) {
+            return;
+        }
+
         if self.prewarmed_clip_id == Some(clip_id) || self.active_clip_id == Some(clip_id) {
             return;
         }
@@ -290,7 +307,7 @@ impl DualDeckPlayer {
         self.prewarmed_clip_id = Some(clip_id);
     }
 
-    /// Switch active playback to a clip, using the pre-warmed deck if available or continuing the active stream.
+    /// Switch active playback to a clip, preserving the active stream across same-file continuous cuts.
     pub fn switch_to_clip<P: AsRef<Path>>(
         &mut self,
         clip_id: u64,
@@ -305,14 +322,29 @@ impl DualDeckPlayer {
 
         let path_ref = path.as_ref();
 
-        // 1. Check if the standby deck was pre-warmed for this clip
+        // 1. If currently active deck is already continuous, preserve the stream with 0 processes!
+        if self.is_active_continuous_with(path_ref, start_secs) {
+            self.active_clip_id = Some(clip_id);
+            if self.prewarmed_clip_id.is_some() {
+                let standby = if self.active_is_a {
+                    &mut self.deck_b
+                } else {
+                    &mut self.deck_a
+                };
+                standby.stop();
+                self.prewarmed_clip_id = None;
+            }
+            return;
+        }
+
+        // 2. Check if the standby deck was pre-warmed for this clip (jump cut or file change)
         if self.prewarmed_clip_id == Some(clip_id) {
             // Instant 0ms deck swap!
             self.active_is_a = !self.active_is_a;
             self.active_clip_id = Some(clip_id);
             self.prewarmed_clip_id = None;
 
-            // Stop the retired standby deck
+            // Stop the retired standby deck in background
             let old_deck = if self.active_is_a {
                 &mut self.deck_b
             } else {
@@ -322,19 +354,12 @@ impl DualDeckPlayer {
             return;
         }
 
-        // 2. Check if the currently active deck can continue playing seamlessly
+        // 3. Fallback cold start on active deck
         let active_deck = if self.active_is_a {
             &mut self.deck_a
         } else {
             &mut self.deck_b
         };
-
-        if active_deck.is_continuous_with(path_ref, start_secs) {
-            self.active_clip_id = Some(clip_id);
-            return;
-        }
-
-        // 3. Fallback cold start on active deck
         active_deck.start(path_ref, start_secs, duration_secs, ctx);
         self.active_clip_id = Some(clip_id);
         self.prewarmed_clip_id = None;
