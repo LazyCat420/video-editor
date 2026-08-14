@@ -8,6 +8,7 @@ use crate::media::frame_cache::FrameCache;
 use crate::media::peak_extractor::{extract_peaks, WaveformPeaks};
 use crate::media::probe::probe_media_file;
 use crate::media::proxy_generator::{generate_proxy_async, ProxyStatus};
+use crate::media::stream_player::StreamVideoPlayer;
 use crate::ui::export_dialog::{ExportDialog, ExportDialogAction};
 use crate::ui::media_bin::{MediaBinAction, MediaBinView};
 use crate::ui::menu_bar::{MenuAction, MenuBarView};
@@ -16,11 +17,12 @@ use crate::ui::theme::AppTheme;
 use crate::ui::timeline_view::{TimelineAction, TimelineView};
 use egui::{Button, ColorImage, Context, Key, RichText, TextureHandle};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct VideoEditorApp {
     pub project: Project,
     pub player: AudioPlayer,
+    pub stream_player: StreamVideoPlayer,
     pub frame_cache: FrameCache,
     pub peak_cache: HashMap<String, WaveformPeaks>,
     pub export_dialog: ExportDialog,
@@ -36,6 +38,7 @@ impl Default for VideoEditorApp {
         Self {
             project: Project::default(),
             player: AudioPlayer::new(),
+            stream_player: StreamVideoPlayer::new(),
             frame_cache: FrameCache::new(120),
             peak_cache: HashMap::new(),
             export_dialog: ExportDialog::default(),
@@ -169,26 +172,70 @@ impl VideoEditorApp {
         self.project.timeline.playhead = TimeCode::ZERO;
     }
 
-    /// Update preview frame based on current playhead position with UI repaint callback.
-    fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
-        let playhead = self.project.timeline.playhead;
+    pub fn start_playback(&mut self, ctx: &Context) {
+        self.player.play();
+        self.project.timeline.is_playing = true;
 
-        // Find active video clip under playhead
-        let mut active_clip_info = None;
+        let playhead = self.project.timeline.playhead;
+        if let Some((path, sec)) = self.get_active_video_clip_info(playhead) {
+            self.stream_player.start(path, sec, Some(ctx));
+        }
+    }
+
+    pub fn pause_playback(&mut self) {
+        self.player.pause();
+        self.project.timeline.is_playing = false;
+        self.stream_player.stop();
+    }
+
+    pub fn toggle_playback(&mut self, ctx: &Context) {
+        if self.project.timeline.is_playing {
+            self.pause_playback();
+        } else {
+            self.start_playback(ctx);
+        }
+    }
+
+    pub fn stop_playback(&mut self, ctx: &Context) {
+        self.pause_playback();
+        self.project.timeline.playhead = TimeCode::ZERO;
+        self.refresh_preview_frame(Some(ctx));
+    }
+
+    pub fn seek_to(&mut self, target_time: TimeCode, ctx: &Context) {
+        self.project.timeline.playhead = target_time;
+        if self.project.timeline.is_playing {
+            if let Some((path, sec)) = self.get_active_video_clip_info(target_time) {
+                self.stream_player.start(path, sec, Some(ctx));
+            } else {
+                self.stream_player.stop();
+            }
+        } else {
+            self.stream_player.stop();
+            self.refresh_preview_frame(Some(ctx));
+        }
+    }
+
+    pub fn get_active_video_clip_info(&self, time: TimeCode) -> Option<(PathBuf, f64)> {
         for track in &self.project.timeline.tracks {
             if track.kind == TrackKind::Video && !track.is_muted {
-                if let Some(clip) = track.get_clip_at(playhead) {
+                if let Some(clip) = track.get_clip_at(time) {
                     if clip.has_video {
-                        if let Some(source_time) = clip.timeline_to_source_time(playhead) {
-                            active_clip_info = Some((clip.active_preview_path().clone(), source_time.as_secs_f64()));
-                            break;
+                        if let Some(source_time) = clip.timeline_to_source_time(time) {
+                            return Some((clip.source_path.clone(), source_time.as_secs_f64()));
                         }
                     }
                 }
             }
         }
+        None
+    }
 
-        if let Some((path, sec)) = active_clip_info {
+    /// Update preview frame based on current playhead position with UI repaint callback.
+    fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
+        let playhead = self.project.timeline.playhead;
+
+        if let Some((path, sec)) = self.get_active_video_clip_info(playhead) {
             if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
                 self.current_frame = Some(frame);
             }
@@ -204,8 +251,7 @@ impl eframe::App for VideoEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 1. Process Global Keyboard Shortcuts
         if ctx.input(|i| i.key_pressed(Key::Space)) {
-            let is_playing = self.player.toggle();
-            self.project.timeline.is_playing = is_playing;
+            self.toggle_playback(ctx);
         }
         if ctx.input(|i| i.key_pressed(Key::S)) {
             self.project.timeline.split_at_playhead();
@@ -240,38 +286,21 @@ impl eframe::App for VideoEditorApp {
             if max_dur.as_secs_f64() > 0.0 {
                 let new_playhead = self.player.update_playhead(self.project.timeline.playhead, max_dur);
                 if new_playhead >= max_dur {
-                    self.player.pause();
-                    self.project.timeline.is_playing = false;
+                    self.pause_playback();
                     self.project.timeline.playhead = max_dur;
                 } else {
                     self.project.timeline.playhead = new_playhead;
                 }
             } else {
-                self.player.pause();
-                self.project.timeline.is_playing = false;
+                self.pause_playback();
             }
+
+            // Consume frames from the continuous streaming decoder
+            if let Some(stream_frame) = self.stream_player.get_next_frame() {
+                self.current_frame = Some(stream_frame);
+            }
+
             ctx.request_repaint();
-        }
-
-        // 3. Update Preview Frame Cache with repaint context
-        self.refresh_preview_frame(Some(ctx));
-
-        // 4. Update Background Proxy Generation Statuses
-        for (asset_id, rx) in &self.proxy_tasks {
-            if let ProxyStatus::Ready { ref proxy_path } = *rx.borrow() {
-                if let Some(asset) = self.project.media_assets.iter_mut().find(|a| a.id == *asset_id) {
-                    asset.proxy_path = Some(proxy_path.clone());
-                }
-                for track in &mut self.project.timeline.tracks {
-                    for clip in &mut track.clips {
-                        if let Some(asset) = self.project.media_assets.iter().find(|a| a.id == *asset_id) {
-                            if clip.source_path == asset.path {
-                                clip.proxy_path = Some(proxy_path.clone());
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // ==========================================
@@ -283,7 +312,7 @@ impl eframe::App for VideoEditorApp {
                 match MenuBarView::render(ui, &mut self.project) {
                     MenuAction::NewProject => {
                         self.project = Project::default();
-                        self.player.pause();
+                        self.pause_playback();
                         self.current_frame = None;
                     }
                     MenuAction::OpenProject => {
@@ -365,8 +394,7 @@ impl eframe::App for VideoEditorApp {
             .show(ctx, |ui| {
                 match TimelineView::render(ui, &mut self.project.timeline, &self.peak_cache) {
                     TimelineAction::Seek(time) => {
-                        self.project.timeline.playhead = time;
-                        self.refresh_preview_frame(Some(ctx));
+                        self.seek_to(time, ctx);
                     }
                     TimelineAction::ClipSelected(id) => {
                         self.project.timeline.select_clip(id);
@@ -414,32 +442,27 @@ impl eframe::App for VideoEditorApp {
                 &mut self.preview_texture,
             ) {
                 PlayerAction::PlayPauseToggle => {
-                    let is_playing = self.player.toggle();
-                    self.project.timeline.is_playing = is_playing;
+                    self.toggle_playback(ctx);
                 }
                 PlayerAction::StepFrames(delta) => {
                     let fps = self.project.timeline.fps;
                     let current_frame = self.project.timeline.playhead.as_frames(fps);
                     let new_frame = (current_frame + delta).max(0);
-                    self.project.timeline.playhead = TimeCode::from_frames(new_frame, fps);
-                    self.refresh_preview_frame(Some(ctx));
+                    let target = TimeCode::from_frames(new_frame, fps);
+                    self.seek_to(target, ctx);
                 }
                 PlayerAction::StepSeconds(delta_secs) => {
                     let cur = self.project.timeline.playhead.as_secs_f64();
                     let max = self.project.timeline.duration().as_secs_f64();
-                    let target = (cur + delta_secs).clamp(0.0, max.max(0.0));
-                    self.project.timeline.playhead = TimeCode::from_secs_f64(target);
-                    self.refresh_preview_frame(Some(ctx));
+                    let target_secs = (cur + delta_secs).clamp(0.0, max.max(0.0));
+                    let target = TimeCode::from_secs_f64(target_secs);
+                    self.seek_to(target, ctx);
                 }
                 PlayerAction::Seek(time) => {
-                    self.project.timeline.playhead = time;
-                    self.refresh_preview_frame(Some(ctx));
+                    self.seek_to(time, ctx);
                 }
                 PlayerAction::Stop => {
-                    self.player.pause();
-                    self.project.timeline.is_playing = false;
-                    self.project.timeline.playhead = TimeCode::ZERO;
-                    self.refresh_preview_frame(Some(ctx));
+                    self.stop_playback(ctx);
                 }
                 PlayerAction::None => {}
             }
