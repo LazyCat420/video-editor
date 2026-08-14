@@ -173,7 +173,7 @@ impl MediaBinView {
                             // Whole card is the drag source - easy to grab anywhere - while the
                             // + / X buttons are placed ON TOP via ui.put (registered after the
                             // drag), so they always win clicks.
-                            let card_size = egui::vec2(ui.available_width(), 72.0);
+                            let card_size = egui::vec2(ui.available_width(), 92.0);
                             let (card_rect, card_resp) =
                                 ui.allocate_exact_size(card_size, egui::Sense::click_and_drag());
                             card_resp.dnd_set_drag_payload(MediaAssetDrag(asset.id));
@@ -197,11 +197,20 @@ impl MediaBinView {
                             }
 
                             let cp = ui.painter_at(card_rect);
-                            cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_card());
+                            let dragging = card_resp.dragged();
+                            if dragging {
+                                // Highlight the card being moved so the drag is obvious.
+                                cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_hover());
+                            } else {
+                                cp.rect_filled(card_rect, Rounding::same(8.0), AppTheme::bg_card());
+                            }
                             cp.rect_stroke(
                                 card_rect,
                                 Rounding::same(8.0),
-                                egui::Stroke::new(1.5, AppTheme::bg_hover()),
+                                egui::Stroke::new(
+                                    if dragging { 2.5 } else { 1.5 },
+                                    if dragging { AppTheme::accent_blue() } else { AppTheme::bg_hover() },
+                                ),
                             );
 
                             // Thumbnail / icon on the left.
@@ -239,7 +248,7 @@ impl MediaBinView {
                             // Name + duration next to the thumbnail, clipped so long names can
                             // never run under the + / X buttons (which caused the overlap).
                             let text_x = thumb.max.x + 8.0;
-                            let btn_col_left = card_rect.max.x - pad - 20.0 - 6.0;
+                            let btn_col_left = card_rect.max.x - pad - 22.0 - 6.0;
                             let text_clip = Rect::from_min_max(
                                 egui::pos2(text_x - 2.0, card_rect.min.y),
                                 egui::pos2(btn_col_left.max(text_x), card_rect.max.y),
@@ -270,14 +279,14 @@ impl MediaBinView {
                             // Buttons placed on top (top-right): X to remove, + to put on
                             // timeline. ui.put registers them after the drag source, so they
                             // receive the click instead of the drag.
-                            let btn = egui::vec2(20.0, 18.0);
+                            let btn = egui::vec2(22.0, 22.0);
                             let btns_right = card_rect.max.x - pad;
                             let x_rect = Rect::from_min_size(
-                                egui::pos2(btns_right - btn.x, card_rect.min.y + 6.0),
+                                egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0),
                                 btn,
                             );
                             let plus_rect = Rect::from_min_size(
-                                egui::pos2(btns_right - btn.x, card_rect.min.y + 6.0 + btn.y + 2.0),
+                                egui::pos2(btns_right - btn.x, card_rect.min.y + 10.0 + btn.y + 10.0),
                                 btn,
                             );
 

@@ -169,6 +169,23 @@ impl TimelineView {
                         .show_value(false),
                 );
 
+                // Playhead scrub: the slider that moves the orange timeline marker. Kept right
+                // next to the Zoom slider (beside Redo) so it's easy to grab.
+                ui.separator();
+                ui.label(
+                    RichText::new("Marker:").size(13.0).color(AppTheme::text_secondary()),
+                )
+                .on_hover_text("Move the orange marker through your video");
+                let max_secs = timeline.duration().as_secs_f64().max(1.0);
+                let mut marker_val = timeline.playhead.as_secs_f64();
+                let marker_resp = ui.add_sized(
+                    [150.0, 24.0],
+                    egui::Slider::new(&mut marker_val, 0.0..=max_secs).show_value(false),
+                );
+                if marker_resp.changed() || marker_resp.dragged() {
+                    action = TimelineAction::Seek(TimeCode::from_secs_f64(marker_val));
+                }
+
                 ui.separator();
 
                 if ui
