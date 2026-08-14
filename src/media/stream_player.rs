@@ -88,7 +88,7 @@ impl StreamVideoPlayer {
             "-",
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::null());
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,

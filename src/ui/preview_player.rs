@@ -20,6 +20,7 @@ impl PreviewPlayerView {
         timeline: &mut Timeline,
         current_frame: Option<&ColorImage>,
         texture_cache: &mut Option<TextureHandle>,
+        frame_is_dirty: bool,
     ) -> PlayerAction {
         let mut action = PlayerAction::None;
 
@@ -50,7 +51,9 @@ impl PreviewPlayerView {
                 let texture = texture_cache.get_or_insert_with(|| {
                     ui.ctx().load_texture("video_preview", frame.clone(), TextureOptions::LINEAR)
                 });
-                texture.set(frame.clone(), TextureOptions::LINEAR);
+                if frame_is_dirty {
+                    texture.set(frame.clone(), TextureOptions::LINEAR);
+                }
 
                 painter.image(
                     texture.id(),

@@ -28,6 +28,8 @@ pub struct VideoEditorApp {
     pub export_dialog: ExportDialog,
     pub preview_texture: Option<TextureHandle>,
     pub current_frame: Option<ColorImage>,
+    pub frame_version: u64,
+    pub last_uploaded_version: u64,
     pub last_frame_time: Option<TimeCode>,
     pub proxy_tasks: HashMap<u64, tokio::sync::watch::Receiver<ProxyStatus>>,
     pub show_help_dialog: bool,
@@ -39,11 +41,13 @@ impl Default for VideoEditorApp {
             project: Project::default(),
             player: AudioPlayer::new(),
             stream_player: StreamVideoPlayer::new(),
-            frame_cache: FrameCache::new(120),
+            frame_cache: FrameCache::new(40), // 40 frames max @ 360p (~27MB)
             peak_cache: HashMap::new(),
             export_dialog: ExportDialog::default(),
             preview_texture: None,
             current_frame: None,
+            frame_version: 0,
+            last_uploaded_version: 999999,
             last_frame_time: None,
             proxy_tasks: HashMap::new(),
             show_help_dialog: false,
@@ -85,6 +89,7 @@ impl VideoEditorApp {
             if meta.has_video {
                 if let Some(initial_frame) = self.frame_cache.extract_initial_frame(p) {
                     self.current_frame = Some(initial_frame);
+                    self.frame_version += 1;
                 }
 
                 // Spawn background proxy generator for smooth low-spec playback
@@ -238,9 +243,11 @@ impl VideoEditorApp {
         if let Some((path, sec)) = self.get_active_video_clip_info(playhead) {
             if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
                 self.current_frame = Some(frame);
+                self.frame_version += 1;
             }
-        } else {
+        } else if self.current_frame.is_some() {
             self.current_frame = None;
+            self.frame_version += 1;
         }
 
         self.last_frame_time = Some(playhead);
@@ -298,6 +305,7 @@ impl eframe::App for VideoEditorApp {
             // Consume frames from the continuous streaming decoder
             if let Some(stream_frame) = self.stream_player.get_next_frame() {
                 self.current_frame = Some(stream_frame);
+                self.frame_version += 1;
             }
 
             ctx.request_repaint();
@@ -434,12 +442,18 @@ impl eframe::App for VideoEditorApp {
         // ==========================================
         // 8. Render Central Viewport: Preview Player
         // ==========================================
+        let is_dirty = self.frame_version != self.last_uploaded_version;
+        if is_dirty {
+            self.last_uploaded_version = self.frame_version;
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             match PreviewPlayerView::render(
                 ui,
                 &mut self.project.timeline,
                 self.current_frame.as_ref(),
                 &mut self.preview_texture,
+                is_dirty,
             ) {
                 PlayerAction::PlayPauseToggle => {
                     self.toggle_playback(ctx);
