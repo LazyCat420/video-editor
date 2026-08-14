@@ -209,17 +209,16 @@ impl AppTheme {
             style.spacing.slider_rail_height = 4.0;
             style.spacing.interact_size = egui::vec2(24.0, 18.0);
 
+            let scale = font_scale.clamp(0.65, 1.60);
+
             let mut text_styles = std::collections::BTreeMap::new();
-            text_styles.insert(TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional));
-            text_styles.insert(TextStyle::Button, FontId::new(15.0, FontFamily::Proportional));
-            text_styles.insert(TextStyle::Body, FontId::new(15.0, FontFamily::Proportional));
-            text_styles.insert(TextStyle::Monospace, FontId::new(15.0, FontFamily::Monospace));
-            text_styles.insert(TextStyle::Small, FontId::new(13.0, FontFamily::Proportional));
+            text_styles.insert(TextStyle::Heading, FontId::new(20.0 * scale, FontFamily::Proportional));
+            text_styles.insert(TextStyle::Button, FontId::new(15.0 * scale, FontFamily::Proportional));
+            text_styles.insert(TextStyle::Body, FontId::new(15.0 * scale, FontFamily::Proportional));
+            text_styles.insert(TextStyle::Monospace, FontId::new(15.0 * scale, FontFamily::Monospace));
+            text_styles.insert(TextStyle::Small, FontId::new(13.0 * scale, FontFamily::Proportional));
             style.text_styles = text_styles;
             ctx.set_style(style);
-
-            // Zoom the whole UI (text + controls) by the user's chosen text size.
-            ctx.set_pixels_per_point(font_scale.max(0.6).min(1.8));
         });
     }
 

@@ -963,9 +963,21 @@ impl eframe::App for VideoEditorApp {
                                 .size(15.0)
                                 .color(AppTheme::accent_blue()),
                         );
+
+                        // [-] Nudge button (decrease 5%)
+                        if ui
+                            .add(Button::new("➖").min_size(egui::vec2(28.0, 24.0)))
+                            .on_hover_text("Make text 5% smaller")
+                            .clicked()
+                        {
+                            self.settings.font_scale = (self.settings.font_scale - 0.05).max(0.65);
+                            changed = true;
+                        }
+
+                        // Smooth granular slider (1% increments)
                         crate::ui::small_slider(ui, 12.0, |ui| {
                             ui.add_sized(
-                                [150.0, 12.0],
+                                [130.0, 12.0],
                                 egui::Slider::new(&mut self.settings.font_scale, 0.65..=1.40)
                                     .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
                                     .step_by(0.01),
@@ -973,6 +985,31 @@ impl eframe::App for VideoEditorApp {
                         })
                         .changed()
                         .then(|| changed = true);
+
+                        // [+] Nudge button (increase 5%)
+                        if ui
+                            .add(Button::new("➕").min_size(egui::vec2(28.0, 24.0)))
+                            .on_hover_text("Make text 5% larger")
+                            .clicked()
+                        {
+                            self.settings.font_scale = (self.settings.font_scale + 0.05).min(1.40);
+                            changed = true;
+                        }
+
+                        // Reset to 100% button
+                        if (self.settings.font_scale - 1.0).abs() > 0.005 {
+                            if ui
+                                .add(
+                                    Button::new(RichText::new("↺ 100%").size(12.0))
+                                        .min_size(egui::vec2(54.0, 24.0)),
+                                )
+                                .on_hover_text("Reset text size to standard 100%")
+                                .clicked()
+                            {
+                                self.settings.font_scale = 1.0;
+                                changed = true;
+                            }
+                        }
                     });
                     ui.label(
                         RichText::new("Make the words bigger or smaller.")

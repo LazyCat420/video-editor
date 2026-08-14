@@ -749,5 +749,31 @@ fn test_settings_font_scale_granularity() {
     }
 }
 
+#[test]
+fn test_font_scaling_modifies_text_styles_without_pixels_per_point_mutation() {
+    use video_editor::ui::theme::{AppTheme, ThemeKind};
+
+    let ctx = egui::Context::default();
+    let initial_ppp = ctx.pixels_per_point();
+
+    AppTheme::configure(&ctx, ThemeKind::Dark, 1.25);
+
+    // pixels_per_point should remain the initial window DPI scale to keep mouse coordinates stable
+    assert_eq!(
+        ctx.pixels_per_point(),
+        initial_ppp,
+        "pixels_per_point must not change dynamically"
+    );
+
+    let style = ctx.style();
+    let body_font = style.text_styles.get(&egui::TextStyle::Body).unwrap();
+    assert_eq!(
+        body_font.size,
+        15.0 * 1.25,
+        "Body font size must scale to 15.0 * 1.25"
+    );
+}
+
+
 
 
