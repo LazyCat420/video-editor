@@ -248,15 +248,20 @@ impl MediaBinView {
                                                         }
 
                                                         let put_btn = Button::new(
-                                                            RichText::new("▶ Put on Timeline")
-                                                                .size(12.0)
+                                                            RichText::new("+").size(16.0)
                                                                 .strong()
                                                                 .color(Color32::WHITE),
                                                         )
-                                                        .min_size(egui::vec2(120.0, 26.0))
+                                                        .min_size(egui::vec2(26.0, 24.0))
                                                         .fill(AppTheme::ACCENT_BLUE);
 
-                                                        if ui.add(put_btn).clicked() {
+                                                        if ui
+                                                            .add(put_btn)
+                                                            .on_hover_text(
+                                                                "Put on Timeline",
+                                                            )
+                                                            .clicked()
+                                                        {
                                                             action =
                                                                 MediaBinAction::AddAssetToTimeline(
                                                                     asset.clone(),
