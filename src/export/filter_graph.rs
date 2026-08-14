@@ -50,13 +50,13 @@ pub fn build_ffmpeg_export_command(
     let mut args = Vec::new();
     args.push("-y".to_string()); // Overwrite output file
 
-    // 1. Collect unique media source paths
+    // 1. Collect unique media source paths (excluding synthetic title cards)
     let mut unique_sources: Vec<PathBuf> = Vec::new();
     let mut source_to_input_idx: HashMap<PathBuf, usize> = HashMap::new();
 
     for track in &timeline.tracks {
         for clip in &track.clips {
-            if !source_to_input_idx.contains_key(&clip.source_path) {
+            if !clip.is_title_card && !source_to_input_idx.contains_key(&clip.source_path) {
                 let idx = unique_sources.len();
                 source_to_input_idx.insert(clip.source_path.clone(), idx);
                 unique_sources.push(clip.source_path.clone());
@@ -64,8 +64,9 @@ pub fn build_ffmpeg_export_command(
         }
     }
 
-    if unique_sources.is_empty() {
-        return Err("No media clips found on the timeline.".to_string());
+    let has_any_clips = timeline.tracks.iter().any(|t| !t.clips.is_empty());
+    if !has_any_clips {
+        return Err("No media clips or title cards found on the timeline.".to_string());
     }
 
     // Add inputs to FFmpeg args
@@ -88,10 +89,6 @@ pub fn build_ffmpeg_export_command(
         }
 
         for clip in &track.clips {
-            let input_idx = *source_to_input_idx
-                .get(&clip.source_path)
-                .ok_or_else(|| "Source index lookup error".to_string())?;
-
             let in_sec = clip.source_in.as_secs_f64();
             let out_sec = clip.source_out.as_secs_f64();
             let start_ms = (clip.timeline_start.as_secs_f64() * 1000.0).round() as i64;
@@ -99,19 +96,44 @@ pub fn build_ffmpeg_export_command(
             // Video processing
             if clip.has_video && track.kind == TrackKind::Video {
                 let v_label = format!("v{}", clip_counter);
-                let v_trim = format!(
-                    "[{}:v]trim=start={:.3}:end={:.3},setpts=PTS-STARTPTS,scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={}[{}]",
-                    input_idx,
-                    in_sec,
-                    out_sec,
-                    config.width,
-                    config.height,
-                    config.width,
-                    config.height,
-                    config.fps,
-                    v_label
-                );
-                filter_chains.push(v_trim);
+                let mut v_filter = if clip.is_title_card {
+                    let theme = clip.title_card_theme.unwrap_or_default();
+                    let (c1, _) = theme.colors();
+                    let hex = format!("0x{:02X}{:02X}{:02X}", c1.r(), c1.g(), c1.b());
+                    format!(
+                        "color=c={}:s={}x{}:d={:.3}:r={}",
+                        hex,
+                        config.width,
+                        config.height,
+                        clip.duration().as_secs_f64(),
+                        config.fps
+                    )
+                } else {
+                    let input_idx = *source_to_input_idx
+                        .get(&clip.source_path)
+                        .ok_or_else(|| "Source index lookup error".to_string())?;
+                    format!(
+                        "[{}:v]trim=start={:.3}:end={:.3},setpts=PTS-STARTPTS,scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={}",
+                        input_idx,
+                        in_sec,
+                        out_sec,
+                        config.width,
+                        config.height,
+                        config.width,
+                        config.height,
+                        config.fps,
+                    )
+                };
+
+                // Append on-screen text overlay drawtext filter if present
+                if let Some(ref overlay) = clip.text_overlay {
+                    if !overlay.text.trim().is_empty() {
+                        v_filter.push_str(&build_drawtext_filter(overlay, config));
+                    }
+                }
+
+                v_filter.push_str(&format!("[{}]", v_label));
+                filter_chains.push(v_filter);
                 video_out_labels.push(v_label.clone());
                 video_meta.push((
                     clip.duration().as_secs_f64(),
@@ -121,7 +143,10 @@ pub fn build_ffmpeg_export_command(
             }
 
             // Audio processing
-            if clip.has_audio {
+            if clip.has_audio && !clip.is_title_card {
+                let input_idx = *source_to_input_idx
+                    .get(&clip.source_path)
+                    .ok_or_else(|| "Source index lookup error".to_string())?;
                 let a_label = format!("a{}", clip_counter);
                 let mut a_filter = format!(
                     "[{}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS",
@@ -384,4 +409,74 @@ pub fn build_ffmpeg_export_command(
     args.push(config.output_path.to_str().unwrap_or("output.mp4").to_string());
 
     Ok(args)
+}
+
+fn build_drawtext_filter(
+    overlay: &crate::core::text_overlay::TextOverlay,
+    config: &ExportConfig,
+) -> String {
+    use crate::core::text_overlay::TextPosition;
+    let mut out = String::new();
+
+    let escaped_text = overlay
+        .text
+        .replace('\\', "\\\\")
+        .replace('\'', "'\\''")
+        .replace(':', "\\:")
+        .replace('%', "\\%");
+
+    let font_size = ((overlay.font_size / 720.0) * (config.height as f32))
+        .max(16.0)
+        .round() as u32;
+
+    let (x_expr, y_expr) = match overlay.position {
+        TextPosition::CenterTitle => {
+            if overlay.subtitle.is_some() {
+                ("(w-text_w)/2", "(h-text_h)/2-30")
+            } else {
+                ("(w-text_w)/2", "(h-text_h)/2")
+            }
+        }
+        TextPosition::BottomBanner => ("(w-text_w)/2", "h-text_h-50"),
+        TextPosition::TopHeader => ("(w-text_w)/2", "50"),
+        TextPosition::LowerThird => ("60", "h-text_h-50"),
+    };
+
+    let col_str = match overlay.style {
+        crate::core::text_overlay::TextStylePreset::GoldElegance => "gold",
+        crate::core::text_overlay::TextStylePreset::SunsetGlow => "coral",
+        _ => "white",
+    };
+
+    let box_str = if overlay.show_box {
+        ":box=1:boxcolor=black@0.65:boxborderw=14"
+    } else {
+        ":shadowcolor=black@0.8:shadowx=2:shadowy=2"
+    };
+
+    out.push_str(&format!(
+        ",drawtext=text='{}':fontsize={}:fontcolor={}{}:x={}:y={}",
+        escaped_text, font_size, col_str, box_str, x_expr, y_expr
+    ));
+
+    if let Some(sub) = &overlay.subtitle {
+        let escaped_sub = sub
+            .replace('\\', "\\\\")
+            .replace('\'', "'\\''")
+            .replace(':', "\\:")
+            .replace('%', "\\%");
+        let sub_font_size = ((font_size as f32) * 0.65).max(12.0).round() as u32;
+        let sub_y = match overlay.position {
+            TextPosition::CenterTitle => "(h-text_h)/2+40",
+            TextPosition::BottomBanner => "h-text_h-20",
+            TextPosition::TopHeader => "110",
+            TextPosition::LowerThird => "h-text_h-20",
+        };
+        out.push_str(&format!(
+            ",drawtext=text='{}':fontsize={}:fontcolor=lightgray{}:x={}:y={}",
+            escaped_sub, sub_font_size, box_str, x_expr, sub_y
+        ));
+    }
+
+    out
 }

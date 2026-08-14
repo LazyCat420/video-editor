@@ -37,6 +37,15 @@ pub struct Clip {
     /// Legacy transition field kept for backwards-compatibility with existing saved projects.
     #[serde(default)]
     pub transition: Option<Transition>,
+    /// On-screen text/caption overlay (e.g. "Hawaii Beach Day 1", "The End").
+    #[serde(default)]
+    pub text_overlay: Option<crate::core::text_overlay::TextOverlay>,
+    /// True if this clip is a generated intro/outro title card rather than a media file.
+    #[serde(default)]
+    pub is_title_card: bool,
+    /// Background theme if this clip is a title card.
+    #[serde(default)]
+    pub title_card_theme: Option<crate::core::text_overlay::TitleCardTheme>,
     pub has_video: bool,
     pub has_audio: bool,
     /// Is the clip currently selected in the UI?
@@ -71,8 +80,54 @@ impl Clip {
             transition_in: None,
             transition_out: None,
             transition: None,
+            text_overlay: None,
+            is_title_card: false,
+            title_card_theme: None,
             has_video,
             has_audio,
+            is_selected: false,
+        }
+    }
+
+    /// Create a dedicated Intro or Outro Title Card clip
+    pub fn new_title_card(
+        id: u64,
+        track_id: u64,
+        title: String,
+        subtitle: Option<String>,
+        theme: crate::core::text_overlay::TitleCardTheme,
+        duration_secs: f64,
+    ) -> Self {
+        let dur = TimeCode::from_secs_f64(duration_secs);
+        let volume_envelope = VolumeEnvelope::default_for_duration(dur);
+        let mut overlay = crate::core::text_overlay::TextOverlay::new(title.clone());
+        overlay.subtitle = subtitle;
+        overlay.position = crate::core::text_overlay::TextPosition::CenterTitle;
+        overlay.style = crate::core::text_overlay::TextStylePreset::GoldElegance;
+        overlay.font_size = 42.0;
+        overlay.show_box = false;
+
+        Self {
+            id,
+            track_id,
+            name: title,
+            source_path: PathBuf::from(format!("__title_card_{}_{:?}.png", id, theme)),
+            proxy_path: None,
+            peak_path: None,
+            source_duration: dur,
+            source_in: TimeCode::ZERO,
+            source_out: dur,
+            timeline_start: TimeCode::ZERO,
+            speed: 1.0,
+            volume_envelope,
+            transition_in: None,
+            transition_out: None,
+            transition: None,
+            text_overlay: Some(overlay),
+            is_title_card: true,
+            title_card_theme: Some(theme),
+            has_video: true,
+            has_audio: false,
             is_selected: false,
         }
     }

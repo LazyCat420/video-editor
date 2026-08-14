@@ -19,6 +19,7 @@ impl PreviewPlayerView {
         ui: &mut Ui,
         timeline: &mut Timeline,
         current_frame: Option<&ColorImage>,
+        active_text_overlay: Option<&crate::core::text_overlay::TextOverlay>,
         texture_cache: &mut Option<TextureHandle>,
         frame_is_dirty: bool,
     ) -> PlayerAction {
@@ -61,6 +62,13 @@ impl PreviewPlayerView {
                     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
+
+                // Render On-Screen Text Overlay (if any)
+                if let Some(overlay) = active_text_overlay {
+                    if !overlay.text.trim().is_empty() {
+                        Self::draw_text_overlay(&painter, rect, overlay);
+                    }
+                }
             } else if total_dur.as_secs_f64() > 0.0 && timeline.playhead >= total_dur {
                 // Helpful end-of-video message
                 painter.text(
@@ -169,5 +177,130 @@ impl PreviewPlayerView {
         });
 
         action
+    }
+
+    fn draw_text_overlay(
+        painter: &egui::Painter,
+        rect: Rect,
+        overlay: &crate::core::text_overlay::TextOverlay,
+    ) {
+        use crate::core::text_overlay::TextPosition;
+
+        let scale = (rect.height() / 400.0).clamp(0.6, 2.0);
+        let font_size = overlay.font_size * scale * 0.65;
+        let font_id = egui::FontId::proportional(font_size.max(14.0));
+        let sub_font_id = egui::FontId::proportional((font_size * 0.65).max(11.0));
+        let text_color = overlay.style.text_color();
+
+        let (anchor_pos, align) = match overlay.position {
+            TextPosition::CenterTitle => (rect.center(), egui::Align2::CENTER_CENTER),
+            TextPosition::BottomBanner => (
+                Pos2::new(rect.center().x, rect.max.y - 30.0 * scale),
+                egui::Align2::CENTER_BOTTOM,
+            ),
+            TextPosition::TopHeader => (
+                Pos2::new(rect.center().x, rect.min.y + 20.0 * scale),
+                egui::Align2::CENTER_TOP,
+            ),
+            TextPosition::LowerThird => (
+                Pos2::new(rect.min.x + 30.0 * scale, rect.max.y - 30.0 * scale),
+                egui::Align2::LEFT_BOTTOM,
+            ),
+        };
+
+        let main_galley = painter.layout_no_wrap(overlay.text.clone(), font_id, text_color);
+        let sub_galley = overlay
+            .subtitle
+            .as_ref()
+            .map(|s| painter.layout_no_wrap(s.clone(), sub_font_id.clone(), AppTheme::text_secondary()));
+
+        let text_w = main_galley
+            .size()
+            .x
+            .max(sub_galley.as_ref().map(|g| g.size().x).unwrap_or(0.0));
+        let text_h = main_galley.size().y
+            + sub_galley
+                .as_ref()
+                .map(|g| g.size().y + 4.0 * scale)
+                .unwrap_or(0.0);
+
+        let pad_x = 16.0 * scale;
+        let pad_y = 8.0 * scale;
+
+        let box_rect = match align {
+            egui::Align2::CENTER_CENTER => Rect::from_center_size(
+                anchor_pos,
+                egui::vec2(text_w + pad_x * 2.0, text_h + pad_y * 2.0),
+            ),
+            egui::Align2::CENTER_BOTTOM => Rect::from_min_max(
+                Pos2::new(anchor_pos.x - text_w / 2.0 - pad_x, anchor_pos.y - text_h - pad_y),
+                Pos2::new(anchor_pos.x + text_w / 2.0 + pad_x, anchor_pos.y + pad_y),
+            ),
+            egui::Align2::CENTER_TOP => Rect::from_min_max(
+                Pos2::new(anchor_pos.x - text_w / 2.0 - pad_x, anchor_pos.y - pad_y),
+                Pos2::new(anchor_pos.x + text_w / 2.0 + pad_x, anchor_pos.y + text_h + pad_y),
+            ),
+            egui::Align2::LEFT_BOTTOM => Rect::from_min_max(
+                Pos2::new(anchor_pos.x - pad_x, anchor_pos.y - text_h - pad_y),
+                Pos2::new(anchor_pos.x + text_w + pad_x, anchor_pos.y + pad_y),
+            ),
+            _ => Rect::from_center_size(anchor_pos, egui::vec2(text_w + pad_x * 2.0, text_h + pad_y * 2.0)),
+        };
+
+        if overlay.show_box {
+            painter.rect_filled(box_rect, Rounding::same(6.0), Color32::from_black_alpha(175));
+            painter.rect_stroke(
+                box_rect,
+                Rounding::same(6.0),
+                egui::Stroke::new(1.0, Color32::from_white_alpha(40)),
+            );
+        }
+
+        // Draw shadow behind text
+        let shadow_offset = egui::vec2(1.5, 1.5);
+        let text_draw_pos = match align {
+            egui::Align2::CENTER_CENTER => Pos2::new(anchor_pos.x, anchor_pos.y - text_h / 2.0 + main_galley.size().y / 2.0),
+            egui::Align2::CENTER_BOTTOM => Pos2::new(anchor_pos.x, anchor_pos.y - text_h + main_galley.size().y / 2.0),
+            egui::Align2::CENTER_TOP => Pos2::new(anchor_pos.x, anchor_pos.y + main_galley.size().y / 2.0),
+            egui::Align2::LEFT_BOTTOM => Pos2::new(anchor_pos.x + main_galley.size().x / 2.0, anchor_pos.y - text_h + main_galley.size().y / 2.0),
+            _ => anchor_pos,
+        };
+
+        painter.text(
+            text_draw_pos + shadow_offset,
+            egui::Align2::CENTER_CENTER,
+            &overlay.text,
+            egui::FontId::proportional(font_size.max(14.0)),
+            Color32::BLACK,
+        );
+
+        painter.text(
+            text_draw_pos,
+            egui::Align2::CENTER_CENTER,
+            &overlay.text,
+            egui::FontId::proportional(font_size.max(14.0)),
+            text_color,
+        );
+
+        if let Some(ref sub) = overlay.subtitle {
+            let sub_y = text_draw_pos.y + (main_galley.size().y / 2.0) + (sub_galley.as_ref().map(|g| g.size().y / 2.0).unwrap_or(0.0)) + 4.0 * scale;
+            let sub_pos = Pos2::new(text_draw_pos.x, sub_y);
+
+            painter.text(
+                sub_pos + shadow_offset,
+                egui::Align2::CENTER_CENTER,
+                sub,
+                sub_font_id.clone(),
+                Color32::BLACK,
+            );
+
+            painter.text(
+                sub_pos,
+                egui::Align2::CENTER_CENTER,
+                sub,
+                sub_font_id,
+                Color32::from_rgb(220, 225, 235),
+            );
+        }
     }
 }

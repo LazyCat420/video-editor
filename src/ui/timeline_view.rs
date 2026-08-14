@@ -887,13 +887,17 @@ impl TimelineView {
                                     // Draw Clip Background
                                     let clip_painter = ui.painter_at(clip_rect);
                                     let bg_color = if clip.is_selected {
-                                        if track.kind == TrackKind::Video {
+                                        if clip.is_title_card {
+                                            Color32::from_rgb(85, 45, 95)
+                                        } else if track.kind == TrackKind::Video {
                                             AppTheme::clip_video_selected()
                                         } else {
                                             AppTheme::clip_audio_selected()
                                         }
                                     } else {
-                                        if track.kind == TrackKind::Video {
+                                        if clip.is_title_card {
+                                            Color32::from_rgb(50, 25, 60)
+                                        } else if track.kind == TrackKind::Video {
                                             AppTheme::clip_video_bg()
                                         } else {
                                             AppTheme::clip_audio_bg()
@@ -924,13 +928,29 @@ impl TimelineView {
                                     } else {
                                         8.0
                                     };
+                                    let display_title = if clip.is_title_card {
+                                        format!("🎬 {}", clip.name)
+                                    } else {
+                                        clip.name.clone()
+                                    };
                                     clip_painter.text(
                                         Pos2::new(clip_rect.min.x + title_offset_x, clip_rect.min.y + 6.0),
                                         egui::Align2::LEFT_TOP,
-                                        &clip.name,
+                                        display_title,
                                         egui::FontId::proportional(13.0),
                                         Color32::WHITE,
                                     );
+
+                                    // Caption Indicator Badge
+                                    if clip.text_overlay.is_some() && !clip.is_title_card && clip_width > 130.0 {
+                                        clip_painter.text(
+                                            Pos2::new(clip_rect.center().x, clip_rect.min.y + 6.0),
+                                            egui::Align2::CENTER_TOP,
+                                            "💬 Caption",
+                                            egui::FontId::proportional(11.0),
+                                            Color32::from_rgb(255, 215, 100),
+                                        );
+                                    }
 
                                     // 1. Beginning Transition Badge (Anchored to the LEFT edge)
                                     if let Some(tr) = clip.start_transition() {

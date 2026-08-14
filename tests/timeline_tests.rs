@@ -1057,3 +1057,90 @@ fn test_export_filtergraph_multi_clip_in_and_out_xfade() {
     assert!(fc.contains("xfade=transition=wipeleft:duration=1.000"));
     assert!(fc.contains("fade=t=out:"));
 }
+
+#[test]
+fn test_text_overlay_model_and_card_creation() {
+    use video_editor::core::clip::Clip;
+    use video_editor::core::text_overlay::{TextOverlay, TextPosition, TextStylePreset, TitleCardTheme};
+
+    let mut overlay = TextOverlay::new("Our Hawaii Trip 2026");
+    overlay.subtitle = Some("Family Memories".to_string());
+    overlay.position = TextPosition::CenterTitle;
+    overlay.style = TextStylePreset::GoldElegance;
+    overlay.font_size = 48.0;
+
+    assert_eq!(overlay.text, "Our Hawaii Trip 2026");
+    assert_eq!(overlay.subtitle.as_deref(), Some("Family Memories"));
+    assert_eq!(overlay.position, TextPosition::CenterTitle);
+    assert_eq!(overlay.style, TextStylePreset::GoldElegance);
+
+    let card = Clip::new_title_card(
+        100,
+        1,
+        "Hawaii 2026".to_string(),
+        Some("Summer Vacation".to_string()),
+        TitleCardTheme::SunsetGlow,
+        4.0,
+    );
+
+    assert!(card.is_title_card);
+    assert_eq!(card.title_card_theme, Some(TitleCardTheme::SunsetGlow));
+    assert_eq!(card.duration().as_secs_f64(), 4.0);
+    assert!(card.has_video);
+    assert!(!card.has_audio);
+    assert!(card.text_overlay.is_some());
+    assert_eq!(card.text_overlay.as_ref().unwrap().text, "Hawaii 2026");
+}
+
+#[test]
+fn test_generate_title_card_gradient_frame() {
+    use video_editor::core::text_overlay::TitleCardTheme;
+    use video_editor::media::generate_title_card_frame;
+
+    let frame = generate_title_card_frame(TitleCardTheme::OceanBlue, 320, 180);
+    assert_eq!(frame.size, [320, 180]);
+    assert_eq!(frame.pixels.len(), 320 * 180);
+
+    // Verify top vs bottom gradient interpolation
+    let top_px = frame.pixels[0];
+    let bot_px = frame.pixels[frame.pixels.len() - 1];
+    assert_ne!(top_px, bot_px);
+}
+
+#[test]
+fn test_export_filtergraph_title_card_with_drawtext() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::text_overlay::TitleCardTheme;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks[0].id;
+
+    let intro_card = Clip::new_title_card(
+        1,
+        track_id,
+        "Welcome to Hawaii".to_string(),
+        Some("Trip of a Lifetime".to_string()),
+        TitleCardTheme::SunsetGlow,
+        4.0,
+    );
+    timeline.tracks[0].add_clip(intro_card);
+
+    let config = ExportConfig {
+        output_path: PathBuf::from("slideshow.mp4"),
+        width: 1280,
+        height: 720,
+        fps: 30.0,
+        ..ExportConfig::default()
+    };
+
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("export command");
+    let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
+    let fc = &cmd[fc_idx + 1];
+
+    assert!(fc.contains("color=c="), "Must use color generator for title card: {}", fc);
+    assert!(fc.contains("drawtext=text='Welcome to Hawaii'"), "Must have drawtext filter: {}", fc);
+    assert!(fc.contains("drawtext=text='Trip of a Lifetime'"), "Must have subtitle drawtext: {}", fc);
+}

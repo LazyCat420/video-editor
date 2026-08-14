@@ -8,6 +8,9 @@ pub mod time;
 pub mod timeline;
 pub mod track;
 
+pub mod text_overlay;
+pub use text_overlay::{TextOverlay, TextPosition, TextStylePreset, TitleCardTheme};
+
 pub use clip::Clip;
 pub use envelope::{CurveType, VolumeEnvelope, VolumeNode};
 pub use history::TimelineHistory;
