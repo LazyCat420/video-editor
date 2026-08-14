@@ -14,7 +14,7 @@ use crate::ui::menu_bar::{MenuAction, MenuBarView};
 use crate::ui::preview_player::{PlayerAction, PreviewPlayerView};
 use crate::ui::theme::AppTheme;
 use crate::ui::timeline_view::{TimelineAction, TimelineView};
-use egui::{Button, ColorImage, Key, RichText, TextureHandle};
+use egui::{Button, ColorImage, Context, Key, RichText, TextureHandle};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -36,7 +36,7 @@ impl Default for VideoEditorApp {
         Self {
             project: Project::default(),
             player: AudioPlayer::new(),
-            frame_cache: FrameCache::new(100),
+            frame_cache: FrameCache::new(120),
             peak_cache: HashMap::new(),
             export_dialog: ExportDialog::default(),
             preview_texture: None,
@@ -78,8 +78,13 @@ impl VideoEditorApp {
                 }
             }
 
-            // Spawn background proxy generator for smooth low-spec playback
+            // Extract first frame immediately so preview is ready with zero delay
             if meta.has_video {
+                if let Some(initial_frame) = self.frame_cache.extract_initial_frame(p) {
+                    self.current_frame = Some(initial_frame);
+                }
+
+                // Spawn background proxy generator for smooth low-spec playback
                 let rx = generate_proxy_async(p, meta.duration_secs);
                 self.proxy_tasks.insert(id, rx);
             }
@@ -100,12 +105,11 @@ impl VideoEditorApp {
 
             self.project.add_asset(asset.clone());
 
-            // Automatically place on timeline so user immediately sees it
+            // Automatically place on timeline
             self.add_asset_to_timeline(asset);
 
-            // Rewind playhead to start and refresh frame
+            // Rewind playhead to start
             self.project.timeline.playhead = TimeCode::ZERO;
-            self.refresh_preview_frame();
         }
     }
 
@@ -125,7 +129,6 @@ impl VideoEditorApp {
         );
 
         if asset.has_video {
-            // Find first available video track or add one
             let target_track_id = self
                 .project
                 .timeline
@@ -144,7 +147,6 @@ impl VideoEditorApp {
                 track.add_clip(clip);
             }
         } else {
-            // Find first available audio track or add one
             let target_track_id = self
                 .project
                 .timeline
@@ -165,11 +167,10 @@ impl VideoEditorApp {
         }
 
         self.project.timeline.playhead = TimeCode::ZERO;
-        self.refresh_preview_frame();
     }
 
-    /// Update preview frame based on current playhead position.
-    fn refresh_preview_frame(&mut self) {
+    /// Update preview frame based on current playhead position with UI repaint callback.
+    fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
         let playhead = self.project.timeline.playhead;
 
         // Find active video clip under playhead
@@ -188,7 +189,7 @@ impl VideoEditorApp {
         }
 
         if let Some((path, sec)) = active_clip_info {
-            if let Some(frame) = self.frame_cache.fetch_frame(path, sec) {
+            if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
                 self.current_frame = Some(frame);
             }
         } else {
@@ -228,7 +229,7 @@ impl eframe::App for VideoEditorApp {
             {
                 if let Ok(loaded) = Project::load_from_file(path) {
                     self.project = loaded;
-                    self.refresh_preview_frame();
+                    self.refresh_preview_frame(Some(ctx));
                 }
             }
         }
@@ -252,8 +253,8 @@ impl eframe::App for VideoEditorApp {
             ctx.request_repaint();
         }
 
-        // 3. Update Preview Frame Cache
-        self.refresh_preview_frame();
+        // 3. Update Preview Frame Cache with repaint context
+        self.refresh_preview_frame(Some(ctx));
 
         // 4. Update Background Proxy Generation Statuses
         for (asset_id, rx) in &self.proxy_tasks {
@@ -292,7 +293,7 @@ impl eframe::App for VideoEditorApp {
                         {
                             if let Ok(loaded) = Project::load_from_file(path) {
                                 self.project = loaded;
-                                self.refresh_preview_frame();
+                                self.refresh_preview_frame(Some(ctx));
                             }
                         }
                     }
@@ -316,6 +317,7 @@ impl eframe::App for VideoEditorApp {
                             for file in files {
                                 self.import_file(file);
                             }
+                            self.refresh_preview_frame(Some(ctx));
                         }
                     }
                     MenuAction::SplitAtPlayhead => {
@@ -323,7 +325,7 @@ impl eframe::App for VideoEditorApp {
                     }
                     MenuAction::DeleteSelected => {
                         self.project.timeline.delete_selected_clips();
-                        self.refresh_preview_frame();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     MenuAction::OpenExportDialog => {
                         self.export_dialog.is_open = true;
@@ -349,9 +351,11 @@ impl eframe::App for VideoEditorApp {
                         for path in paths {
                             self.import_file(path);
                         }
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     MediaBinAction::AddAssetToTimeline(asset) => {
                         self.add_asset_to_timeline(asset);
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     MediaBinAction::None => {}
                 }
@@ -368,7 +372,7 @@ impl eframe::App for VideoEditorApp {
                 match TimelineView::render(ui, &mut self.project.timeline, &self.peak_cache) {
                     TimelineAction::Seek(time) => {
                         self.project.timeline.playhead = time;
-                        self.refresh_preview_frame();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::ClipSelected(id) => {
                         self.project.timeline.select_clip(id);
@@ -379,17 +383,17 @@ impl eframe::App for VideoEditorApp {
                         new_start,
                     } => {
                         self.project.timeline.move_clip(clip_id, target_track_id, new_start);
-                        self.refresh_preview_frame();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::ClipTrimmed { .. } => {
-                        self.refresh_preview_frame();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::SplitAtPlayhead => {
                         self.project.timeline.split_at_playhead();
                     }
                     TimelineAction::DeleteSelected => {
                         self.project.timeline.delete_selected_clips();
-                        self.refresh_preview_frame();
+                        self.refresh_preview_frame(Some(ctx));
                     }
                     TimelineAction::AddVideoTrack => {
                         self.project
@@ -424,24 +428,24 @@ impl eframe::App for VideoEditorApp {
                     let current_frame = self.project.timeline.playhead.as_frames(fps);
                     let new_frame = (current_frame + delta).max(0);
                     self.project.timeline.playhead = TimeCode::from_frames(new_frame, fps);
-                    self.refresh_preview_frame();
+                    self.refresh_preview_frame(Some(ctx));
                 }
                 PlayerAction::StepSeconds(delta_secs) => {
                     let cur = self.project.timeline.playhead.as_secs_f64();
                     let max = self.project.timeline.duration().as_secs_f64();
                     let target = (cur + delta_secs).clamp(0.0, max.max(0.0));
                     self.project.timeline.playhead = TimeCode::from_secs_f64(target);
-                    self.refresh_preview_frame();
+                    self.refresh_preview_frame(Some(ctx));
                 }
                 PlayerAction::Seek(time) => {
                     self.project.timeline.playhead = time;
-                    self.refresh_preview_frame();
+                    self.refresh_preview_frame(Some(ctx));
                 }
                 PlayerAction::Stop => {
                     self.player.pause();
                     self.project.timeline.is_playing = false;
                     self.project.timeline.playhead = TimeCode::ZERO;
-                    self.refresh_preview_frame();
+                    self.refresh_preview_frame(Some(ctx));
                 }
                 PlayerAction::None => {}
             }
