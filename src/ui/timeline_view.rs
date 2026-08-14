@@ -5,7 +5,7 @@ use crate::core::{Transition, TransitionKind};
 use crate::media::peak_extractor::WaveformPeaks;
 use crate::ui::node_graph_view::render_audio_envelope_graph;
 use crate::ui::theme::AppTheme;
-use crate::ui::{MediaAssetDrag, TrackReorderDrag};
+use crate::ui::{MediaAssetDrag, small_slider, TrackReorderDrag};
 use egui::{
     Button, Color32, Frame, Id, Key, Pos2, Rect, RichText, Rounding, ScrollArea, Sense, Stroke, Ui,
     Vec2,
@@ -167,12 +167,14 @@ impl TimelineView {
                 ui.label(
                     RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()),
                 );
-                ui.add_sized(
-                    [90.0, 20.0],
-                    egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
-                        .logarithmic(true)
-                        .show_value(false),
-                );
+                small_slider(ui, 18.0, |ui| {
+                    ui.add_sized(
+                        [90.0, 18.0],
+                        egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
+                            .logarithmic(true)
+                            .show_value(false),
+                    );
+                });
 
                 // Playhead scrub: the slider that moves the orange timeline marker. Kept right
                 // next to the Zoom slider (beside Redo) so it's easy to grab.
@@ -183,10 +185,12 @@ impl TimelineView {
                 .on_hover_text("Move the orange marker through your video");
                 let max_secs = timeline.duration().as_secs_f64().max(1.0);
                 let mut marker_val = timeline.playhead.as_secs_f64();
-                let marker_resp = ui.add_sized(
-                    [150.0, 20.0],
-                    egui::Slider::new(&mut marker_val, 0.0..=max_secs).show_value(false),
-                );
+                let marker_resp = small_slider(ui, 18.0, |ui| {
+                    ui.add_sized(
+                        [150.0, 18.0],
+                        egui::Slider::new(&mut marker_val, 0.0..=max_secs).show_value(false),
+                    )
+                });
                 if marker_resp.changed() || marker_resp.dragged() {
                     action = TimelineAction::Seek(TimeCode::from_secs_f64(marker_val));
                 }
@@ -330,11 +334,13 @@ impl TimelineView {
 
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new("Vol").size(11.0).color(AppTheme::text_muted()));
-                                    ui.add_sized(
-                                        [ui.available_width(), 18.0],
-                                        egui::Slider::new(&mut track.volume, 0.0..=2.0)
-                                            .show_value(false),
-                                    );
+                                    small_slider(ui, 18.0, |ui| {
+                                        ui.add_sized(
+                                            [ui.available_width(), 18.0],
+                                            egui::Slider::new(&mut track.volume, 0.0..=2.0)
+                                                .show_value(false),
+                                        );
+                                    });
                                 });
                             })
                             .response;
