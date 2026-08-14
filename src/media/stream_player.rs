@@ -73,6 +73,7 @@ impl StreamVideoPlayer {
         }
 
         cmd.args([
+            "-re",
             "-ss",
             &ts_str,
             "-i",
@@ -104,11 +105,20 @@ impl StreamVideoPlayer {
 
         let mut stdout = child.stdout.take().expect("Failed to open stdout pipe");
 
-        // Spawn background reader thread
+        // Spawn background reader thread with producer backpressure
         thread::spawn(move || {
             let mut raw_buf = vec![0u8; STREAM_BYTES_PER_FRAME];
 
             while is_running_arc.load(Ordering::SeqCst) {
+                // Backpressure: pause reader when lookahead buffer has 30 frames
+                if let Ok(buf) = buffer_arc.lock() {
+                    if buf.len() >= 30 {
+                        drop(buf);
+                        thread::sleep(std::time::Duration::from_millis(15));
+                        continue;
+                    }
+                }
+
                 match stdout.read_exact(&mut raw_buf) {
                     Ok(_) => {
                         let color_img = ColorImage::from_rgb(
@@ -117,10 +127,6 @@ impl StreamVideoPlayer {
                         );
 
                         if let Ok(mut buf) = buffer_arc.lock() {
-                            // Maintain a 30-frame buffer (~1 second lookahead)
-                            if buf.len() >= 30 {
-                                buf.pop_front();
-                            }
                             buf.push_back(color_img);
                         }
 

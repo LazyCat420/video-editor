@@ -28,6 +28,7 @@ pub struct VideoEditorApp {
     pub export_dialog: ExportDialog,
     pub preview_texture: Option<TextureHandle>,
     pub current_frame: Option<ColorImage>,
+    pub current_playing_clip_id: Option<u64>,
     pub frame_version: u64,
     pub last_uploaded_version: u64,
     pub last_frame_time: Option<TimeCode>,
@@ -46,6 +47,7 @@ impl Default for VideoEditorApp {
             export_dialog: ExportDialog::default(),
             preview_texture: None,
             current_frame: None,
+            current_playing_clip_id: None,
             frame_version: 0,
             last_uploaded_version: 999999,
             last_frame_time: None,
@@ -182,14 +184,19 @@ impl VideoEditorApp {
         self.project.timeline.is_playing = true;
 
         let playhead = self.project.timeline.playhead;
-        if let Some((path, sec)) = self.get_active_video_clip_info(playhead) {
+        if let Some((clip_id, path, sec)) = self.get_active_video_clip_info(playhead) {
+            self.current_playing_clip_id = Some(clip_id);
             self.stream_player.start(path, sec, Some(ctx));
+        } else {
+            self.current_playing_clip_id = None;
+            self.stream_player.stop();
         }
     }
 
     pub fn pause_playback(&mut self) {
         self.player.pause();
         self.project.timeline.is_playing = false;
+        self.current_playing_clip_id = None;
         self.stream_player.stop();
     }
 
@@ -210,24 +217,27 @@ impl VideoEditorApp {
     pub fn seek_to(&mut self, target_time: TimeCode, ctx: &Context) {
         self.project.timeline.playhead = target_time;
         if self.project.timeline.is_playing {
-            if let Some((path, sec)) = self.get_active_video_clip_info(target_time) {
+            if let Some((clip_id, path, sec)) = self.get_active_video_clip_info(target_time) {
+                self.current_playing_clip_id = Some(clip_id);
                 self.stream_player.start(path, sec, Some(ctx));
             } else {
+                self.current_playing_clip_id = None;
                 self.stream_player.stop();
             }
         } else {
+            self.current_playing_clip_id = None;
             self.stream_player.stop();
             self.refresh_preview_frame(Some(ctx));
         }
     }
 
-    pub fn get_active_video_clip_info(&self, time: TimeCode) -> Option<(PathBuf, f64)> {
+    pub fn get_active_video_clip_info(&self, time: TimeCode) -> Option<(u64, PathBuf, f64)> {
         for track in &self.project.timeline.tracks {
             if track.kind == TrackKind::Video && !track.is_muted {
                 if let Some(clip) = track.get_clip_at(time) {
                     if clip.has_video {
                         if let Some(source_time) = clip.timeline_to_source_time(time) {
-                            return Some((clip.source_path.clone(), source_time.as_secs_f64()));
+                            return Some((clip.id, clip.source_path.clone(), source_time.as_secs_f64()));
                         }
                     }
                 }
@@ -240,7 +250,7 @@ impl VideoEditorApp {
     fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
         let playhead = self.project.timeline.playhead;
 
-        if let Some((path, sec)) = self.get_active_video_clip_info(playhead) {
+        if let Some((_id, path, sec)) = self.get_active_video_clip_info(playhead) {
             if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
                 self.current_frame = Some(frame);
                 self.frame_version += 1;
@@ -300,6 +310,20 @@ impl eframe::App for VideoEditorApp {
                 }
             } else {
                 self.pause_playback();
+            }
+
+            // Cross-clip transition detection: switch stream when crossing clips or entering gaps
+            let active_clip = self.get_active_video_clip_info(self.project.timeline.playhead);
+            let new_clip_id = active_clip.as_ref().map(|(id, _, _)| *id);
+            if new_clip_id != self.current_playing_clip_id {
+                self.current_playing_clip_id = new_clip_id;
+                if let Some((_, path, sec)) = active_clip {
+                    self.stream_player.start(path, sec, Some(ctx));
+                } else {
+                    self.stream_player.stop();
+                    self.current_frame = None;
+                    self.frame_version += 1;
+                }
             }
 
             // Consume frames from the continuous streaming decoder
