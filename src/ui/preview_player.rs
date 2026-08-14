@@ -165,24 +165,6 @@ impl PreviewPlayerView {
                         .strong()
                         .color(AppTheme::accent_cyan()),
                 );
-
-                // Big Scrub Slider across remaining width
-                let mut slider_val = cur_secs;
-                let max_secs = tot_secs.max(1.0);
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .add_sized(
-                            [ui.available_width().max(80.0), 30.0],
-                            egui::Slider::new(&mut slider_val, 0.0..=max_secs)
-                                .show_value(false)
-                                .text(""),
-                        )
-                        .changed()
-                    {
-                        action = PlayerAction::Seek(TimeCode::from_secs_f64(slider_val));
-                    }
-                });
             });
         });
 
