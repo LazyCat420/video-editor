@@ -571,6 +571,11 @@ impl eframe::App for VideoEditorApp {
                         self.add_asset_to_timeline(asset);
                         self.refresh_preview_frame(Some(ctx));
                     }
+                    MediaBinAction::RemoveAsset(id) => {
+                        self.project.media_assets.retain(|a| a.id != id);
+                        self.thumbnail_frames.remove(&id);
+                        self.thumb_textures.remove(&id);
+                    }
                     MediaBinAction::None => {}
                 }
             });

@@ -396,6 +396,13 @@ fn test_reorder_track() {
     // Moving to a too-large index clamps to the end.
     timeline.reorder_track(v_id, 99);
     assert_eq!(timeline.tracks.last().unwrap().id, v_id);
+
+    // Drag downward: move a track from the top all the way to the bottom.
+    let mut t2 = Timeline::new(30.0);
+    let first = t2.tracks[0].id;
+    let last_idx = t2.tracks.len() - 1;
+    t2.reorder_track(first, last_idx);
+    assert_eq!(t2.tracks.last().unwrap().id, first);
 }
 
 #[test]

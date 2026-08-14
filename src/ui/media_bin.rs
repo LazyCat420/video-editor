@@ -13,6 +13,7 @@ pub enum MediaBinAction {
     ImportFiles(Vec<PathBuf>),
     ImportFolder(PathBuf),
     AddAssetToTimeline(MediaAsset),
+    RemoveAsset(u64),
 }
 
 impl MediaBinView {
@@ -134,82 +135,67 @@ impl MediaBinView {
 
                 ScrollArea::vertical().show(ui, |ui| {
                     let mut render_asset = |ui: &mut Ui, asset: &MediaAsset| {
-                        ui.dnd_drag_source(
-                            Id::new(("media_asset_drag", asset.id)),
-                            MediaAssetDrag(asset.id),
-                            |ui| {
-                                Frame::none()
-                                    .fill(AppTheme::BG_CARD)
-                                    .stroke(egui::Stroke::new(1.5, AppTheme::BG_HOVER))
-                                    .rounding(Rounding::same(8.0))
-                                    .inner_margin(10.0)
-                                    .show(ui, |ui| {
-                                            ui.vertical(|ui| {
-                                                // Build a real preview picture for videos.
-                                                let tex = if asset.has_video {
-                                                    // Prefer the small cached thumbnail; if a
-                                                    // project was loaded (no import) or the frame
-                                                    // cache was evicted, lazily re-extract one.
-                                                    if !thumbnail_frames.contains_key(&asset.id) {
-                                                        if let Some(img) =
-                                                            frame_cache.get_cached(&asset.path, 0.0)
-                                                        {
-                                                            thumbnail_frames.insert(
-                                                                asset.id,
-                                                                crate::media::thumbnail::downscale(
-                                                                    &img, 192, 108,
-                                                                ),
-                                                            );
-                                                        } else {
-                                                            frame_cache.fetch_frame(
-                                                                &asset.path,
-                                                                0.0,
-                                                                Some(ui.ctx()),
-                                                            );
-                                                        }
-                                                    }
+                        ui.vertical(|ui| {
+                            // The picture + name strip is the drag handle: grab anywhere on it
+                            // to drag this file onto a track. Buttons stay separate so clicking
+                            // them never accidentally starts a drag.
+                            let tex = if asset.has_video {
+                                // Prefer the small cached thumbnail; if a project was loaded (no
+                                // import) or the frame cache was evicted, lazily re-extract one.
+                                if !thumbnail_frames.contains_key(&asset.id) {
+                                    if let Some(img) = frame_cache.get_cached(&asset.path, 0.0) {
+                                        thumbnail_frames.insert(
+                                            asset.id,
+                                            crate::media::thumbnail::downscale(&img, 192, 108),
+                                        );
+                                    } else {
+                                        frame_cache.fetch_frame(&asset.path, 0.0, Some(ui.ctx()));
+                                    }
+                                }
 
-                                                    thumbnail_frames.get(&asset.id).and_then(
-                                                        |img| {
-                                                            if let Some(t) =
-                                                                thumbs.get(&asset.id)
-                                                            {
-                                                                return Some(t.clone());
-                                                            }
-                                                            let t = ui.ctx().load_texture(
-                                                                format!(
-                                                                    "asset_thumb_{}",
-                                                                    asset.id
-                                                                ),
-                                                                img.clone(),
-                                                                TextureOptions::LINEAR,
-                                                            );
-                                                            thumbs.insert(asset.id, t.clone());
-                                                            Some(t)
-                                                        },
-                                                    )
+                                thumbnail_frames.get(&asset.id).and_then(|img| {
+                                    if let Some(t) = thumbs.get(&asset.id) {
+                                        return Some(t.clone());
+                                    }
+                                    let t = ui.ctx().load_texture(
+                                        format!("asset_thumb_{}", asset.id),
+                                        img.clone(),
+                                        TextureOptions::LINEAR,
+                                    );
+                                    thumbs.insert(asset.id, t.clone());
+                                    Some(t)
+                                })
+                            } else {
+                                None
+                            };
+
+                            ui.dnd_drag_source(
+                                Id::new(("media_asset_drag", asset.id)),
+                                MediaAssetDrag(asset.id),
+                                |ui| {
+                                    Frame::none()
+                                        .fill(AppTheme::BG_CARD)
+                                        .stroke(egui::Stroke::new(1.5, AppTheme::BG_HOVER))
+                                        .rounding(Rounding::same(8.0))
+                                        .inner_margin(10.0)
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                if let Some(t) = &tex {
+                                                    ui.add(
+                                                        egui::Image::from_texture(t).fit_to_exact_size(
+                                                            egui::vec2(72.0, 40.0),
+                                                        ),
+                                                    );
                                                 } else {
-                                                    None
-                                                };
-
-                                                ui.horizontal(|ui| {
-                                                    if let Some(t) = &tex {
-                                                        ui.add(
-                                                            egui::Image::from_texture(t)
-                                                                .fit_to_exact_size(egui::vec2(72.0, 40.0)),
-                                                        );
+                                                    let icon = if asset.has_video {
+                                                        "🎬"
                                                     } else {
-                                                        let icon = if asset.has_video {
-                                                            "🎬"
-                                                        } else {
-                                                            "🎵"
-                                                        };
-                                                        ui.label(
-                                                            RichText::new(icon).size(22.0),
-                                                        );
-                                                    }
+                                                        "🎵"
+                                                    };
+                                                    ui.label(RichText::new(icon).size(22.0));
+                                                }
 
-                                                    ui.vertical(|ui| {
+                                                ui.vertical(|ui| {
                                                     ui.label(
                                                         RichText::new(&asset.name)
                                                             .strong()
@@ -217,8 +203,10 @@ impl MediaBinView {
                                                             .size(14.0),
                                                     );
 
-                                                    let dur_m = (asset.duration_secs / 60.0).floor() as u64;
-                                                    let dur_s = (asset.duration_secs % 60.0).floor() as u64;
+                                                    let dur_m =
+                                                        (asset.duration_secs / 60.0).floor() as u64;
+                                                    let dur_s =
+                                                        (asset.duration_secs % 60.0).floor() as u64;
                                                     let dur_text = if dur_m > 0 {
                                                         format!("Duration: {}m {}s", dur_m, dur_s)
                                                     } else {
@@ -230,28 +218,54 @@ impl MediaBinView {
                                                             .color(AppTheme::TEXT_MUTED),
                                                     );
                                                 });
+
+                                                // Right-aligned remove-from-list button.
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        if ui
+                                                            .add(
+                                                                Button::new(
+                                                                    RichText::new("✕").size(15.0),
+                                                                )
+                                                                .min_size(egui::vec2(
+                                                                    24.0, 24.0,
+                                                                )),
+                                                            )
+                                                            .on_hover_text("Remove from list")
+                                                            .clicked()
+                                                        {
+                                                            action =
+                                                                MediaBinAction::RemoveAsset(
+                                                                    asset.id,
+                                                                );
+                                                        }
+                                                    },
+                                                );
                                             });
-
-                                            ui.add_space(6.0);
-
-                                            let add_to_timeline_btn = Button::new(
-                                                RichText::new("▶ Put on Timeline")
-                                                    .size(13.0)
-                                                    .strong()
-                                                    .color(Color32::WHITE),
-                                            )
-                                            .min_size(egui::vec2(ui.available_width(), 30.0))
-                                            .fill(AppTheme::ACCENT_BLUE);
-
-                                            if ui.add(add_to_timeline_btn).clicked() {
-                                                action = MediaBinAction::AddAssetToTimeline(asset.clone());
-                                            }
                                         });
-                                    });
-                            },
-                        );
+                                },
+                            );
 
-                        ui.add_space(6.0);
+                            ui.add_space(6.0);
+
+                            // Put on Timeline (separate from the drag strip, so it always clicks).
+                            let add_to_timeline_btn = Button::new(
+                                RichText::new("▶ Put on Timeline")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(Color32::WHITE),
+                            )
+                            .min_size(egui::vec2(ui.available_width(), 30.0))
+                            .fill(AppTheme::ACCENT_BLUE);
+
+                            if ui.add(add_to_timeline_btn).clicked() {
+                                action = MediaBinAction::AddAssetToTimeline(asset.clone());
+                            }
+                        });
+                        ui.add_space(4.0);
                     };
 
                     // Render folder groups

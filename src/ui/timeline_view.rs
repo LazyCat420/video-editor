@@ -193,6 +193,18 @@ impl TimelineView {
             ui.add_space(3.0);
 
             ui.horizontal(|ui| {
+                // Shared reorder geometry: one reference top for the row grid, so the header
+                // column and the timeline body agree on where a dragged row would land (and
+                // commits work when releasing from either side).
+                let row_h = Self::TRACK_HEIGHT;
+                let row_gap = 2.0;
+                let track_count = timeline.tracks.len();
+                let reorder_anchor_top = ui.cursor().top() + Self::RULER_HEIGHT + 8.0;
+                let slot_from_y = |y: f32| -> usize {
+                    (((y - reorder_anchor_top) / (row_h + row_gap)).floor() as isize)
+                        .clamp(0, track_count as isize) as usize
+                };
+
                 // ==========================================
                 // 1. Left Fixed Column: Track Headers
                 // ==========================================
@@ -313,9 +325,13 @@ impl TimelineView {
                         }
                         if let Some(payload) = header_resp.dnd_release_payload::<TrackReorderDrag>() {
                             if payload.0 != track_id {
+                                let slot = ui
+                                    .input(|i| i.pointer.hover_pos())
+                                    .map(|p| slot_from_y(p.y))
+                                    .unwrap_or(track_index);
                                 action = TimelineAction::ReorderTrack {
                                     from_id: payload.0,
-                                    to_index: track_index,
+                                    to_index: slot,
                                 };
                             }
                         }
@@ -424,10 +440,10 @@ impl TimelineView {
                             // 2B. Multi-Track Canvas & Clips (floating reorder)
                             // ----------------------------------------------------
 
-                            let row_gap = 2.0;
-                            let row_h = Self::TRACK_HEIGHT;
-                            let track_count = timeline.tracks.len();
-                            let total_tracks_h = (track_count as f32) * (row_h + row_gap);
+                            let row_gap_used = row_gap;
+                            let row_h_used = row_h;
+                            let track_count_used = track_count;
+                            let total_tracks_h = (track_count_used as f32) * (row_h_used + row_gap_used);
 
                             // Reserve the full vertical space once, so the playhead & scroll
                             // geometry stay correct while individual rows animate.
@@ -436,7 +452,9 @@ impl TimelineView {
                                 Sense::hover(),
                             );
                             let area_left = _bg_block.min.x;
-                            let area_top = _bg_block.min.y;
+                            // Rows are laid out from the shared reference top so the header and
+                            // body agree on the row grid (needed for some reorder math).
+                            let area_top = reorder_anchor_top;
                             let content_bottom = _bg_block.max.y;
 
                             // While a track header is being dragged, float that row as a ghost
@@ -446,15 +464,14 @@ impl TimelineView {
                                 egui::DragAndDrop::payload::<TrackReorderDrag>(ui.ctx())
                                     .map(|p| p.0);
 
-                            // Drop slot from the pointer's vertical position (clamped to valid rows).
+                            // Drop slot from the pointer (shared mapping, allows the row to go
+                            // at the very end of the list too).
                             let slot_index = if is_reordering {
-                                if let Some(py) = ui.input(|i| i.pointer.hover_pos()) {
-                                    let local_y = py.y - ui.min_rect().min.y;
-                                    (((local_y - area_top) / (row_h + row_gap)).floor() as isize)
-                                        .clamp(0, track_count.saturating_sub(1) as isize) as usize
-                                } else {
-                                    0
-                                }
+                                // Keep animating while dragging so the rows visibly nudge apart.
+                                ui.ctx().request_repaint();
+                                ui.input(|i| i.pointer.hover_pos())
+                                    .map(|p| slot_from_y(p.y))
+                                    .unwrap_or(0)
                             } else {
                                 0
                             };
