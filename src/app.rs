@@ -9,7 +9,7 @@ use crate::media::frame_cache::FrameCache;
 use crate::media::peak_extractor::{extract_peaks, WaveformPeaks};
 use crate::media::probe::probe_media_file;
 use crate::media::proxy_generator::{generate_proxy_async, ProxyStatus};
-use crate::media::stream_player::StreamVideoPlayer;
+use crate::media::stream_player::DualDeckPlayer;
 use crate::ui::export_dialog::{ExportDialog, ExportDialogAction};
 use crate::ui::media_bin::{MediaBinAction, MediaBinView};
 use crate::ui::menu_bar::{MenuAction, MenuBarView};
@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 pub struct VideoEditorApp {
     pub project: Project,
     pub player: AudioPlayer,
-    pub stream_player: StreamVideoPlayer,
+    pub stream_player: DualDeckPlayer,
     pub frame_cache: FrameCache,
     pub peak_cache: HashMap<String, WaveformPeaks>,
     pub export_dialog: ExportDialog,
@@ -44,7 +44,7 @@ impl Default for VideoEditorApp {
         Self {
             project: Project::default(),
             player: AudioPlayer::new(),
-            stream_player: StreamVideoPlayer::new(),
+            stream_player: DualDeckPlayer::new(),
             frame_cache: FrameCache::new(40), // 40 frames max @ 360p (~27MB)
             peak_cache: HashMap::new(),
             export_dialog: ExportDialog::default(),
@@ -209,7 +209,7 @@ impl VideoEditorApp {
         let playhead = self.project.timeline.playhead;
         if let Some((clip_id, path, sec, rem_dur)) = self.get_active_video_clip_info(playhead) {
             self.current_playing_clip_id = Some(clip_id);
-            self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
+            self.stream_player.switch_to_clip(clip_id, path, sec, Some(rem_dur), Some(ctx));
         } else {
             self.current_playing_clip_id = None;
             self.stream_player.stop();
@@ -242,7 +242,7 @@ impl VideoEditorApp {
         if self.project.timeline.is_playing {
             if let Some((clip_id, path, sec, rem_dur)) = self.get_active_video_clip_info(target_time) {
                 self.current_playing_clip_id = Some(clip_id);
-                self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
+                self.stream_player.switch_to_clip(clip_id, path, sec, Some(rem_dur), Some(ctx));
             } else {
                 self.current_playing_clip_id = None;
                 self.stream_player.stop();
@@ -358,15 +358,21 @@ impl eframe::App for VideoEditorApp {
                 self.pause_playback();
             }
 
-            // Cross-clip transition detection: switch stream when crossing clips or entering gaps
+            // A. Lookahead pre-warming: pre-warm upcoming clip 0.5s in advance
+            let lookahead_time = self.project.timeline.playhead + TimeCode::from_secs_f64(0.5);
+            if let Some((up_id, up_path, up_sec, up_dur)) = self.get_active_video_clip_info(lookahead_time) {
+                if Some(up_id) != self.current_playing_clip_id {
+                    self.stream_player.prewarm(up_id, up_path, up_sec, Some(up_dur), Some(ctx));
+                }
+            }
+
+            // B. Cross-clip transition detection: switch stream when crossing clips or entering gaps
             let active_clip = self.get_active_video_clip_info(self.project.timeline.playhead);
             let new_clip_id = active_clip.as_ref().map(|(id, _, _, _)| *id);
             if new_clip_id != self.current_playing_clip_id {
                 self.current_playing_clip_id = new_clip_id;
-                if let Some((_, path, sec, rem_dur)) = &active_clip {
-                    if !self.stream_player.is_continuous_with(path, *sec) {
-                        self.stream_player.start(path, *sec, Some(*rem_dur), Some(ctx));
-                    }
+                if let Some((clip_id, path, sec, rem_dur)) = &active_clip {
+                    self.stream_player.switch_to_clip(*clip_id, path, *sec, Some(*rem_dur), Some(ctx));
                 } else {
                     self.stream_player.stop();
                     self.current_frame = None;
@@ -374,7 +380,7 @@ impl eframe::App for VideoEditorApp {
                 }
             }
 
-            // Consume frames from the continuous streaming decoder synchronized to PTS
+            // C. Consume frames from the continuous streaming decoder synchronized to PTS
             if let Some((_, _, source_sec, _)) = active_clip {
                 if let Some(stream_frame) = self.stream_player.get_frame_for_time(source_sec) {
                     self.current_frame = Some(stream_frame);

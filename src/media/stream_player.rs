@@ -232,12 +232,128 @@ impl StreamVideoPlayer {
         }
         self.current_frame.clone()
     }
-
-
 }
 
 impl Drop for StreamVideoPlayer {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Dual-deck lookahead playback engine that pre-warms upcoming cut clips in the background
+/// for 0ms instantaneous cut transitions.
+pub struct DualDeckPlayer {
+    deck_a: StreamVideoPlayer,
+    deck_b: StreamVideoPlayer,
+    active_is_a: bool,
+    pub active_clip_id: Option<u64>,
+    pub prewarmed_clip_id: Option<u64>,
+}
+
+impl Default for DualDeckPlayer {
+    fn default() -> Self {
+        Self {
+            deck_a: StreamVideoPlayer::new(),
+            deck_b: StreamVideoPlayer::new(),
+            active_is_a: true,
+            active_clip_id: None,
+            prewarmed_clip_id: None,
+        }
+    }
+}
+
+impl DualDeckPlayer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Pre-warm the standby deck on an upcoming cut clip in the background.
+    pub fn prewarm<P: AsRef<Path>>(
+        &mut self,
+        clip_id: u64,
+        path: P,
+        start_secs: f64,
+        duration_secs: Option<f64>,
+        ctx: Option<&Context>,
+    ) {
+        if self.prewarmed_clip_id == Some(clip_id) || self.active_clip_id == Some(clip_id) {
+            return;
+        }
+
+        let standby = if self.active_is_a {
+            &mut self.deck_b
+        } else {
+            &mut self.deck_a
+        };
+
+        standby.start(path, start_secs, duration_secs, ctx);
+        self.prewarmed_clip_id = Some(clip_id);
+    }
+
+    /// Switch active playback to a clip, using the pre-warmed deck if available or continuing the active stream.
+    pub fn switch_to_clip<P: AsRef<Path>>(
+        &mut self,
+        clip_id: u64,
+        path: P,
+        start_secs: f64,
+        duration_secs: Option<f64>,
+        ctx: Option<&Context>,
+    ) {
+        if self.active_clip_id == Some(clip_id) {
+            return;
+        }
+
+        let path_ref = path.as_ref();
+
+        // 1. Check if the standby deck was pre-warmed for this clip
+        if self.prewarmed_clip_id == Some(clip_id) {
+            // Instant 0ms deck swap!
+            self.active_is_a = !self.active_is_a;
+            self.active_clip_id = Some(clip_id);
+            self.prewarmed_clip_id = None;
+
+            // Stop the retired standby deck
+            let old_deck = if self.active_is_a {
+                &mut self.deck_b
+            } else {
+                &mut self.deck_a
+            };
+            old_deck.stop();
+            return;
+        }
+
+        // 2. Check if the currently active deck can continue playing seamlessly
+        let active_deck = if self.active_is_a {
+            &mut self.deck_a
+        } else {
+            &mut self.deck_b
+        };
+
+        if active_deck.is_continuous_with(path_ref, start_secs) {
+            self.active_clip_id = Some(clip_id);
+            return;
+        }
+
+        // 3. Fallback cold start on active deck
+        active_deck.start(path_ref, start_secs, duration_secs, ctx);
+        self.active_clip_id = Some(clip_id);
+        self.prewarmed_clip_id = None;
+    }
+
+    /// Retrieve the current video frame from the active deck synchronized to PTS.
+    pub fn get_frame_for_time(&mut self, current_source_time: f64) -> Option<ColorImage> {
+        if self.active_is_a {
+            self.deck_a.get_frame_for_time(current_source_time)
+        } else {
+            self.deck_b.get_frame_for_time(current_source_time)
+        }
+    }
+
+    /// Stop both player decks.
+    pub fn stop(&mut self) {
+        self.deck_a.stop();
+        self.deck_b.stop();
+        self.active_clip_id = None;
+        self.prewarmed_clip_id = None;
     }
 }
