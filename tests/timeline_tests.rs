@@ -475,3 +475,101 @@ fn test_thumbnail_extraction_and_frame_cache() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn test_transition_export_xfade() {
+    use video_editor::core::transition::{Transition, TransitionKind};
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let dir = std::env::temp_dir().join(format!("ve_xfade_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // Three short, single-colour source clips (2s each).
+    let mut sources = Vec::new();
+    for (i, color) in ["red", "green", "blue"].iter().enumerate() {
+        let p = dir.join(format!("c{}.mp4", i));
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("color=c={}:s=320x240:d=2:r=25", color),
+                "-an",
+                p.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "failed to make test clip {}", i);
+        sources.push(p);
+    }
+
+    // Timeline: one video track, three clips in a row, with transitions on clips 2 and 3.
+    let mut timeline = video_editor::core::timeline::Timeline::new(25.0);
+    let track_id = timeline.tracks[0].id;
+    let mut clips = Vec::new();
+    for (i, src) in sources.iter().enumerate() {
+        let mut clip = video_editor::core::clip::Clip::new(
+            (i + 1) as u64,
+            track_id,
+            format!("Clip {}", i),
+            src.clone(),
+            video_editor::core::time::TimeCode::from_secs_f64(2.0),
+            true,
+            false,
+        );
+        if i == 1 {
+            clip.transition = Some(Transition::new(TransitionKind::WipeLeft)); // 0.5s
+        } else if i == 2 {
+            clip.transition = Some(Transition::new(TransitionKind::CrossFade)); // 0.5s
+        }
+        timeline.tracks[0].add_clip(clip);
+        clips.push(src.clone());
+    }
+
+    let out = dir.join("out.mp4");
+    let config = ExportConfig {
+        output_path: out.clone(),
+        width: 320,
+        height: 240,
+        fps: 25.0,
+        ..ExportConfig::default()
+    };
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+
+    // Sanity: the generated graph must use xfade with the two chosen transitions.
+    let fc_idx = cmd.iter().position(|a| a == "-filter_complex").unwrap();
+    let fc = &cmd[fc_idx + 1];
+    assert!(fc.contains("xfade=transition=wipeleft"));
+    assert!(fc.contains("xfade=transition=dissolve"));
+
+    // Run it end to end and confirm the output exists with the expected duration
+    // (2+2+2 - 0.5 - 0.5 = 5.0s).
+    let st = std::process::Command::new("ffmpeg").args(&cmd).status().unwrap();
+    assert!(st.success(), "ffmpeg render failed");
+    let out_meta = std::fs::metadata(&out).expect("output file");
+    assert!(out_meta.len() > 0);
+
+    let duration = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1:nk=1",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .ok();
+    if let Some(dur) = duration {
+        let s = String::from_utf8_lossy(&dur.stdout);
+        let v: f64 = s.trim().parse().unwrap_or(0.0);
+        assert!((v - 5.0).abs() < 0.2, "duration was {}", v);
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+

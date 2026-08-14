@@ -719,6 +719,16 @@ impl eframe::App for VideoEditorApp {
                             self.refresh_preview_frame(Some(ctx));
                         }
                     }
+                    TimelineAction::SetTransition {
+                        clip_id,
+                        transition,
+                    } => {
+                        if self.project.timeline.get_clip_mut(clip_id).is_some() {
+                            self.snapshot_timeline();
+                            self.project.timeline.get_clip_mut(clip_id).unwrap().transition =
+                                transition;
+                        }
+                    }
                     TimelineAction::Undo => {
                         self.undo(Some(ctx));
                     }

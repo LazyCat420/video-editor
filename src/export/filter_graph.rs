@@ -1,5 +1,6 @@
 use crate::core::timeline::Timeline;
 use crate::core::track::TrackKind;
+use crate::core::transition::Transition;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -77,6 +78,7 @@ pub fn build_ffmpeg_export_command(
     let mut filter_chains = Vec::new();
     let mut video_out_labels = Vec::new();
     let mut audio_out_labels = Vec::new();
+    let mut video_meta: Vec<(f64, Option<Transition>)> = Vec::new();
 
     let mut clip_counter = 0;
 
@@ -110,7 +112,8 @@ pub fn build_ffmpeg_export_command(
                     v_label
                 );
                 filter_chains.push(v_trim);
-                video_out_labels.push(v_label);
+                video_out_labels.push(v_label.clone());
+                video_meta.push((clip.duration().as_secs_f64(), clip.transition));
             }
 
             // Audio processing
@@ -154,16 +157,64 @@ pub fn build_ffmpeg_export_command(
     } else if video_out_labels.len() == 1 {
         final_video_label = video_out_labels[0].clone();
     } else {
-        // Concatenate video clips sequentially
-        let mut concat_str = String::new();
-        for label in &video_out_labels {
-            concat_str.push_str(&format!("[{}]", label));
+        // Chain the clips through ffmpeg xfade so the selected transition blends each clip
+        // into the next one. Boundaries with no transition use a near-instant crossfade (a
+        // quick cut).
+        let n = video_out_labels.len();
+        // Overlap feeding INTO clip i (i>=1): the transition duration attached to clip i.
+        let overlaps: Vec<f64> = (0..n)
+            .map(|i| {
+                if i == 0 {
+                    0.0
+                } else {
+                    video_meta[i].1.map(|t| t.duration_secs).unwrap_or(0.05)
+                }
+            })
+            .collect();
+
+        // Every clip except the last gets a cloned tail as long as the next transition, so
+        // the previous picture is still showing during the blend.
+        let mut ready: Vec<String> = Vec::with_capacity(n);
+        for i in 0..n {
+            if i + 1 < n {
+                let out_lbl = format!("vx_{}", i);
+                filter_chains.push(format!(
+                    "[{}]tpad=stop_mode=clone:stop_duration={:.3}[{}]",
+                    video_out_labels[i],
+                    overlaps[i + 1],
+                    out_lbl
+                ));
+                ready.push(out_lbl);
+            } else {
+                ready.push(video_out_labels[i].clone());
+            }
         }
-        concat_str.push_str(&format!(
-            "concat=n={}:v=1:a=0[v_final]",
-            video_out_labels.len()
-        ));
-        filter_chains.push(concat_str);
+
+        // xfade offset bookkeeping: offset_i = (sum durations before i) - (sum overlaps up to i).
+        let mut sum_dur = 0.0f64;
+        let mut sum_overlap = 0.0f64;
+        let mut current = ready[0].clone();
+        for i in 1..n {
+            sum_dur += video_meta[i - 1].0;
+            sum_overlap += overlaps[i];
+            let offset = (sum_dur - sum_overlap).max(0.0);
+            let kind = video_meta[i]
+                .1
+                .map(|t| t.kind)
+                .unwrap_or(crate::core::transition::TransitionKind::CrossFade);
+            let out_lbl = format!("vxo_{}", i);
+            filter_chains.push(format!(
+                "[{}][{}]xfade=transition={}:duration={:.3}:offset={:.3}[{}]",
+                current,
+                ready[i],
+                kind.to_xfade(),
+                overlaps[i],
+                offset,
+                out_lbl
+            ));
+            current = out_lbl;
+        }
+        final_video_label = current;
     }
 
     // Combine Audio Tracks

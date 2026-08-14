@@ -1,6 +1,8 @@
 pub mod clip;
 pub mod envelope;
 pub mod history;
+pub mod transition;
+pub use transition::{Transition, TransitionKind};
 pub mod project;
 pub mod time;
 pub mod timeline;

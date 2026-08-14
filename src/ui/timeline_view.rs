@@ -1,6 +1,7 @@
 use crate::core::timeline::Timeline;
 use crate::core::time::TimeCode;
 use crate::core::track::TrackKind;
+use crate::core::{Transition, TransitionKind};
 use crate::media::peak_extractor::WaveformPeaks;
 use crate::ui::node_graph_view::render_audio_envelope_graph;
 use crate::ui::theme::AppTheme;
@@ -46,6 +47,10 @@ pub enum TimelineAction {
     DeleteClip(u64),
     DeleteSelected,
     DeleteTrack(u64),
+    SetTransition {
+        clip_id: u64,
+        transition: Option<Transition>,
+    },
     ReorderTrack { from_id: u64, to_index: usize },
     AddMediaToTimeline { asset_id: u64, track_id: u64, start: TimeCode },
     Undo,
@@ -761,6 +766,77 @@ impl TimelineView {
 
                                         ui.separator();
 
+                                        ui.menu_button(
+                                            RichText::new("✨ Transitions")
+                                                .size(15.0)
+                                                .color(Color32::WHITE),
+                                            |ui| {
+                                                for kind in TransitionKind::all() {
+                                                    if ui
+                                                        .button(
+                                                            RichText::new(kind.label()).size(14.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        let dur = clip
+                                                            .transition
+                                                            .as_ref()
+                                                            .map(|t| t.duration_secs)
+                                                            .unwrap_or(0.5);
+                                                        action = TimelineAction::SetTransition {
+                                                            clip_id: clip.id,
+                                                            transition: Some(Transition {
+                                                                kind: *kind,
+                                                                duration_secs: dur,
+                                                            }),
+                                                        };
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                                if clip.transition.is_some() {
+                                                    ui.separator();
+                                                    if ui
+                                                        .button(
+                                                            RichText::new(
+                                                                "No Transition (Hard Cut)",
+                                                            )
+                                                            .size(14.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = TimelineAction::SetTransition {
+                                                            clip_id: clip.id,
+                                                            transition: None,
+                                                        };
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                            },
+                                        );
+
+                                        // Adjust how long the transition lasts.
+                                        if let Some(tr) = clip.transition.as_ref() {
+                                            let mut dur = tr.duration_secs;
+                                            if ui
+                                                .add(
+                                                    egui::Slider::new(&mut dur, 0.2..=2.0)
+                                                        .text("Length (s)")
+                                                        .fixed_decimals(1),
+                                                )
+                                                .changed()
+                                            {
+                                                action = TimelineAction::SetTransition {
+                                                    clip_id: clip.id,
+                                                    transition: Some(Transition {
+                                                        kind: tr.kind,
+                                                        duration_secs: dur,
+                                                    }),
+                                                };
+                                            }
+                                        }
+
+                                        ui.separator();
+
                                         if ui
                                             .button(
                                                 RichText::new("🗑 Delete Clip")
@@ -816,6 +892,19 @@ impl TimelineView {
                                         egui::FontId::proportional(13.0),
                                         Color32::WHITE,
                                     );
+
+                                    // Transition badge so the user sees which clip has one.
+                                    if let Some(tr) = clip.transition.as_ref() {
+                                        if clip_width > 70.0 {
+                                            clip_painter.text(
+                                                Pos2::new(clip_rect.max.x - 6.0, clip_rect.min.y + 6.0),
+                                                egui::Align2::RIGHT_TOP,
+                                                format!("✦ {}", tr.kind.label()),
+                                                egui::FontId::proportional(12.0),
+                                                AppTheme::accent_yellow(),
+                                            );
+                                        }
+                                    }
 
                                     // Audio Track Envelope Graph (only for dedicated audio tracks or selected clips for 60 FPS speed)
                                     if track.kind == TrackKind::Audio || (clip.is_selected && clip.has_audio) {

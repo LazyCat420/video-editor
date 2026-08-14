@@ -1,5 +1,6 @@
 use crate::core::envelope::VolumeEnvelope;
 use crate::core::time::TimeCode;
+use crate::core::transition::Transition;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -27,6 +28,9 @@ pub struct Clip {
     pub speed: f32,
     /// Volume automation envelope (node line graph).
     pub volume_envelope: VolumeEnvelope,
+    /// Transition used when this clip enters (blends with the clip that came before it).
+    #[serde(default)]
+    pub transition: Option<Transition>,
     pub has_video: bool,
     pub has_audio: bool,
     /// Is the clip currently selected in the UI?
@@ -58,6 +62,7 @@ impl Clip {
             timeline_start: TimeCode::ZERO,
             speed: 1.0,
             volume_envelope,
+            transition: None,
             has_video,
             has_audio,
             is_selected: false,
