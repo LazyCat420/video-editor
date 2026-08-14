@@ -54,10 +54,31 @@ impl StreamVideoPlayer {
             return false;
         }
         if let Some(last) = self.last_pts {
-            (source_time - last).abs() < 0.35
+            (source_time - last).abs() < 0.8
         } else {
-            false
+            true
         }
+    }
+
+    /// Stop the continuous video playback stream without blocking the UI thread.
+    pub fn stop(&mut self) {
+        self.is_running.store(false, Ordering::SeqCst);
+
+        if let Some(mut child) = self.child_process.take() {
+            // Discard process on background worker thread to prevent UI micro-stalls
+            thread::spawn(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+            });
+        }
+
+        if let Ok(mut buf) = self.buffer.lock() {
+            buf.clear();
+        }
+
+        self.active_path = None;
+        self.current_frame = None;
+        self.last_pts = None;
     }
 
     /// Start streaming decoded 30 FPS video frames from `start_secs` with optional segment duration.
@@ -212,23 +233,7 @@ impl StreamVideoPlayer {
         self.current_frame.clone()
     }
 
-    /// Stop the continuous video playback stream.
-    pub fn stop(&mut self) {
-        self.is_running.store(false, Ordering::SeqCst);
 
-        if let Some(mut child) = self.child_process.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
-        }
-
-        self.active_path = None;
-        self.current_frame = None;
-        self.last_pts = None;
-    }
 }
 
 impl Drop for StreamVideoPlayer {

@@ -605,8 +605,8 @@ impl TimelineView {
                                         Color32::WHITE,
                                     );
 
-                                    // Audio Track Envelope Graph
-                                    if track.kind == TrackKind::Audio || clip.has_audio {
+                                    // Audio Track Envelope Graph (only for dedicated audio tracks or selected clips for 60 FPS speed)
+                                    if track.kind == TrackKind::Audio || (clip.is_selected && clip.has_audio) {
                                         let stem = clip
                                             .source_path
                                             .file_stem()
