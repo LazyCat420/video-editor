@@ -157,6 +157,20 @@ impl TimelineView {
 
                 ui.separator();
 
+                // Zoom slider - moved to the left side of the toolbar (right after Undo/Redo)
+                // so it is never cut off at the right edge, and compact so it fits anywhere.
+                ui.label(
+                    RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()),
+                );
+                ui.add_sized(
+                    [90.0, 24.0],
+                    egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
+                        .logarithmic(true)
+                        .show_value(false),
+                );
+
+                ui.separator();
+
                 if ui
                     .button(
                         RichText::new("✂ Cut Video Here (S)")
@@ -178,19 +192,6 @@ impl TimelineView {
                 {
                     action = TimelineAction::DeleteSelected;
                 }
-
-                // Zoom slider - placed in normal flow (a little toward the middle, not pinned
-                // to the far right), sized smaller so the drag circle is compact.
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new("Zoom:").size(13.0).color(AppTheme::text_secondary()),
-                );
-                ui.add_sized(
-                    [110.0, 24.0],
-                    egui::Slider::new(&mut timeline.zoom_pps, 5.0..=200.0)
-                        .logarithmic(true)
-                        .show_value(false),
-                );
             });
 
             ui.add_space(3.0);
