@@ -38,6 +38,7 @@ pub struct VideoEditorApp {
     pub proxy_tasks: HashMap<u64, tokio::sync::watch::Receiver<ProxyStatus>>,
     pub media_bin_collapsed: HashSet<String>,
     pub thumb_textures: HashMap<u64, TextureHandle>,
+    pub thumbnail_frames: HashMap<u64, ColorImage>,
     pub show_help_dialog: bool,
 }
 
@@ -61,6 +62,7 @@ impl Default for VideoEditorApp {
             proxy_tasks: HashMap::new(),
             media_bin_collapsed: HashSet::new(),
             thumb_textures: HashMap::new(),
+            thumbnail_frames: HashMap::new(),
             show_help_dialog: false,
         }
     }
@@ -90,68 +92,79 @@ impl VideoEditorApp {
         }
     }
 
-    /// Import a media file into the project's media bin and automatically place it on timeline if empty.
-    pub fn import_file<P: AsRef<Path>>(&mut self, path: P) {
+    /// Probe a file, add it to the media bin (Your Files) and prepare peaks / thumbnail /
+    /// proxy. Does **not** place it on the timeline. Returns the new asset id, or `None`.
+    pub fn add_media_to_bin<P: AsRef<Path>>(&mut self, path: P) -> Option<u64> {
         let p = path.as_ref();
         // Avoid re-importing the same file (e.g. when a whole folder is scanned twice).
         if self.project.media_assets.iter().any(|a| a.path == p) {
+            return None;
+        }
+
+        let meta = probe_media_file(p).ok()?;
+        let id = self.project.next_asset_id();
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Media")
+            .to_string();
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("media")
+            .to_string();
+
+        // Extract waveform peaks in background for instant audio rendering
+        if meta.has_audio {
+            if let Ok(peaks) = extract_peaks(p, meta.duration_secs) {
+                self.peak_cache.insert(stem.clone(), peaks);
+            }
+        }
+
+        // Extract first frame immediately so the preview & media-bin thumbnail are ready.
+        if meta.has_video {
+            if let Some(initial_frame) = self.frame_cache.extract_initial_frame(p) {
+                // Keep a small per-asset thumbnail copy so the media bin always has a real
+                // preview picture for this video (independent of the evicted frame cache).
+                let small = crate::media::thumbnail::downscale(&initial_frame, 192, 108);
+                self.thumbnail_frames.insert(id, small);
+                self.current_frame = Some(initial_frame);
+                self.frame_version += 1;
+            }
+
+            // Spawn background proxy generator for smooth low-spec playback
+            let rx = generate_proxy_async(p, meta.duration_secs);
+            self.proxy_tasks.insert(id, rx);
+        }
+
+        let asset = MediaAsset {
+            id,
+            name,
+            path: p.to_path_buf(),
+            duration_secs: meta.duration_secs,
+            width: meta.width,
+            height: meta.height,
+            fps: meta.fps,
+            has_video: meta.has_video,
+            has_audio: meta.has_audio,
+            proxy_path: None,
+            peak_path: None,
+        };
+
+        self.project.add_asset(asset);
+        Some(id)
+    }
+
+    /// Import a single media file into the project and automatically place it on the timeline.
+    pub fn import_file<P: AsRef<Path>>(&mut self, path: P) {
+        let Some(id) = self.add_media_to_bin(path) else {
             return;
-        }
-        if let Ok(meta) = probe_media_file(p) {
-            let id = self.project.next_asset_id();
-            let name = p
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Media")
-                .to_string();
-
-            let stem = p
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("media")
-                .to_string();
-
-            // Extract waveform peaks in background for instant audio rendering
-            if meta.has_audio {
-                if let Ok(peaks) = extract_peaks(p, meta.duration_secs) {
-                    self.peak_cache.insert(stem.clone(), peaks);
-                }
-            }
-
-            // Extract first frame immediately so preview is ready with zero delay
-            if meta.has_video {
-                if let Some(initial_frame) = self.frame_cache.extract_initial_frame(p) {
-                    self.current_frame = Some(initial_frame);
-                    self.frame_version += 1;
-                }
-
-                // Spawn background proxy generator for smooth low-spec playback
-                let rx = generate_proxy_async(p, meta.duration_secs);
-                self.proxy_tasks.insert(id, rx);
-            }
-
-            let asset = MediaAsset {
-                id,
-                name,
-                path: p.to_path_buf(),
-                duration_secs: meta.duration_secs,
-                width: meta.width,
-                height: meta.height,
-                fps: meta.fps,
-                has_video: meta.has_video,
-                has_audio: meta.has_audio,
-                proxy_path: None,
-                peak_path: None,
-            };
-
-            self.project.add_asset(asset.clone());
-
-            // Automatically place on timeline
+        };
+        if let Some(asset) = self.project.media_assets.iter().find(|a| a.id == id).cloned() {
             self.add_asset_to_timeline(asset);
-
-            // Rewind playhead to start
-            self.project.timeline.playhead = TimeCode::ZERO;
         }
+        // Rewind playhead to start
+        self.project.timeline.playhead = TimeCode::ZERO;
     }
 
     /// Add an asset from the media bin directly to the timeline.
@@ -536,6 +549,7 @@ impl eframe::App for VideoEditorApp {
                     &mut self.project,
                     &mut self.media_bin_collapsed,
                     &self.frame_cache,
+                    &mut self.thumbnail_frames,
                     &mut self.thumb_textures,
                 ) {
                     MediaBinAction::ImportFiles(paths) => {
@@ -546,8 +560,10 @@ impl eframe::App for VideoEditorApp {
                     }
                     MediaBinAction::ImportFolder(dir) => {
                         let files = crate::media::probe::scan_folder_for_media(&dir);
+                        // Just bring the files into 'Your Files' — do NOT auto-place every
+                        // one on the timeline. The user drags/drops what they want.
                         for path in files {
-                            self.import_file(path);
+                            self.add_media_to_bin(path);
                         }
                         self.refresh_preview_frame(Some(ctx));
                     }

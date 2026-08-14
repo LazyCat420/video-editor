@@ -193,11 +193,6 @@ impl TimelineView {
             ui.add_space(3.0);
 
             ui.horizontal(|ui| {
-                // Shared reorder-drag state: which header is being dragged, and the
-                // hovered target row. Filled in by the header column, read by the body.
-                let mut active_reorder_id: Option<u64> = None;
-                let mut reorder_target_idx: Option<usize> = None;
-
                 // ==========================================
                 // 1. Left Fixed Column: Track Headers
                 // ==========================================
@@ -307,8 +302,6 @@ impl TimelineView {
 
                         // Reorder drop target: atop this header, show a highlight border.
                         if let Some(payload) = header_resp.dnd_hover_payload::<TrackReorderDrag>() {
-                            active_reorder_id = Some(payload.0);
-                            reorder_target_idx = Some(track_index);
                             if payload.0 != track_id {
                                 let hp = ui.painter();
                                 hp.rect_stroke(
@@ -428,31 +421,8 @@ impl TimelineView {
                             }
 
                             // ----------------------------------------------------
-                            // 2B. Multi-Track Canvas & Clips (animated reorder rows)
+                            // 2B. Multi-Track Canvas & Clips (floating reorder)
                             // ----------------------------------------------------
-
-                            // Visual order of rows: while a track header is being dragged, show
-                            // it inserted at the hovered row so the other rows visibly make room
-                            // (slide down / up) instead of swapping instantly.
-                            let natural_ids: Vec<u64> =
-                                timeline.tracks.iter().map(|t| t.id).collect();
-                            let visual_order: Vec<u64> =
-                                if let (Some(drag), Some(_t)) =
-                                    (active_reorder_id, reorder_target_idx)
-                                {
-                                    let tidx = reorder_target_idx
-                                        .unwrap()
-                                        .min(natural_ids.len());
-                                    let mut v: Vec<u64> = natural_ids
-                                        .iter()
-                                        .copied()
-                                        .filter(|&id| id != drag)
-                                        .collect();
-                                    v.insert(tidx, drag);
-                                    v
-                                } else {
-                                    natural_ids
-                                };
 
                             let row_gap = 2.0;
                             let row_h = Self::TRACK_HEIGHT;
@@ -469,19 +439,65 @@ impl TimelineView {
                             let area_top = _bg_block.min.y;
                             let content_bottom = _bg_block.max.y;
 
-                            for (track_index, track) in timeline.tracks.iter_mut().enumerate() {
-                                let display_index = visual_order
+                            // While a track header is being dragged, float that row as a ghost
+                            // and slide the other rows apart so the user sees where it will land.
+                            let is_reordering = egui::DragAndDrop::has_payload_of_type::<TrackReorderDrag>(ui.ctx());
+                            let drag_id: Option<u64> =
+                                egui::DragAndDrop::payload::<TrackReorderDrag>(ui.ctx())
+                                    .map(|p| p.0);
+
+                            // Drop slot from the pointer's vertical position (clamped to valid rows).
+                            let slot_index = if is_reordering {
+                                if let Some(py) = ui.input(|i| i.pointer.hover_pos()) {
+                                    let local_y = py.y - ui.min_rect().min.y;
+                                    (((local_y - area_top) / (row_h + row_gap)).floor() as isize)
+                                        .clamp(0, track_count.saturating_sub(1) as isize) as usize
+                                } else {
+                                    0
+                                }
+                            } else {
+                                0
+                            };
+
+                            // Rows that are NOT the dragged row reflow to make room around the slot.
+                            let others: Vec<u64> = if let Some(d) = drag_id {
+                                timeline
+                                    .tracks
                                     .iter()
-                                    .position(|&id| id == track.id)
-                                    .unwrap_or(track_index);
-                                let target_top =
-                                    area_top + display_index as f32 * (row_h + row_gap);
+                                    .map(|t| t.id)
+                                    .filter(|&id| id != d)
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+
+                            for (track_index, track) in timeline.tracks.iter_mut().enumerate() {
+                                let is_drag = drag_id == Some(track.id);
+                                if is_drag && is_reordering {
+                                    continue; // this row is drawn as the floating ghost below
+                                }
+
+                                // Reserve one slot for the ghost when reordering.
+                                let slot = if is_reordering {
+                                    let n_others = others
+                                        .iter()
+                                        .position(|&id| id == track.id)
+                                        .unwrap_or(track_index);
+                                    if n_others >= slot_index {
+                                        n_others + 1
+                                    } else {
+                                        n_others
+                                    }
+                                } else {
+                                    track_index
+                                };
+                                let target_top = area_top + slot as f32 * (row_h + row_gap);
                                 let anim_top = ui
                                     .ctx()
                                     .animate_value_with_time(
                                         Id::new(("track_row_anim", track.id)),
                                         target_top,
-                                        0.16,
+                                        0.14,
                                     );
 
                                 let track_rect = Rect::from_min_size(
@@ -571,6 +587,18 @@ impl TimelineView {
                                         track_id: track.id,
                                         start,
                                     };
+                                }
+
+                                // Commit reorder if the user lets go over this row.
+                                if let Some(released) =
+                                    track_response.dnd_release_payload::<TrackReorderDrag>()
+                                {
+                                    if released.0 != track.id {
+                                        action = TimelineAction::ReorderTrack {
+                                            from_id: released.0,
+                                            to_index: slot_index,
+                                        };
+                                    }
                                 }
 
                                 // Render clips on this track
@@ -776,6 +804,76 @@ impl TimelineView {
                                     }
                                 }
                                 ui.add_space(2.0);
+                            }
+
+                            // ----------------------------------------------------
+                            // 2B2. Floating ghost of the dragged track + drop marker
+                            // ----------------------------------------------------
+                            if is_reordering {
+                                if let Some(d) = drag_id {
+                                    if let Some(track) = timeline.tracks.iter().find(|t| t.id == d) {
+                                        let ghost_top =
+                                            area_top + slot_index as f32 * (row_h + row_gap);
+                                        let ghost_rect = Rect::from_min_size(
+                                            Pos2::new(area_left, ghost_top),
+                                            Vec2::new(total_timeline_pixels, row_h),
+                                        );
+                                        let gp = ui.painter();
+
+                                        // Floating translucent card with a bright outline.
+                                        let fill = if track.kind == TrackKind::Video {
+                                            AppTheme::CLIP_VIDEO_BG
+                                        } else {
+                                            AppTheme::CLIP_AUDIO_BG
+                                        }
+                                        .gamma_multiply(0.85);
+                                        gp.rect_filled(
+                                            ghost_rect,
+                                            Rounding::same(8.0),
+                                            fill,
+                                        );
+                                        gp.rect_stroke(
+                                            ghost_rect,
+                                            Rounding::same(8.0),
+                                            Stroke::new(2.5, AppTheme::ACCENT_BLUE),
+                                        );
+                                        gp.text(
+                                            ghost_rect.left_top() + egui::vec2(8.0, 6.0),
+                                            egui::Align2::LEFT_TOP,
+                                            &track.name,
+                                            egui::FontId::proportional(13.0),
+                                            Color32::WHITE,
+                                        );
+
+                                        // Ghost clips so the row reads as a moving video strip.
+                                        for clip in &track.clips {
+                                            let cw = clip.duration().to_pixels(pps).max(16.0);
+                                            let crect = Rect::from_min_size(
+                                                Pos2::new(
+                                                    ghost_rect.min.x
+                                                        + clip.timeline_start.to_pixels(pps),
+                                                    ghost_rect.min.y + 4.0,
+                                                ),
+                                                Vec2::new(cw, row_h - 8.0),
+                                            );
+                                            gp.rect_filled(
+                                                crect,
+                                                Rounding::same(6.0),
+                                                Color32::WHITE.gamma_multiply(0.20),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // Blue drop line showing exactly where the row will land.
+                                let ly = area_top + slot_index as f32 * (row_h + row_gap);
+                                ui.painter().line_segment(
+                                    [
+                                        Pos2::new(area_left, ly),
+                                        Pos2::new(area_left + total_timeline_pixels, ly),
+                                    ],
+                                    Stroke::new(2.0, AppTheme::ACCENT_BLUE),
+                                );
                             }
 
                             // ----------------------------------------------------

@@ -423,3 +423,48 @@ fn test_scan_folder_recursive_and_dedup() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn test_thumbnail_extraction_and_frame_cache() {
+    use video_editor::media::frame_cache::FrameCache;
+    use video_editor::media::thumbnail::{downscale, extract_thumbnail};
+
+    // Generate a small real video with ffmpeg (2s of a colored test pattern).
+    let dir = std::env::temp_dir().join(format!("ve_thumb_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let video = dir.join("testsrc.mp4");
+    let status = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=2:size=640x360:rate=30",
+            "-pix_fmt",
+            "yuv420p",
+            video.to_str().unwrap(),
+        ])
+        .status();
+    assert!(status.is_ok(), "ffmpeg must be installed to run this test");
+    assert!(status.unwrap().success(), "ffmpeg failed to make test video");
+
+    // 1. Standalone thumbnail extraction produces a real image.
+    let thumb = extract_thumbnail(&video, 1.0);
+    assert!(thumb.is_ok(), "thumbnail extraction failed: {:?}", thumb.err());
+    let thumb = thumb.unwrap();
+    assert!(thumb.size[0] > 0 && thumb.size[1] > 0);
+
+    // 2. Frame cache: initial frame is cached and retrievable at 0.0s.
+    let cache = FrameCache::new(40);
+    let initial = cache.extract_initial_frame(&video);
+    assert!(initial.is_some(), "initial frame extraction failed");
+    let initial = initial.unwrap();
+    assert!(cache.get_cached(&video, 0.0).is_some());
+
+    // 3. Downscale actually shrinks it (the media-bin thumbnail source).
+    let small = downscale(&initial, 192, 108);
+    assert!(small.size[0] <= 192 && small.size[1] <= 108);
+    assert!(small.size[0] > 0);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
