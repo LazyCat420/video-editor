@@ -37,15 +37,21 @@ pub struct Clip {
     /// Legacy transition field kept for backwards-compatibility with existing saved projects.
     #[serde(default)]
     pub transition: Option<Transition>,
-    /// On-screen text/caption overlay (e.g. "Hawaii Beach Day 1", "The End").
+    /// On-screen text/caption overlay (e.g. "Hawaii Beach Day 1", "The End")
+    /// LEGACY: kept only to load old project files. Migrated into `elements` on load.
     #[serde(default)]
     pub text_overlay: Option<crate::core::text_overlay::TextOverlay>,
-    /// True if this clip is a generated standalone title card rather than a raw media file.
+    /// LEGACY: kept only to load old project files. Migrated into `background` on load.
     #[serde(default)]
     pub is_title_card: bool,
-    /// Background configuration (Solid Color or Picture) if this clip is a title card.
     #[serde(default)]
     pub title_card_bg: Option<crate::core::text_overlay::TitleCardBackground>,
+    /// Background of a blank slide (no incoming video stream). Rendered behind `elements`.
+    #[serde(default)]
+    pub background: Option<crate::core::text_overlay::SlideBackground>,
+    /// Placed slide elements (text / extra pictures / videos / audio) drawn over the base.
+    #[serde(default)]
+    pub elements: Vec<crate::core::text_overlay::SlideElement>,
     pub has_video: bool,
     pub has_audio: bool,
     /// Is the clip currently selected in the UI?
@@ -83,13 +89,16 @@ impl Clip {
             text_overlay: None,
             is_title_card: false,
             title_card_bg: None,
+            background: None,
+            elements: Vec::new(),
             has_video,
             has_audio,
             is_selected: false,
         }
     }
 
-    /// Create a dedicated Title Card clip with either a solid color or picture background
+    /// Create a slide with a background and (optionally) one text element already on it.
+    /// Used for both legacy title cards (migrated) and new blank slides.
     pub fn new_title_card(
         id: u64,
         track_id: u64,
@@ -98,20 +107,31 @@ impl Clip {
         bg: crate::core::text_overlay::TitleCardBackground,
         duration_secs: f64,
     ) -> Self {
+        let mut clip = Self::new_blank_slide(id, track_id, name, duration_secs);
+        clip.background = Some(match bg {
+            crate::core::text_overlay::TitleCardBackground::SolidColor(c) => {
+                crate::core::text_overlay::SlideBackground::Solid(c)
+            }
+            crate::core::text_overlay::TitleCardBackground::Picture(p) => {
+                crate::core::text_overlay::SlideBackground::Picture(p)
+            }
+        });
+        if !overlay.text.trim().is_empty() {
+            clip.elements
+                .push(crate::core::text_overlay::SlideElement::Text(overlay));
+        }
+        clip
+    }
+
+    /// A blank slide: an empty canvas (solid background) the user fills with elements.
+    pub fn new_blank_slide(id: u64, track_id: u64, name: String, duration_secs: f64) -> Self {
         let dur = TimeCode::from_secs_f64(duration_secs);
         let volume_envelope = VolumeEnvelope::default_for_duration(dur);
-        let source_path = match &bg {
-            crate::core::text_overlay::TitleCardBackground::SolidColor(_) => {
-                PathBuf::from(format!("__title_card_color_{}.png", id))
-            }
-            crate::core::text_overlay::TitleCardBackground::Picture(path) => path.clone(),
-        };
-
         Self {
             id,
             track_id,
             name,
-            source_path,
+            source_path: PathBuf::new(),
             proxy_path: None,
             peak_path: None,
             source_duration: dur,
@@ -123,13 +143,23 @@ impl Clip {
             transition_in: None,
             transition_out: None,
             transition: None,
-            text_overlay: Some(overlay),
-            is_title_card: true,
-            title_card_bg: Some(bg),
-            has_video: true,
+            text_overlay: None,
+            is_title_card: false,
+            title_card_bg: None,
+            background: Some(crate::core::text_overlay::SlideBackground::Solid(
+                egui::Color32::from_rgb(18, 18, 24),
+            )),
+            elements: Vec::new(),
+            has_video: false,
             has_audio: false,
             is_selected: false,
         }
+    }
+
+    /// True when this clip is a static slide (blank slide or title card) rather than a
+    /// streamed media clip.
+    pub fn is_static_slide(&self) -> bool {
+        !self.has_video && self.background.is_some()
     }
 
     /// Effective beginning/start transition for this clip.

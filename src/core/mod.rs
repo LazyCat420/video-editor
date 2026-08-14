@@ -10,7 +10,8 @@ pub mod track;
 
 pub mod text_overlay;
 pub use text_overlay::{
-    FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition, TitleCardBackground,
+    FontFamilyPreset, SlideBackground, SlideElement, TextAlignment, TextBoxStyle, TextOverlay,
+    TitleCardBackground,
 };
 
 pub use clip::Clip;

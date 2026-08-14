@@ -2,6 +2,8 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// On-slide text styling. Position is a free, normalized anchor (0..1) so text can be
+/// placed by clicking the frame and dragged, both in preview and export.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TextOverlay {
     pub text: String,
@@ -17,8 +19,11 @@ pub struct TextOverlay {
     pub is_all_caps: bool,
     #[serde(default)]
     pub alignment: TextAlignment,
-    #[serde(default)]
-    pub position: TextPosition,
+    /// Anchor (center of the text box) as a fraction of the frame, 0..1.
+    #[serde(default = "default_center")]
+    pub x: f32,
+    #[serde(default = "default_center")]
+    pub y: f32,
     #[serde(default = "default_text_color")]
     pub text_color: Color32,
     #[serde(default)]
@@ -31,6 +36,10 @@ pub struct TextOverlay {
 
 fn default_font_size() -> f32 {
     38.0
+}
+
+fn default_center() -> f32 {
+    0.5
 }
 
 fn default_text_color() -> Color32 {
@@ -55,7 +64,8 @@ impl Default for TextOverlay {
             is_italic: false,
             is_all_caps: false,
             alignment: TextAlignment::Center,
-            position: TextPosition::Center,
+            x: 0.5,
+            y: 0.5,
             text_color: Color32::WHITE,
             box_style: TextBoxStyle::None,
             box_opacity: 0.65,
@@ -72,7 +82,7 @@ impl TextOverlay {
         }
     }
 
-    /// Processed text taking into account ALL CAPS formatting
+    /// Processed text taking into account ALL CAPS formatting.
     pub fn formatted_text(&self) -> String {
         if self.is_all_caps {
             self.text.to_uppercase()
@@ -82,6 +92,9 @@ impl TextOverlay {
     }
 }
 
+/// Ten font styles. Each maps to a bundled preview font (registered in egui under the
+/// `preview_family()` name) and an ffmpeg `drawtext font=` name for export. Export names
+/// are standard Windows fonts so rendered videos look right on the target machine.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FontFamilyPreset {
     SansSerif,
@@ -89,6 +102,11 @@ pub enum FontFamilyPreset {
     Monospace,
     Impact,
     Handwritten,
+    Condensed,
+    Display,
+    VintageSerif,
+    Script,
+    Futuristic,
 }
 
 impl Default for FontFamilyPreset {
@@ -105,6 +123,11 @@ impl FontFamilyPreset {
             Self::Monospace => "Typewriter Mono",
             Self::Impact => "Cinematic Impact",
             Self::Handwritten => "Handwritten Script",
+            Self::Condensed => "Condensed",
+            Self::Display => "Poster Display",
+            Self::VintageSerif => "Vintage Serif",
+            Self::Script => "Elegant Script",
+            Self::Futuristic => "Futuristic",
         }
     }
 
@@ -115,6 +138,11 @@ impl FontFamilyPreset {
             Self::Monospace => "Retro code & typewriter",
             Self::Impact => "Heavy, bold blockbuster headline",
             Self::Handwritten => "Casual & personal cursive style",
+            Self::Condensed => "Tall, narrow, sports-style",
+            Self::Display => "Bold rounded poster lettering",
+            Self::VintageSerif => "Classic old-world serif",
+            Self::Script => "Flowing calligraphic cursive",
+            Self::Futuristic => "Geometric sci-fi lettering",
         }
     }
 
@@ -125,6 +153,27 @@ impl FontFamilyPreset {
             Self::Monospace => "Aa [Type]",
             Self::Impact => "AA IMPACT",
             Self::Handwritten => "Aa Script",
+            Self::Condensed => "Aa Narrow",
+            Self::Display => "Aa Display",
+            Self::VintageSerif => "Aa Vintage",
+            Self::Script => "Aa Script",
+            Self::Futuristic => "AA Future",
+        }
+    }
+
+    /// egui FontFamily::Name registered for this preset's bundled TTF.
+    pub fn preview_family(&self) -> &'static str {
+        match self {
+            Self::SansSerif => "ve_sans",
+            Self::Serif => "ve_serif",
+            Self::Monospace => "ve_mono",
+            Self::Impact => "ve_impact",
+            Self::Handwritten => "ve_hand",
+            Self::Condensed => "ve_condensed",
+            Self::Display => "ve_display",
+            Self::VintageSerif => "ve_vintage",
+            Self::Script => "ve_script",
+            Self::Futuristic => "ve_futuristic",
         }
     }
 
@@ -135,6 +184,11 @@ impl FontFamilyPreset {
             Self::Monospace => "Courier New",
             Self::Impact => "Impact",
             Self::Handwritten => "Comic Sans MS",
+            Self::Condensed => "Arial Narrow",
+            Self::Display => "Cooper Black",
+            Self::VintageSerif => "Georgia",
+            Self::Script => "Brush Script MT",
+            Self::Futuristic => "Century Gothic",
         }
     }
 
@@ -145,6 +199,11 @@ impl FontFamilyPreset {
             Self::Monospace,
             Self::Impact,
             Self::Handwritten,
+            Self::Condensed,
+            Self::Display,
+            Self::VintageSerif,
+            Self::Script,
+            Self::Futuristic,
         ]
     }
 }
@@ -165,9 +224,9 @@ impl Default for TextAlignment {
 impl TextAlignment {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Left => "Left Align",
-            Self::Center => "Center Align",
-            Self::Right => "Right Align",
+            Self::Left => "Left",
+            Self::Center => "Center",
+            Self::Right => "Right",
         }
     }
 
@@ -176,40 +235,8 @@ impl TextAlignment {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum TextPosition {
-    TopHeader,
-    Center,
-    BottomBanner,
-    LowerThird,
-}
-
-impl Default for TextPosition {
-    fn default() -> Self {
-        Self::Center
-    }
-}
-
-impl TextPosition {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::TopHeader => "Top Header",
-            Self::Center => "Dead Center",
-            Self::BottomBanner => "Bottom Banner",
-            Self::LowerThird => "Lower Third Left",
-        }
-    }
-
-    pub fn all() -> &'static [TextPosition] {
-        &[
-            Self::Center,
-            Self::BottomBanner,
-            Self::TopHeader,
-            Self::LowerThird,
-        ]
-    }
-}
-
+/// Optional solid background behind the text: nothing, a tight rounded box around the
+/// letters, or a full-width banner.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TextBoxStyle {
     None,
@@ -226,9 +253,9 @@ impl Default for TextBoxStyle {
 impl TextBoxStyle {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::None => "None (Shadow Only)",
-            Self::TranslucentBox => "Translucent Box",
-            Self::SolidBanner => "Full Solid Banner",
+            Self::None => "No Background",
+            Self::TranslucentBox => "Tight Box",
+            Self::SolidBanner => "Full Banner",
         }
     }
 
@@ -237,14 +264,106 @@ impl TextBoxStyle {
     }
 }
 
+/// LEGACY pre-slide title-card background, kept only so old project files deserialize.
+/// Migrated to `SlideBackground` on load. New code always uses `SlideBackground`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum TitleCardBackground {
     SolidColor(Color32),
     Picture(PathBuf),
 }
 
-impl Default for TitleCardBackground {
+/// Background of a blank slide (a slide with no incoming video/image stream).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum SlideBackground {
+    Solid(Color32),
+    Picture(PathBuf),
+}
+
+impl Default for SlideBackground {
     fn default() -> Self {
-        Self::SolidColor(Color32::from_rgb(18, 18, 24))
+        Self::Solid(Color32::from_rgb(18, 18, 24))
+    }
+}
+
+/// One element placed on a slide. Text/Picture/Video sit in a free box; Audio is mixed.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum SlideElement {
+    Text(TextOverlay),
+    Picture {
+        path: PathBuf,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
+    Video {
+        path: PathBuf,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
+    Audio {
+        path: PathBuf,
+        #[serde(default = "default_volume")]
+        volume: f32,
+    },
+}
+
+fn default_volume() -> f32 {
+    1.0
+}
+
+impl SlideElement {
+    pub fn is_visual(&self) -> bool {
+        !matches!(self, SlideElement::Audio { .. })
+    }
+
+    /// Normalized bounding box (x, y, w, h), 0..1 each. Text reports its anchor with 0 size.
+    pub fn bounds(&self) -> (f32, f32, f32, f32) {
+        match self {
+            SlideElement::Text(o) => (o.x, o.y, 0.0, 0.0),
+            SlideElement::Picture { x, y, w, h, .. } | SlideElement::Video { x, y, w, h, .. } => {
+                (*x, *y, *w, *h)
+            }
+            SlideElement::Audio { .. } => (0.0, 0.0, 0.0, 0.0),
+        }
+    }
+
+    pub fn set_bounds(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        match self {
+            SlideElement::Text(o) => {
+                o.x = x.clamp(0.0, 1.0);
+                o.y = y.clamp(0.0, 1.0);
+            }
+            SlideElement::Picture { .. } | SlideElement::Video { .. } => {
+                *self = self.with_bounds(x, y, w, h);
+            }
+            SlideElement::Audio { .. } => {}
+        }
+    }
+
+    fn with_bounds(&self, x: f32, y: f32, w: f32, h: f32) -> Self {
+        let x = x.clamp(0.0, 1.0);
+        let y = y.clamp(0.0, 1.0);
+        let w = w.clamp(0.01, 1.0);
+        let h = h.clamp(0.01, 1.0);
+        match self {
+            SlideElement::Picture { path, .. } => SlideElement::Picture {
+                path: path.clone(),
+                x,
+                y,
+                w,
+                h,
+            },
+            SlideElement::Video { path, .. } => SlideElement::Video {
+                path: path.clone(),
+                x,
+                y,
+                w,
+                h,
+            },
+            other => other.clone(),
+        }
     }
 }

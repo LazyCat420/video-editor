@@ -4,7 +4,6 @@ use crate::core::history::TimelineHistory;
 use crate::core::project::{MediaAsset, Project};
 use crate::core::time::TimeCode;
 use crate::core::track::TrackKind;
-use crate::core::transition::{Transition, TransitionKind};
 use crate::export::renderer::render_project_async;
 use crate::media::frame_cache::FrameCache;
 use crate::media::peak_extractor::{extract_peaks, WaveformPeaks};
@@ -60,6 +59,12 @@ pub struct VideoEditorApp {
     pub sidebar_tab: crate::ui::SidebarTab,
     pub show_settings_dialog: bool,
     pub show_help_dialog: bool,
+    /// A slide element armed by the slide panel, dropped on the next preview click.
+    pub pending_place: Option<crate::ui::PendingElement>,
+    /// Draft text styling shared with the slide panel for a new text element.
+    pub text_draft: crate::core::text_overlay::TextOverlay,
+    /// Cached egui textures for slide picture/video element frames.
+    pub slide_textures: HashMap<PathBuf, TextureHandle>,
 }
 
 impl Default for VideoEditorApp {
@@ -87,6 +92,9 @@ impl Default for VideoEditorApp {
             sidebar_tab: crate::ui::SidebarTab::Files,
             show_settings_dialog: false,
             show_help_dialog: false,
+            pending_place: None,
+            text_draft: crate::core::text_overlay::TextOverlay::new(""),
+            slide_textures: HashMap::new(),
         }
     }
 }
@@ -439,57 +447,161 @@ impl VideoEditorApp {
         base_frame
     }
 
-    /// Returns the active text overlay for the current playhead position
-    pub fn get_active_text_overlay(&self) -> Option<crate::core::text_overlay::TextOverlay> {
+    /// The clip (or blank slide) under the playhead on a video track.
+    pub fn active_slide(&self) -> Option<&Clip> {
         let playhead = self.project.timeline.playhead;
         for track in &self.project.timeline.tracks {
             if track.kind == TrackKind::Video && !track.is_muted {
-                if let Some(clip) = track.get_clip_at(playhead) {
-                    if let Some(ref overlay) = clip.text_overlay {
-                        return Some(overlay.clone());
-                    }
+                if let Some(c) = track.get_clip_at(playhead) {
+                    return Some(c);
                 }
             }
         }
         None
     }
 
-    /// Update preview frame based on current playhead position with UI repaint callback.
-    /// If the playhead is inside an active clip's transition window, dynamically composites
-    /// the outgoing and incoming frames using real-time software blending.
-    fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
+    /// Id of the slide under the playhead, inserting a fresh blank slide if none is there.
+    pub fn resolve_target_slide_id(&mut self) -> u64 {
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            return id;
+        }
+        let track_id = self
+            .project
+            .timeline
+            .tracks
+            .iter()
+            .find(|t| t.kind == TrackKind::Video)
+            .map(|t| t.id)
+            .unwrap_or_else(|| {
+                self.project
+                    .timeline
+                    .add_track("Video Track".to_string(), TrackKind::Video)
+            });
+        let next_id = self.project.timeline.next_id();
+        let mut clip = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), 3.0);
+        clip.timeline_start = self.project.timeline.playhead;
+        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
+            track.add_clip(clip);
+        }
+        next_id
+    }
+
+    fn insert_blank_slide_at_playhead(&mut self, duration: f64, ctx: Option<&Context>) {
+        let track_id = self
+            .project
+            .timeline
+            .tracks
+            .iter()
+            .find(|t| t.kind == TrackKind::Video)
+            .map(|t| t.id)
+            .unwrap_or_else(|| {
+                self.project
+                    .timeline
+                    .add_track("Video Track".to_string(), TrackKind::Video)
+            });
+        let next_id = self.project.timeline.next_id();
+        let mut clip = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), duration);
+        clip.timeline_start = self.project.timeline.playhead;
+        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
+            track.add_clip(clip);
+        }
+        self.refresh_preview_frame(ctx);
+    }
+
+    /// Base frame for a clip: the streaming video/image frame, or the slide's background.
+    fn base_frame_for(&mut self, clip: &Clip, ctx: Option<&Context>) -> Option<ColorImage> {
         let playhead = self.project.timeline.playhead;
+        if clip.has_video {
+            if let Some(st) = clip.timeline_to_source_time(playhead) {
+                return self.frame_cache.fetch_frame(&clip.source_path, st.as_secs_f64(), ctx);
+            }
+            return None;
+        }
+        match &clip.background {
+            Some(crate::core::text_overlay::SlideBackground::Solid(col)) => {
+                Some(crate::media::generate_solid_color_frame(*col, 640, 360))
+            }
+            Some(crate::core::text_overlay::SlideBackground::Picture(p)) => {
+                self.frame_cache.fetch_frame(p, 0.0, ctx)
+            }
+            None => None,
+        }
+    }
 
-        let mut found_frame = None;
-
-        for track in &self.project.timeline.tracks {
-            if track.kind == TrackKind::Video && !track.is_muted {
-                if let Some(clip) = track.get_clip_at(playhead) {
-                    if clip.has_video {
-                        let track_id = track.id;
-                        let clip_id = clip.id;
-                        let raw_frame = if clip.is_title_card {
-                            match clip.title_card_bg {
-                                Some(crate::core::text_overlay::TitleCardBackground::SolidColor(color)) => {
-                                    Some(crate::media::generate_solid_color_frame(color, 640, 360))
-                                }
-                                Some(crate::core::text_overlay::TitleCardBackground::Picture(ref path)) => {
-                                    self.frame_cache.fetch_frame(path, 0.0, ctx)
-                                }
-                                None => Some(crate::media::generate_solid_color_frame(egui::Color32::from_rgb(18, 18, 24), 640, 360)),
+    /// Resolved visuals for the active slide, used to render + hit-test elements in the preview.
+    fn slide_visuals(&mut self, ctx: Option<&Context>) -> Vec<crate::ui::preview_player::SlideVisual> {
+        use crate::core::text_overlay::SlideElement;
+        use crate::ui::preview_player::{SlideVisual, SlideVisualKind};
+        let mut visuals = Vec::new();
+        // Snapshot the elements (owned) so we never hold a borrow of `self` while touching
+        // the slide_textures cache.
+        let Some(elements) = self.active_slide().map(|c| c.elements.clone()) else {
+            return visuals;
+        };
+        for (idx, el) in elements.into_iter().enumerate() {
+            match &el {
+                SlideElement::Text(o) if !o.text.trim().is_empty() => {
+                    visuals.push(SlideVisual {
+                        idx,
+                        bounds: (o.x, o.y, 0.0, 0.0),
+                        texture: None,
+                        overlay: Some(o.clone()),
+                        kind: SlideVisualKind::Text,
+                    });
+                }
+                SlideElement::Picture { path, x, y, w, h }
+                | SlideElement::Video { path, x, y, w, h } => {
+                    let is_video = matches!(el, SlideElement::Video { .. });
+                    let cached = self.slide_textures.get(path).cloned();
+                    let texture = if let Some(t) = cached {
+                        Some(t)
+                    } else {
+                        if let Some(ctx) = ctx {
+                            if let Some(frame) = self.frame_cache.fetch_frame(path, 0.0, Some(ctx)) {
+                                let t = ctx.load_texture("slide_elem", frame, egui::TextureOptions::LINEAR);
+                                self.slide_textures.insert(path.clone(), t.clone());
+                                Some(t)
+                            } else {
+                                None
                             }
-                        } else if let Some(source_time) = clip.timeline_to_source_time(playhead) {
-                            self.frame_cache.fetch_frame(&clip.source_path, source_time.as_secs_f64(), ctx)
                         } else {
                             None
-                        };
-
-                        if let Some(base) = raw_frame {
-                            found_frame = Some(self.composite_transition(track_id, clip_id, base, playhead, ctx));
                         }
-                        break;
+                    };
+                    visuals.push(SlideVisual {
+                        idx,
+                        bounds: (*x, *y, *w, *h),
+                        texture,
+                        overlay: None,
+                        kind: if is_video { SlideVisualKind::Video } else { SlideVisualKind::Picture },
+                    });
+                }
+                _ => {}
+            }
+        }
+        visuals
+    }
+    
+    /// Update preview frame based on current playhead position with UI repaint callback.
+    fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
+        let playhead = self.project.timeline.playhead;
+        let mut found_frame = None;
+
+        // Snapshot the clip under the playhead so we can take &mut self afterwards.
+        let target = (|| {
+            for track in &self.project.timeline.tracks {
+                if track.kind == TrackKind::Video && !track.is_muted {
+                    if let Some(c) = track.get_clip_at(playhead) {
+                        return Some((track.id, c.id, c.clone()));
                     }
                 }
+            }
+            None
+        })();
+        if let Some((track_id, clip_id, clip)) = target {
+            if let Some(base) = self.base_frame_for(&clip, ctx) {
+                found_frame =
+                    Some(self.composite_transition(track_id, clip_id, base, playhead, ctx));
             }
         }
 
@@ -503,7 +615,84 @@ impl VideoEditorApp {
 
         self.last_frame_time = Some(playhead);
     }
+    /// Drop the armed pending element on the slide at a normalized point (0..1).
+    fn place_pending_element(&mut self, x: f32, y: f32, ctx: Option<&Context>) {
+        use crate::core::text_overlay::SlideElement;
+        let Some(pending) = self.pending_place.take() else {
+            return;
+        };
+        self.snapshot_timeline();
+        let slide_id = self.resolve_target_slide_id();
+        if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
+            let element = match pending {
+                crate::ui::PendingElement::Text(mut o) => {
+                    o.x = x.clamp(0.0, 1.0);
+                    o.y = y.clamp(0.0, 1.0);
+                    SlideElement::Text(o)
+                }
+                crate::ui::PendingElement::Picture(path) => SlideElement::Picture {
+                    path,
+                    x: (x - 0.2).clamp(0.0, 0.9),
+                    y: (y - 0.15).clamp(0.0, 0.9),
+                    w: 0.4,
+                    h: 0.3,
+                },
+                crate::ui::PendingElement::Video(path) => SlideElement::Video {
+                    path,
+                    x: (x - 0.25).clamp(0.0, 0.8),
+                    y: (y - 0.15).clamp(0.0, 0.85),
+                    w: 0.5,
+                    h: 0.3,
+                },
+            };
+            clip.elements.push(element);
+        }
+        self.refresh_preview_frame(ctx);
+    }
+
+    fn move_slide_element(&mut self, idx: usize, x: f32, y: f32) {
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                if let Some(el) = clip.elements.get_mut(idx) {
+                    let (_, _, w, h) = el.bounds();
+                    el.set_bounds(x, y, w, h);
+                }
+            }
+        }
+    }
+
+    fn resize_slide_element(&mut self, idx: usize, x: f32, y: f32, w: f32, h: f32) {
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                if let Some(el) = clip.elements.get_mut(idx) {
+                    el.set_bounds(x, y, w, h);
+                }
+            }
+        }
+    }
+
+    fn full_slide_element(&mut self, idx: usize, ctx: Option<&Context>) {
+        use crate::core::text_overlay::SlideElement;
+        if let Some(id) = self.active_slide().map(|c| c.id) {
+            if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                if let Some(el) = clip.elements.get_mut(idx) {
+                    match el {
+                        SlideElement::Text(o) => {
+                            o.x = 0.5;
+                            o.y = 0.5;
+                        }
+                        SlideElement::Picture { .. } | SlideElement::Video { .. } => {
+                            el.set_bounds(0.0, 0.0, 1.0, 1.0);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            self.refresh_preview_frame(ctx);
+        }
+    }
 }
+
 
 impl eframe::App for VideoEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -593,8 +782,14 @@ impl eframe::App for VideoEditorApp {
                     self.stream_player.switch_to_clip(*clip_id, path, *sec, Some(*rem_dur), Some(ctx));
                 } else {
                     self.stream_player.stop();
-                    self.current_frame = None;
-                    self.frame_version += 1;
+                    // A static slide (blank slide / card) has no video stream: compose its
+                    // background now so its elements layer on top in the preview.
+                    if self.active_slide().map(|c| c.is_static_slide()).unwrap_or(false) {
+                        self.refresh_preview_frame(Some(ctx));
+                    } else {
+                        self.current_frame = None;
+                        self.frame_version += 1;
+                    }
                 }
             }
 
@@ -816,66 +1011,85 @@ impl eframe::App for VideoEditorApp {
                         }
                     }
                     crate::ui::SidebarTab::Titles => {
-                        match crate::ui::TextBinView::render(ui, &mut self.project.timeline) {
-                            crate::ui::TextBinAction::SetClipTextOverlay { clip_id, overlay } => {
-                                if self.project.timeline.get_clip(clip_id).is_some() {
-                                    self.snapshot_timeline();
-                                    if let Some(c) = self.project.timeline.get_clip_mut(clip_id) {
-                                        c.text_overlay = overlay;
+                        use crate::core::text_overlay::SlideElement;
+                        match crate::ui::SlideBinView::render(ui, &mut *self) {
+                            crate::ui::SlideBinAction::None => {}
+                            crate::ui::SlideBinAction::AddBlankSlide { duration } => {
+                                self.snapshot_timeline();
+                                self.insert_blank_slide_at_playhead(duration, Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::SetActiveBackground(bg) => {
+                                self.snapshot_timeline();
+                                let slide_id = self.resolve_target_slide_id();
+                                if let Some(c) = self.project.timeline.get_clip_mut(slide_id) {
+                                    c.background = Some(bg);
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::AddAudioElement(path) => {
+                                self.snapshot_timeline();
+                                let slide_id = self.resolve_target_slide_id();
+                                if let Some(c) = self.project.timeline.get_clip_mut(slide_id) {
+                                    c.elements.push(SlideElement::Audio { path, volume: 1.0 });
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::AddTextElement(overlay) => {
+                                self.snapshot_timeline();
+                                let slide_id = self.resolve_target_slide_id();
+                                if let Some(c) = self.project.timeline.get_clip_mut(slide_id) {
+                                    c.elements.push(SlideElement::Text(overlay));
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::ArmPlace(pending) => {
+                                self.pending_place = Some(pending);
+                            }
+                            crate::ui::SlideBinAction::UpdateElement { idx, element } => {
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    if let Some(c) = self.project.timeline.get_clip_mut(id) {
+                                        if idx < c.elements.len() {
+                                            c.elements[idx] = element;
+                                        }
                                     }
-                                    self.refresh_preview_frame(Some(ctx));
                                 }
                             }
-                            crate::ui::TextBinAction::InsertTitleCard {
-                                name,
-                                overlay,
-                                bg,
-                                duration_secs,
-                                at_start,
-                            } => {
-                                self.snapshot_timeline();
-                                let track_id = self
-                                    .project
-                                    .timeline
-                                    .tracks
-                                    .iter()
-                                    .find(|t| t.kind == TrackKind::Video)
-                                    .map(|t| t.id)
-                                    .unwrap_or_else(|| {
-                                        self.project
-                                            .timeline
-                                            .add_track("🎬 Video Track".to_string(), TrackKind::Video)
-                                    });
-                                let next_id = self.project.timeline.next_id();
-                                let mut card = Clip::new_title_card(
-                                    next_id,
-                                    track_id,
-                                    name,
-                                    overlay,
-                                    bg,
-                                    duration_secs,
-                                );
-                                if at_start {
-                                    card.transition_in = Some(Transition::new(TransitionKind::DipToBlack));
-                                    card.transition_out = Some(Transition::new(TransitionKind::CrossFade));
-                                    let card_dur = card.duration();
-                                    if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-                                        for c in &mut track.clips {
-                                            c.timeline_start = c.timeline_start + card_dur;
+                            crate::ui::SlideBinAction::UpdateAudioVolume { idx, volume } => {
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    if let Some(c) = self.project.timeline.get_clip_mut(id) {
+                                        if let Some(SlideElement::Audio { volume: v, .. }) = c.elements.get_mut(idx) {
+                                            *v = volume;
                                         }
-                                        card.timeline_start = TimeCode::ZERO;
-                                        track.add_clip(card);
                                     }
-                                } else {
-                                    let target_time = self.project.timeline.playhead;
-                                    card.timeline_start = target_time;
-                                    if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-                                        track.add_clip(card);
+                                }
+                            }
+                            crate::ui::SlideBinAction::RemoveElement(idx) => {
+                                self.snapshot_timeline();
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    if let Some(c) = self.project.timeline.get_clip_mut(id) {
+                                        if idx < c.elements.len() {
+                                            c.elements.remove(idx);
+                                        }
                                     }
                                 }
                                 self.refresh_preview_frame(Some(ctx));
                             }
-                            crate::ui::TextBinAction::None => {}
+                            crate::ui::SlideBinAction::ReorderElement { idx, dir } => {
+                                self.snapshot_timeline();
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    if let Some(c) = self.project.timeline.get_clip_mut(id) {
+                                        let target = idx as isize + dir as isize;
+                                        if target >= 0 && (target as usize) < c.elements.len() {
+                                            let el = c.elements.remove(idx);
+                                            c.elements.insert(target as usize, el);
+                                        }
+                                    }
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::SlideBinAction::FullSlide(idx) => {
+                                self.full_slide_element(idx, Some(ctx));
+                            }
                         }
                     }
                 }
@@ -1092,16 +1306,18 @@ impl eframe::App for VideoEditorApp {
             self.last_uploaded_version = self.frame_version;
         }
 
-        let active_overlay = self.get_active_text_overlay();
+        let place_mode = self.pending_place.is_some();
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            let visuals = self.slide_visuals(Some(ctx));
             match PreviewPlayerView::render(
                 ui,
-                &mut self.project.timeline,
+                &self.project.timeline,
                 self.current_frame.as_ref(),
-                active_overlay.as_ref(),
+                &visuals,
                 &mut self.preview_texture,
                 is_dirty,
+                place_mode,
             ) {
                 PlayerAction::PlayPauseToggle => {
                     self.toggle_playback(ctx);
@@ -1125,6 +1341,18 @@ impl eframe::App for VideoEditorApp {
                 }
                 PlayerAction::Stop => {
                     self.stop_playback(ctx);
+                }
+                PlayerAction::PlaceAt { x, y } => {
+                    self.place_pending_element(x, y, Some(ctx));
+                }
+                PlayerAction::MoveElement { idx, x, y } => {
+                    self.move_slide_element(idx, x, y);
+                }
+                PlayerAction::ResizeElement { idx, x, y, w, h } => {
+                    self.resize_slide_element(idx, x, y, w, h);
+                }
+                PlayerAction::FullSlide { idx } => {
+                    self.full_slide_element(idx, Some(ctx));
                 }
                 PlayerAction::None => {}
             }

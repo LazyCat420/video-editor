@@ -165,6 +165,32 @@ impl AppTheme {
             };
         });
         Self::apply(ctx);
+        Self::install_custom_fonts(ctx);
+    }
+
+    /// Load the bundled preview fonts (assets/fonts/ve_*.ttf) as named egui families so
+    /// on-screen text matches the chosen style. Missing files degrade gracefully.
+    pub fn install_custom_fonts(ctx: &egui::Context) {
+        const KEYS: [&str; 10] = [
+            "ve_sans", "ve_serif", "ve_mono", "ve_impact", "ve_hand",
+            "ve_condensed", "ve_display", "ve_vintage", "ve_script", "ve_futuristic",
+        ];
+        let mut fonts = egui::FontDefinitions::default();
+        let mut any = false;
+        for key in KEYS {
+            let path = format!("assets/fonts/{}.ttf", key);
+            if let Ok(bytes) = std::fs::read(&path) {
+                fonts
+                    .font_data
+                    .insert(key.to_string(), egui::FontData::from_owned(bytes));
+                let fam = egui::FontFamily::Name(std::sync::Arc::from(key.to_string()));
+                fonts.families.entry(fam).or_default().push(key.to_string());
+                any = true;
+            }
+        }
+        if any {
+            ctx.set_fonts(fonts);
+        }
     }
 
     fn apply(ctx: &egui::Context) {

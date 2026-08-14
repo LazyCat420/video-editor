@@ -1,3 +1,4 @@
+use crate::core::text_overlay::{SlideBackground, SlideElement};
 use crate::core::timeline::Timeline;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -74,8 +75,46 @@ impl Project {
 
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         let content = fs::read_to_string(path)?;
-        let project: Project = serde_json::from_str(&content)
+        let mut project: Project = serde_json::from_str(&content)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        migrate_legacy_clips(&mut project.timeline);
         Ok(project)
+    }
+}
+
+/// Fold pre-slide clip fields into the new slide model so old project files load cleanly.
+/// Legacy `text_overlay` becomes a Text element and the title-card bools become the slide
+/// `background`. Runs once on load, so a re-save is idempotent and clean.
+fn migrate_legacy_clips(timeline: &mut Timeline) {
+    for track in &mut timeline.tracks {
+        for clip in &mut track.clips {
+            // Title card -> slide background (solid or picture), and it is no longer a
+            // streamed video clip.
+            if clip.is_title_card || clip.title_card_bg.is_some() {
+                let bg = clip
+                    .title_card_bg
+                    .clone()
+                    .map(|b| match b {
+                        crate::core::text_overlay::TitleCardBackground::SolidColor(c) => {
+                            SlideBackground::Solid(c)
+                        }
+                        crate::core::text_overlay::TitleCardBackground::Picture(p) => {
+                            SlideBackground::Picture(p)
+                        }
+                    })
+                    .unwrap_or_else(|| SlideBackground::Solid(egui::Color32::from_rgb(18, 18, 24)));
+                clip.background = Some(bg);
+                clip.source_path = PathBuf::new();
+                clip.has_video = false;
+                clip.is_title_card = false;
+                clip.title_card_bg = None;
+            }
+            // Old single text overlay -> a placed Text element.
+            if let Some(overlay) = clip.text_overlay.take() {
+                if !overlay.text.trim().is_empty() {
+                    clip.elements.push(SlideElement::Text(overlay));
+                }
+            }
+        }
     }
 }

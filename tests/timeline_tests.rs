@@ -1063,24 +1063,27 @@ fn test_text_overlay_model_and_card_creation() {
     use egui::Color32;
     use video_editor::core::clip::Clip;
     use video_editor::core::text_overlay::{
-        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition,
-        TitleCardBackground,
+        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TitleCardBackground,
     };
 
-    let mut overlay = TextOverlay::new("Our Hawaii Trip 2026\nSummer Memories");
+    let mut overlay = TextOverlay::new("Our Hawaii Trip 2026
+Summer Memories");
     overlay.font_family = FontFamilyPreset::Serif;
     overlay.alignment = TextAlignment::Center;
-    overlay.position = TextPosition::Center;
     overlay.is_bold = true;
     overlay.is_italic = true;
     overlay.font_size = 48.0;
     overlay.box_style = TextBoxStyle::TranslucentBox;
     overlay.box_opacity = 0.7;
+    overlay.x = 0.25;
+    overlay.y = 0.75;
 
-    assert_eq!(overlay.text, "Our Hawaii Trip 2026\nSummer Memories");
+    assert_eq!(overlay.text, "Our Hawaii Trip 2026
+Summer Memories");
     assert_eq!(overlay.font_family, FontFamilyPreset::Serif);
     assert_eq!(overlay.alignment, TextAlignment::Center);
-    assert_eq!(overlay.position, TextPosition::Center);
+    assert_eq!(overlay.x, 0.25);
+    assert_eq!(overlay.y, 0.75);
     assert!(overlay.is_bold);
     assert!(overlay.is_italic);
 
@@ -1090,22 +1093,30 @@ fn test_text_overlay_model_and_card_creation() {
         1,
         "Hawaii 2026".to_string(),
         overlay.clone(),
-        solid_bg.clone(),
+        solid_bg,
         4.0,
     );
 
-    assert!(card.is_title_card);
-    assert_eq!(card.title_card_bg, Some(solid_bg));
     assert_eq!(card.duration().as_secs_f64(), 4.0);
-    assert!(card.has_video);
+    // A title card is now a static slide: background holds the colour, the text rides in elements.
+    assert!(!card.has_video);
     assert!(!card.has_audio);
-    assert!(card.text_overlay.is_some());
+    assert!(!card.is_title_card);
     assert_eq!(
-        card.text_overlay.as_ref().unwrap().text,
-        "Our Hawaii Trip 2026\nSummer Memories"
+        card.background,
+        Some(video_editor::core::text_overlay::SlideBackground::Solid(
+            Color32::from_rgb(15, 30, 60)
+        ))
     );
+    assert_eq!(card.elements.len(), 1);
+    match &card.elements[0] {
+        video_editor::core::text_overlay::SlideElement::Text(o) => {
+            assert_eq!(o.text, "Our Hawaii Trip 2026
+Summer Memories")
+        }
+        _ => panic!("expected a text element on the card"),
+    }
 }
-
 #[test]
 fn test_generate_title_card_solid_color_frame() {
     use egui::Color32;
@@ -1130,8 +1141,7 @@ fn test_export_filtergraph_title_card_with_drawtext() {
     use std::path::PathBuf;
     use video_editor::core::clip::Clip;
     use video_editor::core::text_overlay::{
-        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TextPosition,
-        TitleCardBackground,
+        FontFamilyPreset, TextAlignment, TextBoxStyle, TextOverlay, TitleCardBackground,
     };
     use video_editor::core::timeline::Timeline;
     use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
@@ -1142,7 +1152,6 @@ fn test_export_filtergraph_title_card_with_drawtext() {
     let mut overlay = TextOverlay::new("Welcome to Hawaii\nTrip of a Lifetime");
     overlay.font_family = FontFamilyPreset::SansSerif;
     overlay.alignment = TextAlignment::Center;
-    overlay.position = TextPosition::Center;
     overlay.box_style = TextBoxStyle::TranslucentBox;
     overlay.box_opacity = 0.65;
 
@@ -1184,4 +1193,76 @@ fn test_export_filtergraph_title_card_with_drawtext() {
         "Must have drawtext line 2: {}",
         fc
     );
+}
+
+#[test]
+fn test_blank_slide_and_element_bounds() {
+    use std::path::PathBuf;
+    use video_editor::core::clip::Clip;
+    use video_editor::core::text_overlay::{SlideBackground, SlideElement};
+
+    let mut slide = Clip::new_blank_slide(1, 1, "Blank".to_string(), 3.0);
+    assert_eq!(slide.duration().as_secs_f64(), 3.0);
+    assert!(slide.is_static_slide());
+    assert!(!slide.has_video);
+    assert!(!slide.has_audio);
+    assert_eq!(
+        slide.background,
+        Some(SlideBackground::Solid(egui::Color32::from_rgb(18, 18, 24)))
+    );
+
+    slide.elements.push(SlideElement::Picture {
+        path: PathBuf::from("x.png"),
+        x: 0.1,
+        y: 0.2,
+        w: 0.5,
+        h: 0.4,
+    });
+    let el = slide.elements.last_mut().unwrap();
+    el.set_bounds(0.0, 0.0, 1.0, 1.0);
+    assert_eq!(el.bounds(), (0.0, 0.0, 1.0, 1.0));
+
+    let audio = SlideElement::Audio {
+        path: PathBuf::from("a.mp3"),
+        volume: 0.5,
+    };
+    assert!(!audio.is_visual());
+}
+
+#[test]
+fn test_legacy_clip_migration_on_load() {
+    use video_editor::core::clip::Clip;
+    use video_editor::core::project::Project;
+    use video_editor::core::text_overlay::{
+        SlideBackground, TextOverlay, TitleCardBackground,
+    };
+    use video_editor::core::time::TimeCode;
+
+    let mut project = Project::new("Migrate".to_string());
+    let mut clip = Clip::new(
+        1,
+        0,
+        "Old Title".to_string(),
+        std::path::PathBuf::new(),
+        TimeCode::from_secs_f64(4.0),
+        false,
+        false,
+    );
+    clip.is_title_card = true;
+    clip.title_card_bg = Some(TitleCardBackground::SolidColor(egui::Color32::BLUE));
+    clip.text_overlay = Some(TextOverlay::new("Hi"));
+    project.timeline.tracks[0].add_clip(clip);
+
+    let dir = std::env::temp_dir().join(format!("ve_mig_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("p.vproj");
+    project.save_to_file(&path).unwrap();
+
+    let loaded = Project::load_from_file(&path).unwrap();
+    let c = &loaded.timeline.tracks[0].clips[0];
+    assert!(!c.is_title_card);
+    assert!(!c.has_video);
+    assert_eq!(c.background, Some(SlideBackground::Solid(egui::Color32::BLUE)));
+    assert_eq!(c.elements.len(), 1);
+    let _ = std::fs::remove_dir_all(dir);
 }
