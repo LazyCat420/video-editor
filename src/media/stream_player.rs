@@ -41,8 +41,14 @@ impl StreamVideoPlayer {
         Self::default()
     }
 
-    /// Start streaming decoded 30 FPS video frames from `start_secs`.
-    pub fn start<P: AsRef<Path>>(&mut self, path: P, start_secs: f64, ctx: Option<&Context>) {
+    /// Start streaming decoded 30 FPS video frames from `start_secs` with optional segment duration.
+    pub fn start<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        start_secs: f64,
+        duration_secs: Option<f64>,
+        ctx: Option<&Context>,
+    ) {
         self.stop();
 
         let path_buf = path.as_ref().to_path_buf();
@@ -72,24 +78,35 @@ impl StreamVideoPlayer {
             cmd.creation_flags(0x08000000);
         }
 
-        cmd.args([
-            "-re",
-            "-ss",
-            &ts_str,
-            "-i",
-            path_buf.to_str().unwrap_or_default(),
-            "-vf",
-            &vf_filter,
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "rgb24",
-            "-v",
-            "error",
-            "-",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        let mut args = vec![
+            "-ss".to_string(),
+            ts_str,
+            "-i".to_string(),
+            path_buf.to_str().unwrap_or_default().to_string(),
+        ];
+
+        if let Some(dur) = duration_secs {
+            if dur > 0.0 {
+                args.push("-t".to_string());
+                args.push(format!("{:.3}", dur));
+            }
+        }
+
+        args.extend([
+            "-vf".to_string(),
+            vf_filter,
+            "-f".to_string(),
+            "rawvideo".to_string(),
+            "-pix_fmt".to_string(),
+            "rgb24".to_string(),
+            "-v".to_string(),
+            "error".to_string(),
+            "-".to_string(),
+        ]);
+
+        cmd.args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,

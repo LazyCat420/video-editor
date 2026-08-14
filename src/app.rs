@@ -207,9 +207,9 @@ impl VideoEditorApp {
         self.project.timeline.is_playing = true;
 
         let playhead = self.project.timeline.playhead;
-        if let Some((clip_id, path, sec)) = self.get_active_video_clip_info(playhead) {
+        if let Some((clip_id, path, sec, rem_dur)) = self.get_active_video_clip_info(playhead) {
             self.current_playing_clip_id = Some(clip_id);
-            self.stream_player.start(path, sec, Some(ctx));
+            self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
         } else {
             self.current_playing_clip_id = None;
             self.stream_player.stop();
@@ -240,9 +240,9 @@ impl VideoEditorApp {
     pub fn seek_to(&mut self, target_time: TimeCode, ctx: &Context) {
         self.project.timeline.playhead = target_time;
         if self.project.timeline.is_playing {
-            if let Some((clip_id, path, sec)) = self.get_active_video_clip_info(target_time) {
+            if let Some((clip_id, path, sec, rem_dur)) = self.get_active_video_clip_info(target_time) {
                 self.current_playing_clip_id = Some(clip_id);
-                self.stream_player.start(path, sec, Some(ctx));
+                self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
             } else {
                 self.current_playing_clip_id = None;
                 self.stream_player.stop();
@@ -254,13 +254,14 @@ impl VideoEditorApp {
         }
     }
 
-    pub fn get_active_video_clip_info(&self, time: TimeCode) -> Option<(u64, PathBuf, f64)> {
+    pub fn get_active_video_clip_info(&self, time: TimeCode) -> Option<(u64, PathBuf, f64, f64)> {
         for track in &self.project.timeline.tracks {
             if track.kind == TrackKind::Video && !track.is_muted {
                 if let Some(clip) = track.get_clip_at(time) {
                     if clip.has_video {
                         if let Some(source_time) = clip.timeline_to_source_time(time) {
-                            return Some((clip.id, clip.source_path.clone(), source_time.as_secs_f64()));
+                            let rem_dur = (clip.timeline_end() - time).as_secs_f64().max(0.1);
+                            return Some((clip.id, clip.source_path.clone(), source_time.as_secs_f64(), rem_dur));
                         }
                     }
                 }
@@ -273,7 +274,7 @@ impl VideoEditorApp {
     fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
         let playhead = self.project.timeline.playhead;
 
-        if let Some((_id, path, sec)) = self.get_active_video_clip_info(playhead) {
+        if let Some((_id, path, sec, _dur)) = self.get_active_video_clip_info(playhead) {
             if let Some(frame) = self.frame_cache.fetch_frame(path, sec, ctx) {
                 self.current_frame = Some(frame);
                 self.frame_version += 1;
@@ -359,11 +360,11 @@ impl eframe::App for VideoEditorApp {
 
             // Cross-clip transition detection: switch stream when crossing clips or entering gaps
             let active_clip = self.get_active_video_clip_info(self.project.timeline.playhead);
-            let new_clip_id = active_clip.as_ref().map(|(id, _, _)| *id);
+            let new_clip_id = active_clip.as_ref().map(|(id, _, _, _)| *id);
             if new_clip_id != self.current_playing_clip_id {
                 self.current_playing_clip_id = new_clip_id;
-                if let Some((_, path, sec)) = active_clip {
-                    self.stream_player.start(path, sec, Some(ctx));
+                if let Some((_, path, sec, rem_dur)) = active_clip {
+                    self.stream_player.start(path, sec, Some(rem_dur), Some(ctx));
                 } else {
                     self.stream_player.stop();
                     self.current_frame = None;
