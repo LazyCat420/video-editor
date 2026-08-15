@@ -375,6 +375,19 @@ impl VideoEditorApp {
                             let rem_dur = (clip.timeline_end() - time).as_secs_f64().max(0.1);
                             return Some((clip.id, clip.source_path.clone(), source_time.as_secs_f64(), rem_dur));
                         }
+                    } else if clip.is_static_slide() {
+                        // Check if the slide contains any video or audio elements
+                        for el in &clip.elements {
+                            match el {
+                                crate::core::text_overlay::SlideElement::Video { path, .. }
+                                | crate::core::text_overlay::SlideElement::Audio { path, .. } => {
+                                    let elapsed = (time - clip.timeline_start).as_secs_f64().max(0.0);
+                                    let rem_dur = (clip.timeline_end() - time).as_secs_f64().max(0.1);
+                                    return Some((clip.id, path.clone(), elapsed, rem_dur));
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }
@@ -540,12 +553,15 @@ impl VideoEditorApp {
         use crate::core::text_overlay::SlideElement;
         use crate::ui::preview_player::{SlideVisual, SlideVisualKind};
         let mut visuals = Vec::new();
-        // Snapshot the elements (owned) so we never hold a borrow of `self` while touching
-        // the slide_textures cache.
-        let Some(elements) = self.active_slide().map(|c| c.elements.clone()) else {
+        // Snapshot the active slide so we never hold a borrow of `self` while touching
+        // the slide_textures cache or fetching frames.
+        let Some(active) = self.active_slide().cloned() else {
             return visuals;
         };
-        for (idx, el) in elements.into_iter().enumerate() {
+        let playhead = self.project.timeline.playhead;
+        let slide_elapsed = (playhead - active.timeline_start).as_secs_f64().max(0.0);
+
+        for (idx, el) in active.elements.into_iter().enumerate() {
             match &el {
                 SlideElement::Text(o) => {
                     visuals.push(SlideVisual {
@@ -556,31 +572,55 @@ impl VideoEditorApp {
                         kind: SlideVisualKind::Text,
                     });
                 }
-                SlideElement::Picture { path, x, y, w, h }
-                | SlideElement::Video { path, x, y, w, h } => {
-                    let is_video = matches!(el, SlideElement::Video { .. });
+                SlideElement::Picture { path, x, y, w, h } => {
                     let cached = self.slide_textures.get(path).cloned();
                     let texture = if let Some(t) = cached {
                         Some(t)
-                    } else {
-                        if let Some(ctx) = ctx {
-                            if let Some(frame) = self.frame_cache.fetch_frame(path, 0.0, Some(ctx)) {
-                                let t = ctx.load_texture("slide_elem", frame, egui::TextureOptions::LINEAR);
-                                self.slide_textures.insert(path.clone(), t.clone());
-                                Some(t)
-                            } else {
-                                None
-                            }
+                    } else if let Some(ctx) = ctx {
+                        if let Some(frame) = self.frame_cache.fetch_frame(path, 0.0, Some(ctx)) {
+                            let t = ctx.load_texture(
+                                format!("slide_pic_{}", idx),
+                                frame,
+                                egui::TextureOptions::LINEAR,
+                            );
+                            self.slide_textures.insert(path.clone(), t.clone());
+                            Some(t)
                         } else {
                             None
                         }
+                    } else {
+                        None
                     };
                     visuals.push(SlideVisual {
                         idx,
                         bounds: (*x, *y, *w, *h),
                         texture,
                         overlay: None,
-                        kind: if is_video { SlideVisualKind::Video } else { SlideVisualKind::Picture },
+                        kind: SlideVisualKind::Picture,
+                    });
+                }
+                SlideElement::Video { path, x, y, w, h } => {
+                    let texture = if let Some(ctx) = ctx {
+                        if let Some(frame) = self.frame_cache.fetch_frame(path, slide_elapsed, Some(ctx)) {
+                            let t = ctx.load_texture(
+                                format!("slide_vid_{}", idx),
+                                frame,
+                                egui::TextureOptions::LINEAR,
+                            );
+                            self.slide_textures.insert(path.clone(), t.clone());
+                            Some(t)
+                        } else {
+                            self.slide_textures.get(path).cloned()
+                        }
+                    } else {
+                        None
+                    };
+                    visuals.push(SlideVisual {
+                        idx,
+                        bounds: (*x, *y, *w, *h),
+                        texture,
+                        overlay: None,
+                        kind: SlideVisualKind::Video,
                     });
                 }
                 _ => {}
@@ -1097,9 +1137,16 @@ impl eframe::App for VideoEditorApp {
                                 if let Some(from) =
                                     self.project.media_assets.iter().position(|a| a.id == from_id)
                                 {
-                                    let item = self.project.media_assets.remove(from);
-                                    let to = to_index.min(self.project.media_assets.len());
-                                    self.project.media_assets.insert(to, item);
+                                    let target_pos = if from < to_index {
+                                        to_index.saturating_sub(1).min(self.project.media_assets.len().saturating_sub(1))
+                                    } else {
+                                        to_index.min(self.project.media_assets.len())
+                                    };
+                                    if from != target_pos {
+                                        let item = self.project.media_assets.remove(from);
+                                        let target_pos = target_pos.min(self.project.media_assets.len());
+                                        self.project.media_assets.insert(target_pos, item);
+                                    }
                                 }
                             }
                             MediaBinAction::None => {}

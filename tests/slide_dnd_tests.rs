@@ -242,5 +242,89 @@ fn test_add_blank_page_and_powerpoint_composition() {
     assert_eq!(clip.duration(), TimeCode::from_secs_f64(3.0));
 }
 
+#[test]
+fn test_media_bin_reorder_forward_and_backward() {
+    use video_editor::core::project::MediaAsset;
+
+    let make_asset = |id: u64, name: &str| MediaAsset {
+        id,
+        name: name.to_string(),
+        path: PathBuf::from(format!("{}.mp4", name)),
+        duration_secs: 10.0,
+        width: 1920,
+        height: 1080,
+        fps: 30.0,
+        has_video: true,
+        has_audio: true,
+        proxy_path: None,
+        peak_path: None,
+    };
+    let mut assets = vec![
+        make_asset(1, "Asset A"),
+        make_asset(2, "Asset B"),
+        make_asset(3, "Asset C"),
+        make_asset(4, "Asset D"),
+    ];
+
+    // Reorder from index 0 (A) to before D (index 3)
+    let from: usize = 0;
+    let to_index: usize = 3;
+    let target_pos = if from < to_index {
+        to_index.saturating_sub(1).min(assets.len() - 1)
+    } else {
+        to_index.min(assets.len())
+    };
+    let item = assets.remove(from);
+    assets.insert(target_pos, item);
+
+    let names: Vec<&str> = assets.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["Asset B", "Asset C", "Asset A", "Asset D"]);
+
+    // Reorder from index 3 (D) to before B (index 0)
+    let from: usize = 3;
+    let to_index: usize = 0;
+    let target_pos = if from < to_index {
+        to_index.saturating_sub(1).min(assets.len() - 1)
+    } else {
+        to_index.min(assets.len())
+    };
+    let item = assets.remove(from);
+    assets.insert(target_pos, item);
+
+    let names: Vec<&str> = assets.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["Asset D", "Asset B", "Asset C", "Asset A"]);
+}
+
+#[test]
+fn test_slide_video_element_playback_time_progression() {
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::track::TrackKind;
+    use video_editor::core::time::TimeCode;
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).unwrap().id;
+
+    let next_id = timeline.next_id();
+    let mut blank_slide = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), 5.0);
+    blank_slide.timeline_start = TimeCode::from_secs_f64(2.0); // starts at 00:02
+    blank_slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("clip.mp4"),
+        x: 0.1,
+        y: 0.1,
+        w: 0.8,
+        h: 0.8,
+    });
+
+    if let Some(track) = timeline.get_track_mut(track_id) {
+        track.add_clip(blank_slide);
+    }
+
+    // When playhead is at 00:03.5 (1.5s into the slide)
+    let playhead = TimeCode::from_secs_f64(3.5);
+    let clip = timeline.get_track(track_id).unwrap().get_clip_at(playhead).unwrap();
+    let elapsed = (playhead - clip.timeline_start).as_secs_f64();
+    assert_eq!(elapsed, 1.5);
+}
+
 
 

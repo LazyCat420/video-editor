@@ -961,8 +961,58 @@ impl TimelineView {
                                         Color32::WHITE,
                                     );
 
+                                    // Slide Element Layer Badges (Shows media tracks/layers added to the slide)
+                                    if (clip.is_static_slide() || !clip.elements.is_empty()) && clip_width > 50.0 {
+                                        let mut badge_x = clip_rect.min.x + 8.0;
+                                        let badge_y = clip_rect.min.y + 26.0;
+                                        for el in &clip.elements {
+                                            if badge_x + 35.0 > clip_rect.max.x - 8.0 {
+                                                break;
+                                            }
+                                            let (badge_icon, badge_text, badge_bg, badge_fg) = match el {
+                                                crate::core::text_overlay::SlideElement::Video { path, .. } => {
+                                                    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("Video");
+                                                    ("🎞", fname, Color32::from_rgb(20, 45, 70), AppTheme::accent_cyan())
+                                                }
+                                                crate::core::text_overlay::SlideElement::Picture { path, .. } => {
+                                                    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("Picture");
+                                                    ("🖼", fname, Color32::from_rgb(45, 35, 65), Color32::from_rgb(220, 180, 255))
+                                                }
+                                                crate::core::text_overlay::SlideElement::Text(o) => {
+                                                    let preview = o.text.lines().next().unwrap_or("Text");
+                                                    ("✏️", preview, Color32::from_rgb(50, 45, 20), AppTheme::accent_yellow())
+                                                }
+                                                crate::core::text_overlay::SlideElement::Audio { path, .. } => {
+                                                    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("Audio");
+                                                    ("🎵", fname, Color32::from_rgb(20, 50, 35), AppTheme::accent_green())
+                                                }
+                                            };
+
+                                            let full_label = format!("{} {}", badge_icon, badge_text);
+                                            let font_id = egui::FontId::proportional(10.5);
+                                            let text_w = (full_label.len() as f32 * 5.8).min(90.0).max(28.0);
+                                            let badge_rect = Rect::from_min_size(
+                                                Pos2::new(badge_x, badge_y),
+                                                Vec2::new(text_w + 10.0, 18.0),
+                                            );
+                                            if badge_rect.max.x <= clip_rect.max.x - 4.0 {
+                                                clip_painter.rect_filled(badge_rect, Rounding::same(4.0), badge_bg);
+                                                clip_painter.rect_stroke(badge_rect, Rounding::same(4.0), Stroke::new(1.0, badge_fg));
+                                                let text_clip = clip_painter.with_clip_rect(badge_rect);
+                                                text_clip.text(
+                                                    Pos2::new(badge_rect.min.x + 4.0, badge_rect.center().y),
+                                                    egui::Align2::LEFT_CENTER,
+                                                    full_label,
+                                                    font_id,
+                                                    badge_fg,
+                                                );
+                                                badge_x += badge_rect.width() + 4.0;
+                                            }
+                                        }
+                                    }
+
                                     // Caption Indicator Badge
-                                    if clip.text_overlay.is_some() && !clip.is_title_card && clip_width > 130.0 {
+                                    if clip.text_overlay.is_some() && !clip.is_title_card && !clip.is_static_slide() && clip_width > 130.0 {
                                         clip_painter.text(
                                             Pos2::new(clip_rect.center().x, clip_rect.min.y + 6.0),
                                             egui::Align2::CENTER_TOP,
