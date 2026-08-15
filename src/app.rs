@@ -531,6 +531,17 @@ impl VideoEditorApp {
     /// Base frame for a clip: the streaming video/image frame, or the slide's background.
     fn base_frame_for(&mut self, clip: &Clip, ctx: Option<&Context>) -> Option<ColorImage> {
         let playhead = self.project.timeline.playhead;
+        if clip.is_static_slide() {
+            return match &clip.background {
+                Some(crate::core::text_overlay::SlideBackground::Solid(col)) => {
+                    Some(crate::media::generate_solid_color_frame(*col, 640, 360))
+                }
+                Some(crate::core::text_overlay::SlideBackground::Picture(p)) => {
+                    self.frame_cache.fetch_frame(p, 0.0, ctx)
+                }
+                None => Some(crate::media::generate_solid_color_frame(egui::Color32::from_rgb(18, 18, 24), 640, 360)),
+            };
+        }
         if clip.has_video {
             if let Some(st) = clip.timeline_to_source_time(playhead) {
                 return self.frame_cache.fetch_frame(&clip.source_path, st.as_secs_f64(), ctx);
@@ -939,7 +950,11 @@ impl eframe::App for VideoEditorApp {
             if new_clip_id != self.current_playing_clip_id {
                 self.current_playing_clip_id = new_clip_id;
                 if let Some((clip_id, path, sec, rem_dur)) = &active_clip {
+                    let is_slide = self.project.timeline.get_clip(*clip_id).map(|c| c.is_static_slide()).unwrap_or(false);
                     self.stream_player.switch_to_clip(*clip_id, path, *sec, Some(*rem_dur), Some(ctx));
+                    if is_slide {
+                        self.refresh_preview_frame(Some(ctx));
+                    }
                 } else {
                     self.stream_player.stop();
                     // A static slide (blank slide / card) has no video stream: compose its
@@ -958,15 +973,20 @@ impl eframe::App for VideoEditorApp {
             // re-clone a ~691 KB ColorImage (and re-upload it) on every UI tick at 2x the
             // 30 FPS video rate.
             if let Some((clip_id, _, source_sec, _)) = active_clip {
+                let is_slide = self.project.timeline.get_clip(clip_id).map(|c| c.is_static_slide()).unwrap_or(false);
                 let (had_new_frame, stream_frame) =
                     self.stream_player.get_frame_for_time(source_sec);
                 if had_new_frame {
                     if let Some(f) = stream_frame {
-                        let track_id = self.project.timeline.get_clip(clip_id).map(|c| c.track_id).unwrap_or(0);
-                        let playhead = self.project.timeline.playhead;
-                        let final_frame = self.composite_transition(track_id, clip_id, f, playhead, Some(ctx));
-                        self.current_frame = Some(final_frame);
-                        self.frame_version += 1;
+                        // For a static slide, keep the slide's solid/picture background and do
+                        // not overwrite the canvas background with the stream player frame.
+                        if !is_slide {
+                            let track_id = self.project.timeline.get_clip(clip_id).map(|c| c.track_id).unwrap_or(0);
+                            let playhead = self.project.timeline.playhead;
+                            let final_frame = self.composite_transition(track_id, clip_id, f, playhead, Some(ctx));
+                            self.current_frame = Some(final_frame);
+                            self.frame_version += 1;
+                        }
                     }
                 }
             }

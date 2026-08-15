@@ -326,5 +326,47 @@ fn test_slide_video_element_playback_time_progression() {
     assert_eq!(elapsed, 1.5);
 }
 
+#[test]
+fn test_slide_playback_background_isolated_from_stream_frame() {
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::track::TrackKind;
+    use video_editor::core::time::TimeCode;
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).unwrap().id;
+
+    // Clip 1: Blank slide with video element at 00:00 to 00:03
+    let mut slide = Clip::new_blank_slide(1, track_id, "Slide 1".to_string(), 3.0);
+    slide.timeline_start = TimeCode::ZERO;
+    slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("embed.mp4"),
+        x: 0.2,
+        y: 0.2,
+        w: 0.6,
+        h: 0.6,
+    });
+
+    // Clip 2: Next video clip at 00:03 to 00:06
+    let mut next_clip = Clip::new(2, track_id, "Next Video".to_string(), PathBuf::from("next.mp4"), TimeCode::from_secs_f64(3.0), true, true);
+    next_clip.timeline_start = TimeCode::from_secs_f64(3.0);
+
+    if let Some(track) = timeline.get_track_mut(track_id) {
+        track.add_clip(slide);
+        track.add_clip(next_clip);
+    }
+
+    // At playhead 00:02.8 (near end of slide 1)
+    let playhead = TimeCode::from_secs_f64(2.8);
+    let active_clip = timeline.get_track(track_id).unwrap().get_clip_at(playhead).unwrap();
+    assert!(active_clip.is_static_slide());
+    assert_eq!(active_clip.id, 1);
+
+    // At playhead 00:03.1 (crossed into clip 2)
+    let playhead_next = TimeCode::from_secs_f64(3.1);
+    let next_active = timeline.get_track(track_id).unwrap().get_clip_at(playhead_next).unwrap();
+    assert!(!next_active.is_static_slide());
+    assert_eq!(next_active.id, 2);
+}
+
 
 
