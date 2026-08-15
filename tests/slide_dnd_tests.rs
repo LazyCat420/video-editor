@@ -368,5 +368,127 @@ fn test_slide_playback_background_isolated_from_stream_frame() {
     assert_eq!(next_active.id, 2);
 }
 
+#[test]
+fn test_blank_slide_auto_fits_duration_to_longest_media() {
+    use video_editor::core::envelope::VolumeEnvelope;
+    use video_editor::core::project::MediaAsset;
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::track::TrackKind;
+
+    let timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).unwrap().id;
+
+    let mut slide = Clip::new_blank_slide(1, track_id, "Slide 1".to_string(), 3.0);
+    slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("clip1.mp4"),
+        x: 0.1,
+        y: 0.1,
+        w: 0.4,
+        h: 0.4,
+    });
+    slide.elements.push(SlideElement::Audio {
+        path: PathBuf::from("audio1.mp3"),
+        volume: 1.0,
+    });
+
+    let assets = vec![
+        MediaAsset {
+            id: 1,
+            name: "clip1.mp4".to_string(),
+            path: PathBuf::from("clip1.mp4"),
+            duration_secs: 10.0,
+            width: 1920,
+            height: 1080,
+            fps: 30.0,
+            has_video: true,
+            has_audio: true,
+            proxy_path: None,
+            peak_path: None,
+        },
+        MediaAsset {
+            id: 2,
+            name: "audio1.mp3".to_string(),
+            path: PathBuf::from("audio1.mp3"),
+            duration_secs: 18.5,
+            width: 0,
+            height: 0,
+            fps: 0.0,
+            has_video: false,
+            has_audio: true,
+            proxy_path: None,
+            peak_path: None,
+        },
+    ];
+
+    let mut max_dur: f64 = 0.0;
+    for el in &slide.elements {
+        match el {
+            SlideElement::Video { path, .. } | SlideElement::Audio { path, .. } => {
+                let dur = assets.iter().find(|a| &a.path == path).map(|a| a.duration_secs).unwrap_or(0.0);
+                if dur > max_dur {
+                    max_dur = dur;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(max_dur, 18.5);
+    let target_dur = TimeCode::from_secs_f64(max_dur);
+    slide.source_duration = target_dur;
+    slide.source_out = target_dur;
+    slide.volume_envelope = VolumeEnvelope::default_for_duration(target_dur);
+
+    assert_eq!(slide.duration(), TimeCode::from_secs_f64(18.5));
+}
+
+#[test]
+fn test_blank_slide_expansion_shifts_subsequent_clips() {
+    use video_editor::core::time::TimeCode;
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::track::TrackKind;
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).unwrap().id;
+
+    // Slide 1 starts at 00:00 with initial 3.0s duration
+    let mut slide = Clip::new_blank_slide(1, track_id, "Slide 1".to_string(), 3.0);
+    slide.timeline_start = TimeCode::ZERO;
+
+    // Clip 2 starts at 00:03 with 5.0s duration
+    let mut next_clip = Clip::new(2, track_id, "Next Video".to_string(), PathBuf::from("next.mp4"), TimeCode::from_secs_f64(5.0), true, true);
+    next_clip.timeline_start = TimeCode::from_secs_f64(3.0);
+
+    if let Some(track) = timeline.get_track_mut(track_id) {
+        track.add_clip(slide);
+        track.add_clip(next_clip);
+    }
+
+    // Now slide expands to 12.0s (+9.0s delta)
+    let old_dur = TimeCode::from_secs_f64(3.0);
+    let new_dur = TimeCode::from_secs_f64(12.0);
+    let delta = new_dur - old_dur;
+    let old_end = TimeCode::ZERO + old_dur;
+
+    if let Some(track) = timeline.get_track_mut(track_id) {
+        if let Some(c) = track.clips.iter_mut().find(|c| c.id == 1) {
+            c.source_duration = new_dur;
+            c.source_out = new_dur;
+        }
+        for c in &mut track.clips {
+            if c.id != 1 && c.timeline_start >= old_end {
+                c.timeline_start = c.timeline_start + delta;
+            }
+        }
+        track.sort_clips();
+    }
+
+    let track = timeline.get_track(track_id).unwrap();
+    assert_eq!(track.clips[0].duration(), TimeCode::from_secs_f64(12.0));
+    assert_eq!(track.clips[1].timeline_start, TimeCode::from_secs_f64(12.0));
+    assert_eq!(track.clips[1].timeline_end(), TimeCode::from_secs_f64(17.0));
+}
+
 
 

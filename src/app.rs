@@ -709,6 +709,7 @@ impl VideoEditorApp {
             clip.elements.push(element);
             self.selected_slide_element = Some(clip.elements.len() - 1);
         }
+        self.auto_adjust_slide_duration_to_media(slide_id);
         self.refresh_preview_frame(ctx);
     }
 
@@ -741,6 +742,7 @@ impl VideoEditorApp {
             clip.elements.push(element);
             self.selected_slide_element = Some(clip.elements.len() - 1);
         }
+        self.auto_adjust_slide_duration_to_media(slide_id);
         self.refresh_preview_frame(ctx);
     }
 
@@ -789,6 +791,7 @@ impl VideoEditorApp {
         if let Some(idx) = first_new_idx {
             self.selected_slide_element = Some(idx);
         }
+        self.auto_adjust_slide_duration_to_media(slide_id);
         self.refresh_preview_frame(ctx);
     }
 
@@ -859,7 +862,64 @@ impl VideoEditorApp {
                     self.selected_slide_element = None;
                 }
             }
+            self.auto_adjust_slide_duration_to_media(id);
             self.refresh_preview_frame(ctx);
+        }
+    }
+
+    /// Automatically adjust the slide duration so it ends at the end of the longest media clip (video or audio),
+    /// and safely ripples/shifts downstream clips on the same track if duration increases.
+    fn auto_adjust_slide_duration_to_media(&mut self, slide_id: u64) {
+        use crate::core::envelope::VolumeEnvelope;
+        use crate::core::text_overlay::SlideElement;
+        let mut max_media_dur: f64 = 0.0;
+        let mut has_media = false;
+
+        let (track_id, old_dur, slide_start) = if let Some(clip) = self.project.timeline.get_clip(slide_id) {
+            for el in &clip.elements {
+                match el {
+                    SlideElement::Video { path, .. } | SlideElement::Audio { path, .. } => {
+                        has_media = true;
+                        let dur = self.project.media_assets.iter()
+                            .find(|a| &a.path == path)
+                            .map(|a| a.duration_secs)
+                            .or_else(|| crate::media::probe::probe_media_file(path).ok().map(|m| m.duration_secs))
+                            .unwrap_or(0.0);
+                        if dur > max_media_dur {
+                            max_media_dur = dur;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            (clip.track_id, clip.duration(), clip.timeline_start)
+        } else {
+            return;
+        };
+
+        if has_media && max_media_dur > 0.0 {
+            let target_dur = TimeCode::from_secs_f64(max_media_dur.max(0.5));
+            if target_dur != old_dur {
+                if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
+                    clip.source_duration = target_dur;
+                    clip.source_out = target_dur;
+                    clip.volume_envelope = VolumeEnvelope::default_for_duration(target_dur);
+                }
+
+                // If duration expanded, shift subsequent non-overlapping clips on the same track to prevent overlap
+                if target_dur > old_dur {
+                    let delta = target_dur - old_dur;
+                    let old_end = slide_start + old_dur;
+                    if let Some(track) = self.project.timeline.get_track_mut(track_id) {
+                        for c in &mut track.clips {
+                            if c.id != slide_id && c.timeline_start >= old_end {
+                                c.timeline_start = c.timeline_start + delta;
+                            }
+                        }
+                        track.sort_clips();
+                    }
+                }
+            }
         }
     }
 }
@@ -1220,6 +1280,7 @@ impl eframe::App for VideoEditorApp {
                                 if let Some(c) = self.project.timeline.get_clip_mut(slide_id) {
                                     c.elements.push(SlideElement::Audio { path, volume: 1.0 });
                                 }
+                                self.auto_adjust_slide_duration_to_media(slide_id);
                                 self.refresh_preview_frame(Some(ctx));
                             }
                             crate::ui::SlideBinAction::AddTextElement(overlay) => {
@@ -1263,6 +1324,7 @@ impl eframe::App for VideoEditorApp {
                                             self.selected_slide_element = None;
                                         }
                                     }
+                                    self.auto_adjust_slide_duration_to_media(id);
                                 }
                                 self.refresh_preview_frame(Some(ctx));
                             }
