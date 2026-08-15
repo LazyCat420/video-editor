@@ -376,17 +376,32 @@ impl VideoEditorApp {
                             return Some((clip.id, clip.source_path.clone(), source_time.as_secs_f64(), rem_dur));
                         }
                     } else if clip.is_static_slide() {
-                        // Check if the slide contains any video or audio elements
+                        // Find the LONGEST media element on the slide so the player stream stays active for the entire slide length
+                        let mut best_media: Option<(PathBuf, f64)> = None;
+                        let mut max_dur: f64 = 0.0;
+
                         for el in &clip.elements {
                             match el {
                                 crate::core::text_overlay::SlideElement::Video { path, .. }
                                 | crate::core::text_overlay::SlideElement::Audio { path, .. } => {
-                                    let elapsed = (time - clip.timeline_start).as_secs_f64().max(0.0);
-                                    let rem_dur = (clip.timeline_end() - time).as_secs_f64().max(0.1);
-                                    return Some((clip.id, path.clone(), elapsed, rem_dur));
+                                    let dur = self.project.media_assets.iter()
+                                        .find(|a| &a.path == path)
+                                        .map(|a| a.duration_secs)
+                                        .or_else(|| crate::media::probe::probe_media_file(path).ok().map(|m| m.duration_secs))
+                                        .unwrap_or(0.0);
+                                    if dur >= max_dur {
+                                        max_dur = dur;
+                                        best_media = Some((path.clone(), dur));
+                                    }
                                 }
                                 _ => {}
                             }
+                        }
+
+                        if let Some((path, _)) = best_media {
+                            let elapsed = (time - clip.timeline_start).as_secs_f64().max(0.0);
+                            let rem_dur = (clip.timeline_end() - time).as_secs_f64().max(0.1);
+                            return Some((clip.id, path, elapsed, rem_dur));
                         }
                     }
                 }
@@ -611,8 +626,21 @@ impl VideoEditorApp {
                     });
                 }
                 SlideElement::Video { path, x, y, w, h } => {
+                    let elem_dur = self.project.media_assets.iter()
+                        .find(|a| &a.path == path)
+                        .map(|a| a.duration_secs)
+                        .or_else(|| crate::media::probe::probe_media_file(path).ok().map(|m| m.duration_secs))
+                        .unwrap_or(f64::MAX);
+
+                    // Clamp to the video's end frame if slide_elapsed has surpassed this video's duration
+                    let video_time = if slide_elapsed >= elem_dur {
+                        (elem_dur - 0.05).max(0.0)
+                    } else {
+                        slide_elapsed
+                    };
+
                     let texture = if let Some(ctx) = ctx {
-                        if let Some(frame) = self.frame_cache.fetch_frame(path, slide_elapsed, Some(ctx)) {
+                        if let Some(frame) = self.frame_cache.fetch_frame(path, video_time, Some(ctx)) {
                             let t = ctx.load_texture(
                                 format!("slide_vid_{}", idx),
                                 frame,

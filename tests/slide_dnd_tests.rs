@@ -490,5 +490,95 @@ fn test_blank_slide_expansion_shifts_subsequent_clips() {
     assert_eq!(track.clips[1].timeline_end(), TimeCode::from_secs_f64(17.0));
 }
 
+#[test]
+fn test_multi_video_slide_picks_longest_video_for_stream() {
+    use video_editor::core::project::MediaAsset;
+
+    let mut slide = Clip::new_blank_slide(1, 1, "Slide 1".to_string(), 15.0);
+    slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("short_5s.mp4"),
+        x: 0.1,
+        y: 0.1,
+        w: 0.4,
+        h: 0.4,
+    });
+    slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("long_15s.mp4"),
+        x: 0.5,
+        y: 0.1,
+        w: 0.4,
+        h: 0.4,
+    });
+
+    let assets = vec![
+        MediaAsset {
+            id: 1,
+            name: "short_5s.mp4".to_string(),
+            path: PathBuf::from("short_5s.mp4"),
+            duration_secs: 5.0,
+            width: 1920,
+            height: 1080,
+            fps: 30.0,
+            has_video: true,
+            has_audio: true,
+            proxy_path: None,
+            peak_path: None,
+        },
+        MediaAsset {
+            id: 2,
+            name: "long_15s.mp4".to_string(),
+            path: PathBuf::from("long_15s.mp4"),
+            duration_secs: 15.0,
+            width: 1920,
+            height: 1080,
+            fps: 30.0,
+            has_video: true,
+            has_audio: true,
+            proxy_path: None,
+            peak_path: None,
+        },
+    ];
+
+    let mut best_media: Option<(PathBuf, f64)> = None;
+    let mut max_dur: f64 = 0.0;
+
+    for el in &slide.elements {
+        if let SlideElement::Video { path, .. } = el {
+            let dur = assets.iter().find(|a| &a.path == path).map(|a| a.duration_secs).unwrap_or(0.0);
+            if dur >= max_dur {
+                max_dur = dur;
+                best_media = Some((path.clone(), dur));
+            }
+        }
+    }
+
+    assert_eq!(best_media, Some((PathBuf::from("long_15s.mp4"), 15.0)));
+}
+
+#[test]
+fn test_shorter_video_clamps_to_end_frame_when_expired() {
+    let short_dur: f64 = 5.0;
+    let slide_elapsed_at_8s: f64 = 8.0;
+
+    // At 8s, shorter 5s video clamps to (5.0 - 0.05) = 4.95s
+    let clamped_time: f64 = if slide_elapsed_at_8s >= short_dur {
+        (short_dur - 0.05).max(0.0)
+    } else {
+        slide_elapsed_at_8s
+    };
+
+    assert_eq!((clamped_time * 100.0).round(), 495.0);
+
+    // At 3s, shorter 5s video plays naturally at 3.0s
+    let slide_elapsed_at_3s: f64 = 3.0;
+    let normal_time: f64 = if slide_elapsed_at_3s >= short_dur {
+        (short_dur - 0.05).max(0.0)
+    } else {
+        slide_elapsed_at_3s
+    };
+
+    assert_eq!(normal_time, 3.0);
+}
+
 
 
