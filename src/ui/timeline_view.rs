@@ -59,6 +59,7 @@ pub enum TimelineAction {
     CloseGaps(Option<u64>),
     AddVideoTrack,
     AddAudioTrack,
+    AddBlankSlide { duration: f64 },
 }
 
 impl TimelineView {
@@ -176,6 +177,25 @@ impl TimelineView {
                             .show_value(false),
                     );
                 });
+
+                ui.separator();
+
+                let add_blank_btn = Button::new(
+                    RichText::new("➕ Add Blank Page")
+                        .size(12.5)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(AppTheme::accent_green())
+                .min_size(egui::vec2(130.0, 24.0));
+
+                if ui
+                    .add(add_blank_btn)
+                    .on_hover_text("Insert a blank page/slide at the playhead to build with drag & drop pictures, video, and text (PowerPoint style)")
+                    .clicked()
+                {
+                    action = TimelineAction::AddBlankSlide { duration: 3.0 };
+                }
 
                 // Playhead scrub: the slider that moves the orange timeline marker. Kept right
                 // next to the Zoom slider (beside Redo) so it's easy to grab.

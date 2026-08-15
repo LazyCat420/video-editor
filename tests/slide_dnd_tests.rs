@@ -191,4 +191,56 @@ fn test_reorder_element_to_arbitrary_index() {
     assert_eq!(labels, vec!["Item D", "Item B", "Item C", "Item A"]);
 }
 
+#[test]
+fn test_add_blank_page_and_powerpoint_composition() {
+    use video_editor::core::timeline::Timeline;
+    use video_editor::core::track::TrackKind;
+    use video_editor::core::time::TimeCode;
+
+    let mut timeline = Timeline::new(30.0);
+    let track_id = timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).unwrap().id;
+
+    let next_id = timeline.next_id();
+    let mut blank_slide = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), 3.0);
+    blank_slide.timeline_start = timeline.playhead;
+    blank_slide.is_selected = true;
+
+    // Compose elements onto blank slide like PowerPoint:
+    // 1. Text element
+    let mut text_el = TextOverlay::new("Welcome to Slides");
+    text_el.x = 0.5;
+    text_el.y = 0.2;
+    blank_slide.elements.push(SlideElement::Text(text_el));
+
+    // 2. Picture element
+    blank_slide.elements.push(SlideElement::Picture {
+        path: PathBuf::from("diagram.png"),
+        x: 0.2,
+        y: 0.4,
+        w: 0.3,
+        h: 0.3,
+    });
+
+    // 3. Video element
+    blank_slide.elements.push(SlideElement::Video {
+        path: PathBuf::from("demo.mp4"),
+        x: 0.6,
+        y: 0.4,
+        w: 0.3,
+        h: 0.3,
+    });
+
+    if let Some(track) = timeline.get_track_mut(track_id) {
+        track.add_clip(blank_slide);
+    }
+
+    let track = timeline.get_track(track_id).unwrap();
+    assert_eq!(track.clips.len(), 1);
+    let clip = &track.clips[0];
+    assert!(clip.is_static_slide());
+    assert_eq!(clip.elements.len(), 3);
+    assert_eq!(clip.duration(), TimeCode::from_secs_f64(3.0));
+}
+
+
 

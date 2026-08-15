@@ -498,9 +498,20 @@ impl VideoEditorApp {
         let next_id = self.project.timeline.next_id();
         let mut clip = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), duration);
         clip.timeline_start = self.project.timeline.playhead;
+        clip.is_selected = true;
+        // Deselect other clips so the newly created blank slide is the active slide
+        for t in &mut self.project.timeline.tracks {
+            for c in &mut t.clips {
+                if c.id != next_id {
+                    c.is_selected = false;
+                }
+            }
+        }
         if let Some(track) = self.project.timeline.get_track_mut(track_id) {
             track.add_clip(clip);
         }
+        self.sidebar_tab = crate::ui::SidebarTab::Titles;
+        self.selected_slide_element = None;
         self.refresh_preview_frame(ctx);
     }
 
@@ -1427,6 +1438,10 @@ impl eframe::App for VideoEditorApp {
                         self.project
                             .timeline
                             .add_track("🎵 Music & Sound".to_string(), TrackKind::Audio);
+                    }
+                    TimelineAction::AddBlankSlide { duration } => {
+                        self.snapshot_timeline();
+                        self.insert_blank_slide_at_playhead(duration, Some(ctx));
                     }
                 }
             });
