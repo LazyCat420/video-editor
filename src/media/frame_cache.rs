@@ -3,10 +3,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-/// Find ffmpeg executable path on Windows / Linux / WSL.
+/// Find ffmpeg executable path (beside exe, in cwd, in bin/, or in PATH).
 pub fn find_ffmpeg_executable() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let next_to_exe = parent.join(if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" });
+            if next_to_exe.exists() {
+                return next_to_exe;
+            }
+            let bin_sub = parent.join("bin").join(if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" });
+            if bin_sub.exists() {
+                return bin_sub;
+            }
+        }
+    }
+
     let local_paths = [
         PathBuf::from("ffmpeg.exe"),
         PathBuf::from("ffmpeg"),
@@ -28,6 +42,42 @@ pub fn find_ffmpeg_executable() -> PathBuf {
     }
 }
 
+/// Find ffprobe executable path (beside exe, in cwd, in bin/, or in PATH).
+pub fn find_ffprobe_executable() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let next_to_exe = parent.join(if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" });
+            if next_to_exe.exists() {
+                return next_to_exe;
+            }
+            let bin_sub = parent.join("bin").join(if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" });
+            if bin_sub.exists() {
+                return bin_sub;
+            }
+        }
+    }
+
+    let local_paths = [
+        PathBuf::from("ffprobe.exe"),
+        PathBuf::from("ffprobe"),
+        PathBuf::from("bin/ffprobe.exe"),
+        PathBuf::from("ffmpeg/bin/ffprobe.exe"),
+        PathBuf::from("C:/ffmpeg/bin/ffprobe.exe"),
+    ];
+
+    for p in &local_paths {
+        if p.exists() {
+            return p.clone();
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        PathBuf::from("ffprobe.exe")
+    } else {
+        PathBuf::from("ffprobe")
+    }
+}
+
 /// Helper to configure Command with no console window on Windows.
 #[cfg(target_os = "windows")]
 fn configure_command(cmd: &mut Command) {
@@ -44,6 +94,7 @@ pub struct FrameCache {
     cache: Arc<Mutex<HashMap<(PathBuf, i64), (ColorImage, u64)>>>,
     access_counter: Arc<Mutex<u64>>,
     pending_requests: Arc<Mutex<HashMap<(PathBuf, i64), bool>>>,
+    active_workers: Arc<AtomicUsize>,
     max_frames: usize,
     ffmpeg_bin: PathBuf,
 }
@@ -60,6 +111,7 @@ impl FrameCache {
             cache: Arc::new(Mutex::new(HashMap::new())),
             access_counter: Arc::new(Mutex::new(0)),
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            active_workers: Arc::new(AtomicUsize::new(0)),
             max_frames,
             ffmpeg_bin: find_ffmpeg_executable(),
         }
@@ -125,9 +177,19 @@ impl FrameCache {
         }
 
         // Spawn background worker
+        // Bound concurrent background FFmpeg processes to 2 max to protect CPU
+        if self.active_workers.load(Ordering::SeqCst) >= 2 {
+            if let Ok(mut pending) = self.pending_requests.lock() {
+                pending.remove(&key);
+            }
+            return None;
+        }
+        self.active_workers.fetch_add(1, Ordering::SeqCst);
+
         let cache_arc = Arc::clone(&self.cache);
         let access_arc = Arc::clone(&self.access_counter);
         let pending_arc = Arc::clone(&self.pending_requests);
+        let workers_arc = Arc::clone(&self.active_workers);
         let max_cap = self.max_frames;
         let ffmpeg_cmd = self.ffmpeg_bin.clone();
         let ctx_clone = ctx.cloned();
@@ -190,6 +252,7 @@ impl FrameCache {
                 }
             }
 
+            workers_arc.fetch_sub(1, Ordering::SeqCst);
             if let Ok(mut pending) = pending_arc.lock() {
                 pending.remove(&key);
             }
@@ -217,9 +280,18 @@ impl FrameCache {
             pending.insert(key.clone(), true);
         }
 
+        if self.active_workers.load(Ordering::SeqCst) >= 2 {
+            if let Ok(mut pending) = self.pending_requests.lock() {
+                pending.remove(&key);
+            }
+            return;
+        }
+        self.active_workers.fetch_add(1, Ordering::SeqCst);
+
         let cache_arc = Arc::clone(&self.cache);
         let access_arc = Arc::clone(&self.access_counter);
         let pending_arc = Arc::clone(&self.pending_requests);
+        let workers_arc = Arc::clone(&self.active_workers);
         let max_cap = self.max_frames;
         let ffmpeg_cmd = self.ffmpeg_bin.clone();
         let ctx_clone = ctx.cloned();
@@ -279,6 +351,7 @@ impl FrameCache {
                 }
             }
 
+            workers_arc.fetch_sub(1, Ordering::SeqCst);
             if let Ok(mut pending) = pending_arc.lock() {
                 pending.remove(&key);
             }

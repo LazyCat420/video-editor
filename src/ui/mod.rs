@@ -1,3 +1,6 @@
+pub mod components;
+pub mod calendar_renderer;
+pub mod text_renderer;
 pub mod export_dialog;
 
 /// Drag-and-drop payload: a media asset id being dragged from the files panel
@@ -18,20 +21,37 @@ pub mod menu_bar;
 pub mod node_graph_view;
 pub mod preview_player;
 pub mod slide_bin;
+pub mod slide_deck;
 pub mod theme;
 pub mod timeline_view;
 pub mod transition_bin;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum MainViewMode {
+    #[default]
+    Slideshow,
+    Timeline,
+}
+
+impl MainViewMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Slideshow => "🖼 Slideshow Studio",
+            Self::Timeline => "⏱ Timeline Editor",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SidebarTab {
-    Files,
+    Slides,
+    Formatting,
     Transitions,
-    Titles,
 }
 
 impl Default for SidebarTab {
     fn default() -> Self {
-        Self::Files
+        Self::Slides
     }
 }
 
@@ -41,6 +61,7 @@ pub use menu_bar::MenuBarView;
 pub use node_graph_view::render_audio_envelope_graph;
 pub use preview_player::PreviewPlayerView;
 pub use slide_bin::SlideBinView;
+pub use slide_deck::{SlideDeckAction, SlideDeckView};
 pub use theme::AppTheme;
 pub use timeline_view::TimelineView;
 pub use transition_bin::{TransitionBinAction, TransitionBinView, TransitionSlot};
@@ -72,6 +93,17 @@ pub enum SlideBinAction {
     ReorderElementTo { from_idx: usize, to_idx: usize },
     FullSlide(usize),
     SetElementAsBackground(usize),
+    ApplyTemplateTitle2Media,
+    ApplyTemplateTitle4Media,
+    ApplyTemplateShowcase,
+    ApplyTemplateTitle2MediaToActive,
+    ApplyTemplateTitle4MediaToActive,
+    ApplyTemplateShowcaseToActive,
+    ApplyTemplateCalendarSlide { year: i32, start_month: u32, month_count: u32, show_holidays: bool },
+    ApplyTemplateCalendarSlideToActive { year: i32, start_month: u32, month_count: u32, show_holidays: bool },
+    Generate12MonthCalendar { year: i32, month_count: u32, show_holidays: bool },
+    UpdateActiveCalendarSlide,
+    OpenCalendarExportDialog,
 }
 
 /// Run `f` with a smaller `interact_size.y` and sleek `slider_rail_height` so horizontal sliders

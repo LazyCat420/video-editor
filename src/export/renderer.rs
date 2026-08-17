@@ -51,7 +51,8 @@ pub fn render_project_async(
             fps: 0.0,
         });
 
-        let mut child = match Command::new("ffmpeg")
+        let ffmpeg_bin = crate::media::frame_cache::find_ffmpeg_executable();
+    let mut child = match Command::new(&ffmpeg_bin)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

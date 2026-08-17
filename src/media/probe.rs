@@ -105,7 +105,8 @@ pub fn probe_media_file<P: AsRef<Path>>(path: P) -> Result<MediaMetadata, String
         .to_str()
         .ok_or_else(|| "Invalid file path".to_string())?;
 
-    let output = Command::new("ffprobe")
+    let ffprobe_bin = crate::media::frame_cache::find_ffprobe_executable();
+    let output = Command::new(&ffprobe_bin)
         .args([
             "-v",
             "error",

@@ -1,3 +1,6 @@
+pub use crate::core::calendar_gen::CalendarOverlay;
+pub 
+
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -285,10 +288,13 @@ impl Default for SlideBackground {
     }
 }
 
-/// One element placed on a slide. Text/Picture/Video sit in a free box; Audio is mixed.
+
+
+/// One element placed on a slide. Text/Picture/Video/Calendar sit in a free box; Audio is mixed.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum SlideElement {
     Text(TextOverlay),
+    Calendar(CalendarOverlay),
     Picture {
         path: PathBuf,
         x: f32,
@@ -308,6 +314,15 @@ pub enum SlideElement {
         #[serde(default = "default_volume")]
         volume: f32,
     },
+    /// Interactive placeholder slot in a template (e.g. "+ Drop Photo / Video")
+    Placeholder {
+        slot_id: u32,
+        label: String,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
 }
 
 fn default_volume() -> f32 {
@@ -323,7 +338,10 @@ impl SlideElement {
     pub fn bounds(&self) -> (f32, f32, f32, f32) {
         match self {
             SlideElement::Text(o) => (o.x, o.y, 0.0, 0.0),
-            SlideElement::Picture { x, y, w, h, .. } | SlideElement::Video { x, y, w, h, .. } => {
+            SlideElement::Calendar(c) => (c.x, c.y, c.w, c.h),
+            SlideElement::Picture { x, y, w, h, .. }
+            | SlideElement::Video { x, y, w, h, .. }
+            | SlideElement::Placeholder { x, y, w, h, .. } => {
                 (*x, *y, *w, *h)
             }
             SlideElement::Audio { .. } => (0.0, 0.0, 0.0, 0.0),
@@ -336,7 +354,15 @@ impl SlideElement {
                 o.x = x.clamp(0.0, 1.0);
                 o.y = y.clamp(0.0, 1.0);
             }
-            SlideElement::Picture { .. } | SlideElement::Video { .. } => {
+            SlideElement::Calendar(c) => {
+                c.x = x.clamp(0.0, 1.0);
+                c.y = y.clamp(0.0, 1.0);
+                c.w = w.clamp(0.05, 1.0);
+                c.h = h.clamp(0.05, 1.0);
+            }
+            SlideElement::Picture { .. }
+            | SlideElement::Video { .. }
+            | SlideElement::Placeholder { .. } => {
                 *self = self.with_bounds(x, y, w, h);
             }
             SlideElement::Audio { .. } => {}
@@ -349,6 +375,15 @@ impl SlideElement {
         let w = w.clamp(0.01, 1.0);
         let h = h.clamp(0.01, 1.0);
         match self {
+            SlideElement::Text(o) => SlideElement::Text(o.clone()),
+            SlideElement::Calendar(c) => {
+                let mut updated = c.clone();
+                updated.x = x;
+                updated.y = y;
+                updated.w = w;
+                updated.h = h;
+                SlideElement::Calendar(updated)
+            }
             SlideElement::Picture { path, .. } => SlideElement::Picture {
                 path: path.clone(),
                 x,
@@ -363,7 +398,18 @@ impl SlideElement {
                 w,
                 h,
             },
-            other => other.clone(),
+            SlideElement::Placeholder { slot_id, label, .. } => SlideElement::Placeholder {
+                slot_id: *slot_id,
+                label: label.clone(),
+                x,
+                y,
+                w,
+                h,
+            },
+            SlideElement::Audio { path, volume } => SlideElement::Audio {
+                path: path.clone(),
+                volume: *volume,
+            },
         }
     }
 }

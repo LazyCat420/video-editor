@@ -1,3 +1,5 @@
+pub mod calendar_gen;
+pub use calendar_gen::{CalendarMonth, CalendarStyle, CustomCalendarEvent, HolidayCategory, HolidayItem};
 pub mod clip;
 pub mod envelope;
 pub mod history;
@@ -10,7 +12,7 @@ pub mod track;
 
 pub mod text_overlay;
 pub use text_overlay::{
-    FontFamilyPreset, SlideBackground, SlideElement, TextAlignment, TextBoxStyle, TextOverlay,
+    CalendarOverlay, FontFamilyPreset, SlideBackground, SlideElement, TextAlignment, TextBoxStyle, TextOverlay,
     TitleCardBackground,
 };
 

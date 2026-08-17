@@ -104,7 +104,8 @@ pub fn extract_peaks<P: AsRef<Path>>(
     let points_per_sec = 100.0f32;
     let samples_per_bucket = (target_sample_rate as f32 / points_per_sec).round() as usize;
 
-    let mut child = Command::new("ffmpeg")
+    let ffmpeg_bin = crate::media::frame_cache::find_ffmpeg_executable();
+    let mut child = Command::new(&ffmpeg_bin)
         .args([
             "-v",
             "error",

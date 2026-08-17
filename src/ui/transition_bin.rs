@@ -35,7 +35,7 @@ impl TransitionBinView {
         let selected_clip: Option<Clip> = timeline.get_selected_clip().cloned();
 
         ui.vertical(|ui| {
-            ui.add_space(4.0);
+                        ui.add_space(4.0);
 
             // Context / Selection Status Banner
             Frame::none()
@@ -68,7 +68,7 @@ impl TransitionBinView {
                                 .color(AppTheme::text_secondary())
                                 .strong(),
                         );
-                        ui.horizontal(|ui| {
+                        ui.columns(2, |cols| {
                             let in_active = selected_slot == TransitionSlot::In;
                             let out_active = selected_slot == TransitionSlot::Out;
 
@@ -79,11 +79,11 @@ impl TransitionBinView {
                                     .color(if in_active { Color32::WHITE } else { AppTheme::text_secondary() }),
                             )
                             .fill(if in_active { AppTheme::accent_blue() } else { AppTheme::bg_panel() })
-                            .min_size(egui::vec2(110.0, 26.0));
+                            .min_size(egui::vec2(cols[0].available_width(), 26.0));
 
-                            if ui.add(in_btn).on_hover_text("Apply transition when the clip starts").clicked() {
+                            if cols[0].add(in_btn).on_hover_text("Apply transition when the clip starts").clicked() {
                                 selected_slot = TransitionSlot::In;
-                                ui.data_mut(|d| d.insert_temp(slot_id, selected_slot));
+                                cols[0].data_mut(|d| d.insert_temp(slot_id, selected_slot));
                             }
 
                             let out_btn = Button::new(
@@ -93,11 +93,11 @@ impl TransitionBinView {
                                     .color(if out_active { Color32::WHITE } else { AppTheme::text_secondary() }),
                             )
                             .fill(if out_active { AppTheme::accent_blue() } else { AppTheme::bg_panel() })
-                            .min_size(egui::vec2(110.0, 26.0));
+                            .min_size(egui::vec2(cols[1].available_width(), 26.0));
 
-                            if ui.add(out_btn).on_hover_text("Apply transition when the clip finishes").clicked() {
+                            if cols[1].add(out_btn).on_hover_text("Apply transition when the clip finishes").clicked() {
                                 selected_slot = TransitionSlot::Out;
-                                ui.data_mut(|d| d.insert_temp(slot_id, selected_slot));
+                                cols[1].data_mut(|d| d.insert_temp(slot_id, selected_slot));
                             }
                         });
 
@@ -195,20 +195,27 @@ impl TransitionBinView {
                             );
                         }
                     } else {
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                RichText::new("ℹ No Clip Selected")
-                                    .strong()
-                                    .size(13.0)
-                                    .color(AppTheme::text_secondary()),
-                            );
-                            ui.add_space(2.0);
-                            ui.label(
-                                RichText::new("Click a video clip on the timeline, then pick a transition style below.")
-                                    .size(12.0)
-                                    .color(AppTheme::text_muted()),
-                            );
-                        });
+                        Frame::none()
+                            .fill(AppTheme::bg_card())
+                            .rounding(Rounding::same(6.0))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(45, 50, 65)))
+                            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                            .show(ui, |ui| {
+                                                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new("ℹ No Clip Selected")
+                                            .strong()
+                                            .size(13.0)
+                                            .color(AppTheme::text_secondary()),
+                                    );
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        RichText::new("Click a video clip on the timeline, then pick a transition style below.")
+                                            .size(11.5)
+                                            .color(AppTheme::text_muted()),
+                                    );
+                                });
+                            });
                     }
                 });
 
@@ -217,7 +224,7 @@ impl TransitionBinView {
             ui.add_space(6.0);
 
             // Catalog of 18 Transition Presets grouped by category
-            ScrollArea::vertical().show(ui, |ui| {
+            ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 let categories = [
                     (
                         "✨ Dissolves & Fades",
@@ -320,7 +327,7 @@ impl TransitionBinView {
                             .size(13.0)
                             .color(AppTheme::accent_yellow()),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(3.0);
 
                     for (kind, desc) in items {
                         let is_active = selected_clip
@@ -332,93 +339,13 @@ impl TransitionBinView {
                             .map(|t| t.kind == *kind)
                             .unwrap_or(false);
 
-                        let card_bg = if is_active {
-                            Color32::from_rgb(35, 45, 60)
-                        } else {
-                            AppTheme::bg_card()
-                        };
-
-                        let border_stroke = if is_active {
-                            Stroke::new(1.5, AppTheme::accent_yellow())
-                        } else {
-                            Stroke::new(1.0, Color32::from_rgb(45, 45, 55))
-                        };
-
-                        let resp = Frame::none()
-                            .fill(card_bg)
-                            .rounding(Rounding::same(6.0))
-                            .stroke(border_stroke)
-                            .inner_margin(8.0)
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(kind.label())
-                                                    .strong()
-                                                    .size(13.0)
-                                                    .color(if is_active {
-                                                        AppTheme::accent_yellow()
-                                                    } else {
-                                                        Color32::WHITE
-                                                    }),
-                                            );
-                                            if is_active {
-                                                ui.label(
-                                                    RichText::new("✓ APPLIED")
-                                                        .size(10.0)
-                                                        .strong()
-                                                        .color(AppTheme::accent_yellow()),
-                                                );
-                                            }
-                                        });
-                                        ui.label(
-                                            RichText::new(*desc)
-                                                .size(11.0)
-                                                .color(AppTheme::text_muted()),
-                                        );
-                                    });
-
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            let apply_label = if is_active { "Active" } else { "Apply" };
-                                            let btn = Button::new(
-                                                RichText::new(apply_label)
-                                                    .size(12.0)
-                                                    .color(Color32::WHITE)
-                                                    .strong(),
-                                            )
-                                            .fill(if is_active {
-                                                AppTheme::accent_green()
-                                            } else {
-                                                AppTheme::accent_blue()
-                                            })
-                                            .min_size(egui::vec2(54.0, 26.0));
-
-                                            if ui.add(btn).clicked() {
-                                                if let Some(clip) = &selected_clip {
-                                                    let current_dur = match selected_slot {
-                                                        TransitionSlot::In => clip.start_transition().map(|t| t.duration_secs).unwrap_or(0.5),
-                                                        TransitionSlot::Out => clip.end_transition().map(|t| t.duration_secs).unwrap_or(0.5),
-                                                    };
-                                                    action = TransitionBinAction::SetTransition {
-                                                        clip_id: clip.id,
-                                                        slot: selected_slot,
-                                                        transition: Some(Transition {
-                                                            kind: *kind,
-                                                            duration_secs: current_dur,
-                                                        }),
-                                                    };
-                                                }
-                                            }
-                                        },
-                                    );
-                                });
-                            });
-
-                        // Clicking anywhere on the card applies the transition if a clip is selected
-                        if resp.response.interact(egui::Sense::click()).clicked() {
+                        if crate::ui::components::ActionRowCard::render(
+                            ui,
+                            kind.icon(),
+                            kind.label(),
+                            desc,
+                            is_active,
+                        ) {
                             if let Some(clip) = &selected_clip {
                                 let current_dur = match selected_slot {
                                     TransitionSlot::In => clip.start_transition().map(|t| t.duration_secs).unwrap_or(0.5),
@@ -435,12 +362,11 @@ impl TransitionBinView {
                             }
                         }
 
-                        ui.add_space(4.0);
+                        ui.add_space(3.0);
                     }
 
-                    ui.add_space(6.0);
-                }
-            });
+                    ui.add_space(5.0);
+                }            });
         });
 
         action

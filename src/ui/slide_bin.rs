@@ -1,7 +1,8 @@
 use crate::VideoEditorApp;
+use crate::core::calendar_gen::{CalendarMonth, CustomCalendarEvent, HolidayCategory};
 use crate::core::text_overlay::{SlideBackground, SlideElement, TextBoxStyle};
 use crate::ui::theme::AppTheme;
-use crate::ui::{SlideBinAction, SlideElementDrag};
+use crate::ui::SlideBinAction;
 use egui::{Button, Color32, RichText, Ui};
 use std::path::Path;
 
@@ -20,10 +21,42 @@ impl SlideBinView {
                             .fill(AppTheme::accent_green())
                             .min_size(egui::vec2(ui.available_width(), 34.0)),
                     )
-                    .on_hover_text("Insert a blank 3-second slide to fill with pictures, videos, text and audio")
+                    .on_hover_text("Insert a blank 5-second slide to fill with pictures, videos, text and audio")
                     .clicked()
                 {
-                    action = SlideBinAction::AddBlankSlide { duration: 3.0 };
+                    action = SlideBinAction::AddBlankSlide { duration: 5.0 };
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("📋 Preset Slide Layouts")
+                    .size(12.5)
+                    .strong()
+                    .color(AppTheme::accent_cyan()),
+            );
+            ui.add_space(2.0);
+
+            ui.columns(3, |cols| {
+                let btn_t2 = Button::new(RichText::new("📰 Title+2").size(10.5).strong())
+                    .fill(AppTheme::bg_card())
+                    .min_size(egui::vec2(cols[0].available_width(), 26.0));
+                if cols[0].add(btn_t2).on_hover_text("Apply Title + 2 Media layout to the active slide").clicked() {
+                    action = SlideBinAction::ApplyTemplateTitle2MediaToActive;
+                }
+
+                let btn_t4 = Button::new(RichText::new("🪟 4 Grid").size(10.5).strong())
+                    .fill(AppTheme::bg_card())
+                    .min_size(egui::vec2(cols[1].available_width(), 26.0));
+                if cols[1].add(btn_t4).on_hover_text("Apply Title + 4 Grid layout to the active slide").clicked() {
+                    action = SlideBinAction::ApplyTemplateTitle4MediaToActive;
+                }
+
+                let btn_sc = Button::new(RichText::new("🌟 Show").size(10.5).strong())
+                    .fill(AppTheme::bg_card())
+                    .min_size(egui::vec2(cols[2].available_width(), 26.0));
+                if cols[2].add(btn_sc).on_hover_text("Apply Feature Showcase layout to the active slide").clicked() {
+                    action = SlideBinAction::ApplyTemplateShowcaseToActive;
                 }
             });
 
@@ -31,118 +64,440 @@ impl SlideBinView {
             ui.separator();
             ui.add_space(6.0);
 
-            let active = app.active_slide().cloned();
-            match active {
-                Some(clip) => {
-                    ui.label(
-                        RichText::new(format!("🎬 Editing slide: {}", clip.name))
-                            .size(13.0)
-                            .strong()
-                            .color(AppTheme::accent_yellow()),
-                    );
-                    ui.add_space(6.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                egui::CollapsingHeader::new(RichText::new("⚙️ Calendar & Holiday Settings").size(12.5).strong().color(AppTheme::accent_yellow()))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        Self::render_calendar_config_panel(ui, app, &mut action, false);
+                    });
 
-                    // Add Tools row
-                    Self::render_add_tools(ui, app, &mut action);
-                    ui.add_space(6.0);
-                    ui.separator();
-                    ui.add_space(6.0);
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
 
-                    // Context-aware inspector: check if an element is selected on canvas
-                    let sel_idx = app.selected_slide_element;
-                    if let Some(idx) = sel_idx {
-                        if let Some(element) = clip.elements.get(idx) {
-                            Self::render_selected_element_inspector(ui, idx, element, &mut action);
+                let active = app.active_slide().cloned();
+                match active {
+                    Some(clip) => {
+                        ui.label(
+                            RichText::new(format!("🎬 Editing slide: {}", clip.name))
+                                .size(13.0)
+                                .strong()
+                                .color(AppTheme::accent_yellow()),
+                        );
+                        ui.add_space(6.0);
+
+                        Self::render_add_tools(ui, app, &mut action);
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        let sel_idx = app.selected_slide_element;
+                        if let Some(idx) = sel_idx {
+                            if let Some(element) = clip.elements.get(idx) {
+                                Self::render_selected_element_inspector(ui, idx, element, app, &mut action);
+                            } else {
+                                Self::render_slide_background_and_overview(ui, &clip, app, &mut action);
+                            }
                         } else {
                             Self::render_slide_background_and_overview(ui, &clip, app, &mut action);
                         }
-                    } else {
-                        Self::render_slide_background_and_overview(ui, &clip, app, &mut action);
+                    }
+                    None => {
+                        ui.add_space(16.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                RichText::new("🎨 No slide selected")
+                                    .size(14.0)
+                                    .strong()
+                                    .color(AppTheme::text_secondary()),
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new("Click 'Add Blank Slide' above, or select a clip on the timeline, to start editing.")
+                                    .size(12.0)
+                                    .color(AppTheme::text_muted()),
+                            );
+                        });
                     }
                 }
-                None => {
-                    ui.add_space(16.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            RichText::new("🎨 No slide selected")
-                                .size(14.0)
-                                .strong()
-                                .color(AppTheme::text_secondary()),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(
-                            RichText::new("Click 'Add Blank Slide' above, or select a clip on the timeline, to start editing.")
-                                .size(12.0)
-                                .color(AppTheme::text_muted()),
-                        );
-                    });
-                }
-            }
+            });
         });
 
         action
     }
 
-    fn render_add_tools(ui: &mut Ui, app: &mut VideoEditorApp, action: &mut SlideBinAction) {
-        ui.label(
-            RichText::new("Slide Tools:").size(12.5).strong().color(Color32::WHITE),
-        );
+    /// Comprehensive Calendar and Holiday Configuration Panel
+    pub fn render_calendar_config_panel(
+        ui: &mut Ui,
+        app: &mut VideoEditorApp,
+        action: &mut SlideBinAction,
+        in_element_inspector: bool,
+    ) {
+        ui.vertical(|ui| {
+            // 1. Months in Slide Selector (Clean row layout, never cut off)
+            ui.label(RichText::new("Months in Slide:").size(12.0).strong().color(AppTheme::text_primary()));
+            ui.add_space(2.0);
+            ui.columns(3, |cols| {
+                for (idx, count) in [1, 2, 3].iter().enumerate() {
+                    let label = format!("{} Month{}", count, if *count > 1 { "s" } else { "" });
+                    let is_active = app.calendar_month_count == *count;
+                    let btn = Button::new(RichText::new(label).size(11.0).strong())
+                        .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                        .min_size(egui::vec2(cols[idx].available_width(), 26.0));
+                    if cols[idx].add(btn).clicked() {
+                        app.calendar_month_count = *count;
+                        if in_element_inspector {
+                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                        }
+                    }
+                }
+            });
 
-        // Click to add text: arm placement
-        if ui
-            .add(
-                Button::new(RichText::new("✏️  Add Text Box").size(12.5).strong())
-                    .min_size(egui::vec2(ui.available_width(), 30.0))
-                    .fill(if app.pending_place.is_some() { AppTheme::accent_blue() } else { AppTheme::bg_card() }),
+            ui.add_space(5.0);
+
+            // 2. Direct Add Calendar to Slide (Full-width button, NEVER cut off)
+            let add_btn = Button::new(
+                RichText::new("➕ Add Calendar to Slide")
+                    .size(12.5)
+                    .strong()
+                    .color(Color32::WHITE),
             )
-            .on_hover_text("Click here, then click anywhere on the slide canvas to place text")
-            .clicked()
-        {
-            let mut overlay = app.text_draft.clone();
-            if overlay.text.trim().is_empty() {
-                overlay.text = "Click to edit text".to_string();
-            }
-            *action = SlideBinAction::ArmPlace(crate::ui::PendingElement::Text(overlay));
-        }
+            .fill(AppTheme::accent_green())
+            .min_size(egui::vec2(ui.available_width(), 30.0));
 
-        ui.horizontal(|ui| {
-            if ui
-                .add(Button::new(RichText::new("🖼 Pick Photo").size(12.0)).min_size(egui::vec2((ui.available_width() - 6.0) / 2.0, 28.0)))
+            if ui.add(add_btn)
+                .on_hover_text("Add or update the calendar grid on the active slide")
                 .clicked()
             {
-                if let Some(p) = crate::media::probe::create_media_file_dialog().pick_file() {
-                    *action = SlideBinAction::ArmPlace(crate::ui::PendingElement::Picture(p));
-                }
+                *action = SlideBinAction::ApplyTemplateCalendarSlideToActive {
+                    year: app.calendar_year,
+                    start_month: app.calendar_start_month,
+                    month_count: app.calendar_month_count,
+                    show_holidays: app.calendar_show_holidays,
+                };
             }
-            if ui
-                .add(Button::new(RichText::new("🎞 Pick Video").size(12.0)).min_size(egui::vec2(ui.available_width(), 28.0)))
-                .clicked()
-            {
-                if let Some(p) = crate::media::probe::create_media_file_dialog().pick_file() {
-                    *action = SlideBinAction::ArmPlace(crate::ui::PendingElement::Video(p));
-                }
-            }
-        });
 
-        ui.horizontal(|ui| {
-            if ui
-                .add(Button::new(RichText::new("🎵 Add Audio").size(12.0)).min_size(egui::vec2(ui.available_width(), 28.0)))
-                .on_hover_text("Add a music/sound file that plays during this slide")
-                .clicked()
-            {
-                if let Some(p) = crate::media::probe::create_media_file_dialog().pick_file() {
-                    *action = SlideBinAction::AddAudioElement(p);
-                }
-            }
-        });
+            ui.add_space(5.0);
 
-        if app.pending_place.is_some() {
+            // 3. Full-Year 12-Month Calendar & Print Buttons (2 equal columns)
+            ui.columns(2, |cols| {
+                let full_year_btn = Button::new(RichText::new("📅 12-Month").size(11.0).strong().color(Color32::WHITE))
+                    .fill(Color32::from_rgb(40, 70, 120))
+                    .min_size(egui::vec2(cols[0].available_width(), 26.0));
+                if cols[0].add(full_year_btn)
+                    .on_hover_text("Generate calendar slides covering the entire year based on Months in Slide")
+                    .clicked()
+                {
+                    *action = SlideBinAction::Generate12MonthCalendar {
+                        year: app.calendar_year,
+                        month_count: app.calendar_month_count,
+                        show_holidays: app.calendar_show_holidays,
+                    };
+                }
+
+                let print_btn = Button::new(RichText::new("🖨 Print").size(11.0).color(AppTheme::accent_green()))
+                    .fill(AppTheme::bg_card())
+                    .min_size(egui::vec2(cols[1].available_width(), 26.0));
+                if cols[1].add(print_btn)
+                    .on_hover_text("Export high-resolution landscape printable wall calendar sheets")
+                    .clicked()
+                {
+                    *action = SlideBinAction::OpenCalendarExportDialog;
+                }
+            });
+
+            ui.add_space(6.0);
+
+            // 2. Year & Start Month Selectors
             ui.add_space(4.0);
-            ui.label(
-                RichText::new("👆 Now click on the preview canvas to place it.")
-                    .size(12.0)
-                    .color(AppTheme::accent_cyan()),
-            );
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Year:").size(11.5).color(AppTheme::text_secondary()));
+                if ui.button("◀").clicked() {
+                    app.calendar_year -= 1;
+                    app.calendar_holidays = CalendarMonth::default_holidays_for_year(app.calendar_year);
+                    if in_element_inspector {
+                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                    }
+                }
+                ui.label(RichText::new(format!("{}", app.calendar_year)).size(13.0).strong().color(Color32::WHITE));
+                if ui.button("▶").clicked() {
+                    app.calendar_year += 1;
+                    app.calendar_holidays = CalendarMonth::default_holidays_for_year(app.calendar_year);
+                    if in_element_inspector {
+                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                    }
+                }
+            });
+
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Start:").size(11.5).color(AppTheme::text_secondary()));
+                egui::ComboBox::from_id_salt("cal_start_month_select")
+                    .selected_text(RichText::new(CalendarMonth::name_for_month(app.calendar_start_month)).size(11.5))
+                    .width(ui.available_width().min(160.0))
+                    .show_ui(ui, |ui| {
+                        for m in 1..=12 {
+                            let is_sel = app.calendar_start_month == m;
+                            if ui.selectable_label(is_sel, CalendarMonth::name_for_month(m)).clicked() {
+                                app.calendar_start_month = m;
+                                if in_element_inspector {
+                                    *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                }
+                            }
+                        }
+                    });
+            });
+
+            // 3. Master Holiday Toggle & Quick Actions
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut app.calendar_show_holidays, RichText::new("Show Holidays on Calendar").size(12.0).strong().color(AppTheme::accent_yellow())).changed() {
+                    if in_element_inspector {
+                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                    }
+                }
+            });
+
+            if app.calendar_show_holidays {
+                ui.add_space(4.0);
+                ui.columns(3, |cols| {
+                    if cols[0].add(Button::new(RichText::new("🇺🇸 All US").size(10.5)).min_size(egui::vec2(cols[0].available_width(), 22.0))).clicked() {
+                        for h in &mut app.calendar_holidays {
+                            if h.category == HolidayCategory::American {
+                                h.enabled = true;
+                            }
+                        }
+                        if in_element_inspector {
+                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                        }
+                    }
+                    if cols[1].add(Button::new(RichText::new("🧧 All Chinese").size(10.5)).min_size(egui::vec2(cols[1].available_width(), 22.0))).clicked() {
+                        for h in &mut app.calendar_holidays {
+                            if h.category == HolidayCategory::Chinese {
+                                h.enabled = true;
+                            }
+                        }
+                        if in_element_inspector {
+                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                        }
+                    }
+                    if cols[2].add(Button::new(RichText::new("🔄 Reset").size(10.5)).min_size(egui::vec2(cols[2].available_width(), 22.0))).clicked() {
+                        app.calendar_holidays = CalendarMonth::default_holidays_for_year(app.calendar_year);
+                        if in_element_inspector {
+                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                        }
+                    }
+                });
+                ui.add_space(2.0);
+                if ui.add(Button::new(RichText::new("✖ Clear All").size(10.5)).min_size(egui::vec2(ui.available_width(), 22.0))).clicked() {
+                    for h in &mut app.calendar_holidays {
+                        h.enabled = false;
+                    }
+                    if in_element_inspector {
+                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                    }
+                }
+
+                ui.add_space(4.0);
+
+                // Collapsible 🇺🇸 American Holidays
+                egui::CollapsingHeader::new(RichText::new("🇺🇸 American Holidays").size(11.5).strong().color(Color32::from_rgb(140, 180, 255)))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for h in &mut app.calendar_holidays {
+                            if h.category == HolidayCategory::American {
+                                ui.horizontal(|ui| {
+                                    if ui.checkbox(&mut h.enabled, &h.name).changed() && in_element_inspector {
+                                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                    }
+                                    let mut col = h.color32();
+                                    if ui.color_edit_button_srgba(&mut col).changed() {
+                                        h.set_color32(col);
+                                        if in_element_inspector {
+                                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+
+                // Collapsible 🧧 Chinese Festivals
+                egui::CollapsingHeader::new(RichText::new("🧧 Chinese Festivals & Holidays").size(11.5).strong().color(Color32::from_rgb(255, 100, 100)))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for h in &mut app.calendar_holidays {
+                            if h.category == HolidayCategory::Chinese {
+                                ui.horizontal(|ui| {
+                                    if ui.checkbox(&mut h.enabled, &h.name).changed() && in_element_inspector {
+                                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                    }
+                                    let mut col = h.color32();
+                                    if ui.color_edit_button_srgba(&mut col).changed() {
+                                        h.set_color32(col);
+                                        if in_element_inspector {
+                                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+
+                // Collapsible ⭐ Custom Family Events
+                egui::CollapsingHeader::new(RichText::new("⭐ Custom Family Events & Birthdays").size(11.5).strong().color(Color32::from_rgb(255, 215, 0)))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let mut to_remove = None;
+                        for (i, ev) in app.calendar_custom_events.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format!("{} {}: {}", CalendarMonth::short_name_for_month(ev.month), ev.day, ev.label)).size(11.0));
+                                let mut c = Color32::from_rgba_premultiplied(ev.color[0], ev.color[1], ev.color[2], ev.color[3]);
+                                if ui.color_edit_button_srgba(&mut c).changed() {
+                                    ev.color = [c.r(), c.g(), c.b(), c.a()];
+                                    if in_element_inspector {
+                                        *action = SlideBinAction::UpdateActiveCalendarSlide;
+                                    }
+                                }
+                                if ui.button("🗑").clicked() {
+                                    to_remove = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = to_remove {
+                            app.calendar_custom_events.remove(i);
+                            if in_element_inspector {
+                                *action = SlideBinAction::UpdateActiveCalendarSlide;
+                            }
+                        }
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Month:");
+                            ui.add(egui::DragValue::new(&mut app.new_custom_event_month).range(1..=12));
+                            ui.label("Day:");
+                            ui.add(egui::DragValue::new(&mut app.new_custom_event_day).range(1..=31));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut app.new_custom_event_label).hint_text("Grandma's Birthday"));
+                            let mut c = Color32::from_rgba_premultiplied(app.new_custom_event_color[0], app.new_custom_event_color[1], app.new_custom_event_color[2], app.new_custom_event_color[3]);
+                            if ui.color_edit_button_srgba(&mut c).changed() {
+                                app.new_custom_event_color = [c.r(), c.g(), c.b(), c.a()];
+                            }
+                        });
+                        if ui.button("➕ Add Custom Event").clicked() && !app.new_custom_event_label.is_empty() {
+                            app.calendar_custom_events.push(CustomCalendarEvent {
+                                month: app.new_custom_event_month,
+                                day: app.new_custom_event_day,
+                                label: app.new_custom_event_label.clone(),
+                                color: app.new_custom_event_color,
+                            });
+                            app.new_custom_event_label = "Family Event".to_string();
+                            if in_element_inspector {
+                                *action = SlideBinAction::UpdateActiveCalendarSlide;
+                            }
+                        }
+                    });
+            }
+
+            // 4. Update / Re-render Action Button
+            if in_element_inspector {
+                ui.add_space(6.0);
+                let update_btn = Button::new(RichText::new("🔄 Re-render Calendar on Slide").strong().color(Color32::WHITE))
+                    .fill(AppTheme::accent_blue())
+                    .min_size(egui::vec2(ui.available_width(), 28.0));
+                if ui.add(update_btn).clicked() {
+                    *action = SlideBinAction::UpdateActiveCalendarSlide;
+                }
+            }
+        });
+    }
+
+    fn render_add_tools(ui: &mut Ui, _app: &mut VideoEditorApp, action: &mut SlideBinAction) {
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add(Button::new(RichText::new("🔤 Add Text Box").size(12.0).strong().color(Color32::WHITE)).fill(AppTheme::accent_blue()))
+                .on_hover_text("Add words or titles to the current slide")
+                .clicked()
+            {
+                let mut overlay = crate::core::text_overlay::TextOverlay::new("Type text here");
+                overlay.x = 0.5;
+                overlay.y = 0.5;
+                overlay.font_size = 28.0;
+                overlay.alignment = crate::core::text_overlay::TextAlignment::Center;
+                overlay.box_style = TextBoxStyle::TranslucentBox;
+                *action = SlideBinAction::AddTextElement(overlay);
+            }
+        });
+    }
+
+    fn render_slide_background_and_overview(
+        ui: &mut Ui,
+        clip: &crate::core::Clip,
+        _app: &mut VideoEditorApp,
+        action: &mut SlideBinAction,
+    ) {
+        ui.label(RichText::new("🎨 Slide Background Color").size(12.5).strong().color(AppTheme::accent_cyan()));
+        ui.add_space(4.0);
+
+        let colors: [(&str, Color32); 16] = [
+            ("Dark Slate", Color32::from_rgb(18, 20, 24)),
+            ("Pure Black", Color32::BLACK),
+            ("Charcoal", Color32::from_rgb(32, 34, 38)),
+            ("Deep Navy", Color32::from_rgb(15, 23, 42)),
+            ("Midnight Blue", Color32::from_rgb(10, 15, 30)),
+            ("Emerald Green", Color32::from_rgb(6, 78, 59)),
+            ("Forest Green", Color32::from_rgb(20, 83, 45)),
+            ("Wine Red", Color32::from_rgb(136, 19, 55)),
+            ("Crimson", Color32::from_rgb(159, 18, 57)),
+            ("Deep Purple", Color32::from_rgb(88, 28, 135)),
+            ("Royal Violet", Color32::from_rgb(107, 33, 168)),
+            ("Hot Pink", Color32::from_rgb(190, 24, 93)),
+            ("Pastel Pink", Color32::from_rgb(244, 114, 182)),
+            ("Amber Gold", Color32::from_rgb(180, 83, 9)),
+            ("Bright Yellow", Color32::from_rgb(234, 179, 8)),
+            ("Clean White", Color32::WHITE),
+        ];
+
+        ui.horizontal_wrapped(|ui| {
+            for (label, col) in colors {
+                let is_current = match &clip.background {
+                    Some(SlideBackground::Solid(c)) => *c == col,
+                    _ => false,
+                };
+                let btn = Button::new("").fill(col).min_size(egui::vec2(22.0, 22.0)).stroke(egui::Stroke::new(
+                    if is_current { 2.5 } else { 0.5 },
+                    if is_current { AppTheme::accent_cyan() } else { Color32::from_white_alpha(40) },
+                ));
+                if ui.add(btn).on_hover_text(label).clicked() {
+                    *action = SlideBinAction::SetActiveBackground(SlideBackground::Solid(col));
+                }
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.label(RichText::new(format!("📑 Slide Elements ({})", clip.elements.len())).size(12.5).strong().color(AppTheme::accent_cyan()));
+        ui.add_space(4.0);
+
+        if clip.elements.is_empty() {
+            ui.label(RichText::new("Drag & drop photos or videos from Files panel onto the preview canvas to add them here.")
+                .size(11.5).color(AppTheme::text_muted()));
+        } else {
+            for (idx, el) in clip.elements.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let desc = match el {
+                        SlideElement::Text(t) => format!("🔤 Text: \"{}\"", t.text.lines().next().unwrap_or("")),
+                        SlideElement::Calendar(c) => format!("📅 Calendar: {} {}", CalendarMonth::name_for_month(c.start_month), c.year),
+                        SlideElement::Picture { path, .. } => format!("🖼 Picture: {}", file_label(path)),
+                        SlideElement::Video { path, .. } => format!("🎬 Video: {}", file_label(path)),
+                        SlideElement::Audio { path, .. } => format!("🎵 Audio: {}", file_label(path)),
+                        SlideElement::Placeholder { slot_id, label, .. } => format!("➕ Slot #{}: {}", slot_id, label),
+                    };
+                    if ui.button(desc).clicked() {
+                        *action = SlideBinAction::SelectElement(Some(idx));
+                    }
+                });
+            }
         }
     }
 
@@ -150,16 +505,17 @@ impl SlideBinView {
         ui: &mut Ui,
         idx: usize,
         element: &SlideElement,
+        app: &mut VideoEditorApp,
         action: &mut SlideBinAction,
     ) {
         match element {
-            SlideElement::Text(overlay) => {
-                let mut updated = overlay.clone();
+            SlideElement::Calendar(cal) => {
+                let mut updated = cal.clone();
                 let mut changed = false;
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("✏️ Selected Text")
+                        RichText::new("📅 Selected Calendar Box")
                             .size(13.0)
                             .strong()
                             .color(AppTheme::accent_cyan()),
@@ -172,13 +528,147 @@ impl SlideBinView {
                 });
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Text Words:").size(11.5).color(AppTheme::text_secondary()));
+                // Months in Slide: 1, 2, 3
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Months:").size(11.5).strong().color(AppTheme::text_secondary()));
+                    for count in [1, 2, 3] {
+                        let label = format!("{} Month{}", count, if count > 1 { "s" } else { "" });
+                        let is_active = updated.month_count == count;
+                        let btn = Button::new(RichText::new(label).size(10.5).strong())
+                            .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() });
+                        if ui.add(btn).clicked() {
+                            updated.month_count = count;
+                            changed = true;
+                        }
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Year & Starting Month
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Year:").size(11.5).color(AppTheme::text_secondary()));
+                    if ui.button("◀").clicked() {
+                        updated.year -= 1;
+                        updated.holidays = CalendarMonth::default_holidays_for_year(updated.year);
+                        changed = true;
+                    }
+                    ui.label(RichText::new(format!("{}", updated.year)).size(12.5).strong().color(Color32::WHITE));
+                    if ui.button("▶").clicked() {
+                        updated.year += 1;
+                        updated.holidays = CalendarMonth::default_holidays_for_year(updated.year);
+                        changed = true;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Start:").size(11.5).color(AppTheme::text_secondary()));
+                    egui::ComboBox::from_id_salt("cal_insp_month_combo")
+                        .selected_text(CalendarMonth::name_for_month(updated.start_month))
+                        .show_ui(ui, |ui| {
+                            for m in 1..=12 {
+                                let is_sel = updated.start_month == m;
+                                if ui.selectable_label(is_sel, CalendarMonth::name_for_month(m)).clicked() {
+                                    updated.start_month = m;
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+                ui.add_space(2.0);
+
+                // Toggle Holidays
+                if ui.checkbox(&mut updated.show_holidays, "Show Holidays on Calendar").changed() {
+                    changed = true;
+                }
+                ui.add_space(4.0);
+
+                // Position & Size Steppers
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("X:").size(11.0).color(AppTheme::text_muted()));
+                    if ui.add(egui::DragValue::new(&mut updated.x).speed(0.01).range(0.0..=1.0)).changed() {
+                        changed = true;
+                    }
+                    ui.label(RichText::new("Y:").size(11.0).color(AppTheme::text_muted()));
+                    if ui.add(egui::DragValue::new(&mut updated.y).speed(0.01).range(0.0..=1.0)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("W:").size(11.0).color(AppTheme::text_muted()));
+                    if ui.add(egui::DragValue::new(&mut updated.w).speed(0.01).range(0.05..=1.0)).changed() {
+                        changed = true;
+                    }
+                    ui.label(RichText::new("H:").size(11.0).color(AppTheme::text_muted()));
+                    if ui.add(egui::DragValue::new(&mut updated.h).speed(0.01).range(0.05..=1.0)).changed() {
+                        changed = true;
+                    }
+                });
+
+                if changed {
+                    *action = SlideBinAction::UpdateElement {
+                        idx,
+                        element: SlideElement::Calendar(updated),
+                    };
+                }
+            }
+            SlideElement::Text(overlay) => {
+                let mut updated = overlay.clone();
+                let mut changed = false;
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("✏️ Selected Text / Calendar")
+                            .size(13.0)
+                            .strong()
+                            .color(AppTheme::accent_cyan()),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("✖ Deselect").clicked() {
+                            *action = SlideBinAction::SelectElement(None);
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+
+                // Quick Sizing Presets & Slider
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Size:").size(11.5).strong().color(AppTheme::text_secondary()));
+                    for (label, sz) in [("S (14)", 14.0), ("M (18)", 18.0), ("L (24)", 24.0), ("XL (32)", 32.0)] {
+                        let is_active = (updated.font_size - sz).abs() < 1.0;
+                        if ui.add(Button::new(RichText::new(label).size(10.5)).fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
+                            updated.font_size = sz;
+                            changed = true;
+                        }
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Scale Slider:").size(11.0).color(AppTheme::text_muted()));
+                    crate::ui::small_slider(ui, 12.0, |ui| {
+                        if ui.add_sized([120.0, 12.0], egui::Slider::new(&mut updated.font_size, 10.0..=60.0).step_by(1.0)).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+                ui.label(RichText::new("Text Words / Grid:").size(11.5).color(AppTheme::text_secondary()));
                 let text_resp = ui.add_sized(
-                    [ui.available_width(), 50.0],
+                    [ui.available_width(), 60.0],
                     egui::TextEdit::multiline(&mut updated.text).hint_text("Type words..."),
                 );
                 if text_resp.changed() {
                     changed = true;
+                }
+
+                // If this text element appears to be a calendar grid, show the full Calendar & Holiday settings panel
+                let looks_like_calendar = updated.text.contains("Sun") && updated.text.contains("Mon");
+                if looks_like_calendar {
+                    ui.add_space(6.0);
+                    egui::CollapsingHeader::new(RichText::new("🗓 Calendar & Holiday Controls").size(12.0).strong().color(AppTheme::accent_yellow()))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            Self::render_calendar_config_panel(ui, app, action, true);
+                        });
                 }
 
                 ui.add_space(4.0);
@@ -194,15 +684,6 @@ impl SlideBinView {
                             }
                         }
                     });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Size:").size(11.5).color(AppTheme::text_secondary()));
-                    crate::ui::small_slider(ui, 12.0, |ui| {
-                        if ui.add_sized([90.0, 12.0], egui::Slider::new(&mut updated.font_size, 14.0..=120.0).step_by(2.0)).changed() {
-                            changed = true;
-                        }
-                    });
-                });
 
                 ui.horizontal(|ui| {
                     if ui
@@ -221,16 +702,7 @@ impl SlideBinView {
                     }
                     ui.add_space(4.0);
                     ui.label(RichText::new("Color:").size(11.5).color(AppTheme::text_secondary()));
-                    for c in [Color32::WHITE, Color32::from_rgb(15, 15, 15), Color32::from_rgb(0, 230, 255), Color32::from_rgb(255, 215, 90)] {
-                        if ui
-                            .add(Button::new("").fill(c).min_size(egui::vec2(18.0, 18.0)))
-                            .on_hover_text("Text colour")
-                            .clicked()
-                        {
-                            updated.text_color = c;
-                            changed = true;
-                        }
-                    }
+                    ui.color_edit_button_srgba(&mut updated.text_color);
                 });
 
                 ui.horizontal(|ui| {
@@ -281,26 +753,22 @@ impl SlideBinView {
                         }
                     });
                 });
-                ui.add_space(6.0);
-
+                ui.add_space(4.0);
+                let is_full = match element {
+                    SlideElement::Picture { x, y, w, h, .. } => *x == 0.0 && *y == 0.0 && *w == 1.0 && *h == 1.0,
+                    _ => false,
+                };
                 ui.horizontal(|ui| {
-                    if ui.button("⛶ Fill Entire Slide").clicked() {
+                    let full_lbl = if is_full { "🗗 Centered Box" } else { "⛶ Full Slide" };
+                    let full_btn = Button::new(RichText::new(full_lbl).size(12.0).strong().color(Color32::WHITE))
+                        .fill(if is_full { AppTheme::accent_blue() } else { AppTheme::accent_green() });
+                    if ui.add(full_btn).on_hover_text("Toggle between 100% full slide and centered collage box").clicked() {
                         *action = SlideBinAction::FullSlide(idx);
                     }
-                    if ui.button("🖼 Set as Slide Background").clicked() {
+                    if ui.button("🖼 Set as Background").clicked() {
                         *action = SlideBinAction::SetElementAsBackground(idx);
                     }
-                });
-
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui.button("⬆ Move Up").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: -1 };
-                    }
-                    if ui.button("⬇ Move Down").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: 1 };
-                    }
-                    if ui.button("🗑 Delete Picture").clicked() {
+                    if ui.button("🗑 Delete").clicked() {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
@@ -308,7 +776,7 @@ impl SlideBinView {
             SlideElement::Video { path, .. } => {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("🎞 Video: {}", file_label(path)))
+                        RichText::new(format!("🎬 Video: {}", file_label(path)))
                             .size(13.0)
                             .strong()
                             .color(AppTheme::accent_cyan()),
@@ -319,26 +787,25 @@ impl SlideBinView {
                         }
                     });
                 });
-                ui.add_space(6.0);
-
-                if ui.button("⛶ Fill Entire Slide").clicked() {
-                    *action = SlideBinAction::FullSlide(idx);
-                }
-
-                ui.add_space(6.0);
+                ui.add_space(4.0);
+                let is_full = match element {
+                    SlideElement::Video { x, y, w, h, .. } => *x == 0.0 && *y == 0.0 && *w == 1.0 && *h == 1.0,
+                    _ => false,
+                };
                 ui.horizontal(|ui| {
-                    if ui.button("⬆ Move Up").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: -1 };
+                    let full_lbl = if is_full { "🗗 Centered Box" } else { "⛶ Full Slide" };
+                    let full_btn = Button::new(RichText::new(full_lbl).size(12.0).strong().color(Color32::WHITE))
+                        .fill(if is_full { AppTheme::accent_blue() } else { AppTheme::accent_green() });
+                    if ui.add(full_btn).on_hover_text("Toggle between 100% full slide and centered collage box").clicked() {
+                        *action = SlideBinAction::FullSlide(idx);
                     }
-                    if ui.button("⬇ Move Down").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: 1 };
-                    }
-                    if ui.button("🗑 Delete Video").clicked() {
+                    if ui.button("🗑 Delete").clicked() {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
             }
             SlideElement::Audio { path, volume } => {
+                let mut vol = *volume;
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!("🎵 Audio: {}", file_label(path)))
@@ -355,222 +822,43 @@ impl SlideBinView {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Volume:").size(11.5).color(AppTheme::text_secondary()));
-                    let mut v = *volume;
-                    crate::ui::small_slider(ui, 12.0, |ui| {
-                        if ui.add_sized([100.0, 12.0], egui::Slider::new(&mut v, 0.0..=2.0)).changed() {
-                            *action = SlideBinAction::UpdateAudioVolume { idx, volume: v };
+                    if ui.add(egui::Slider::new(&mut vol, 0.0..=2.0).step_by(0.05)).changed() {
+                        *action = SlideBinAction::UpdateAudioVolume { idx, volume: vol };
+                    }
+                });
+                ui.add_space(4.0);
+                if ui.button("🗑 Delete Audio").clicked() {
+                    *action = SlideBinAction::RemoveElement(idx);
+                }
+            }
+            SlideElement::Placeholder { slot_id, label, .. } => {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("➕ Slot #{}: {}", slot_id, label))
+                            .size(13.0)
+                            .strong()
+                            .color(AppTheme::accent_yellow()),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("✖ Deselect").clicked() {
+                            *action = SlideBinAction::SelectElement(None);
                         }
                     });
                 });
-                if ui.button("🗑 Remove Audio").clicked() {
+                ui.add_space(4.0);
+                ui.label(RichText::new("Drag any photo or video from the Files tab and drop it directly onto this slot on the canvas.")
+                    .size(11.5).color(AppTheme::text_muted()));
+                ui.add_space(4.0);
+                if ui.button("🗑 Delete Slot").clicked() {
                     *action = SlideBinAction::RemoveElement(idx);
                 }
             }
         }
     }
-
-    fn render_slide_background_and_overview(
-        ui: &mut Ui,
-        clip: &crate::core::clip::Clip,
-        app: &mut VideoEditorApp,
-        action: &mut SlideBinAction,
-    ) {
-        Self::render_background(ui, action);
-        ui.add_space(6.0);
-        ui.separator();
-        ui.add_space(6.0);
-        Self::render_element_list(ui, clip, app, action);
-    }
-
-    fn render_background(ui: &mut Ui, action: &mut SlideBinAction) {
-        ui.label(
-            RichText::new("Slide Background:").size(12.5).strong().color(Color32::WHITE),
-        );
-        let swatches = [
-            ("⬛", Color32::from_rgb(12, 12, 16)),
-            ("⬜", Color32::from_rgb(240, 240, 245)),
-            ("🟦", Color32::from_rgb(15, 30, 60)),
-            ("🟨", Color32::from_rgb(40, 34, 12)),
-            ("🟥", Color32::from_rgb(55, 18, 25)),
-        ];
-        ui.horizontal_wrapped(|ui| {
-            for (lbl, col) in swatches {
-                if ui
-                    .add(Button::new(RichText::new(lbl).size(13.0)).fill(col).min_size(egui::vec2(30.0, 30.0)))
-                    .on_hover_text("Solid background colour")
-                    .clicked()
-                {
-                    *action = SlideBinAction::SetActiveBackground(SlideBackground::Solid(col));
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui
-                .add(Button::new(RichText::new("🖼 Pick Background Photo").size(12.0)))
-                .clicked()
-            {
-                if let Some(p) = crate::media::probe::create_media_file_dialog().pick_file() {
-                    *action = SlideBinAction::SetActiveBackground(SlideBackground::Picture(p));
-                }
-            }
-        });
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new("💡 Tip: Drag images/videos from Files panel directly onto the canvas.")
-                .size(11.0)
-                .color(AppTheme::text_muted()),
-        );
-    }
-
-    fn render_element_list(
-        ui: &mut Ui,
-        clip: &crate::core::clip::Clip,
-        app: &VideoEditorApp,
-        action: &mut SlideBinAction,
-    ) {
-        ui.label(
-            RichText::new("Items on this slide:").size(12.5).strong().color(Color32::WHITE),
-        );
-        if clip.elements.is_empty() {
-            ui.label(
-                RichText::new("Nothing here yet — click 'Add Text Box' or drag files onto the canvas.")
-                    .size(12.0)
-                    .color(AppTheme::text_muted()),
-            );
-            return;
-        }
-
-        let active_drag_idx = egui::DragAndDrop::payload::<SlideElementDrag>(ui.ctx()).map(|p| p.0);
-
-        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-            let render_slide_drop_slot = |ui: &mut Ui, target_idx: usize, action: &mut SlideBinAction| {
-                if let Some(_drag_from) = active_drag_idx {
-                    let (slot_rect, slot_resp) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), 22.0),
-                        egui::Sense::hover(),
-                    );
-                    let is_hovered = slot_resp.dnd_hover_payload::<SlideElementDrag>().is_some()
-                        || (slot_resp.hovered() && active_drag_idx.is_some());
-                    let sp = ui.painter_at(slot_rect);
-                    if is_hovered {
-                        sp.rect_filled(
-                            slot_rect,
-                            egui::Rounding::same(4.0),
-                            Color32::from_rgba_premultiplied(0, 140, 255, 45),
-                        );
-                        sp.rect_stroke(
-                            slot_rect,
-                            egui::Rounding::same(4.0),
-                            egui::Stroke::new(1.5, AppTheme::accent_blue()),
-                        );
-                        sp.text(
-                            slot_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            format!("⬇ Move to Layer #{}", target_idx + 1),
-                            egui::FontId::proportional(10.5),
-                            AppTheme::accent_blue(),
-                        );
-                    } else {
-                        sp.hline(
-                            slot_rect.x_range(),
-                            slot_rect.center().y,
-                            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 140, 255, 50)),
-                        );
-                    }
-                    if let Some(released) = slot_resp.dnd_release_payload::<SlideElementDrag>() {
-                        if released.0 != target_idx {
-                            *action = SlideBinAction::ReorderElementTo {
-                                from_idx: released.0,
-                                to_idx: target_idx,
-                            };
-                        }
-                    }
-                }
-            };
-
-            for (idx, el) in clip.elements.iter().enumerate() {
-                render_slide_drop_slot(ui, idx, action);
-
-                let is_sel = app.selected_slide_element == Some(idx);
-                let is_this_dragged = active_drag_idx == Some(idx);
-
-                ui.horizontal(|ui| {
-                    let label = match el {
-                        SlideElement::Text(o) => format!("✏️ Text: {}", o.text.lines().next().unwrap_or("")),
-                        SlideElement::Picture { path, .. } => format!("🖼 {}", file_label(path)),
-                        SlideElement::Video { path, .. } => format!("🎞 {}", file_label(path)),
-                        SlideElement::Audio { path, .. } => format!("🎵 {}", file_label(path)),
-                    };
-
-                    let handle_resp = ui.add(
-                        Button::new(RichText::new("⠿").size(12.0).color(if is_this_dragged { Color32::from_gray(80) } else { AppTheme::text_secondary() }))
-                            .frame(false)
-                    );
-                    let handle_resp = handle_resp.interact(egui::Sense::click_and_drag());
-                    handle_resp.dnd_set_drag_payload(SlideElementDrag(idx));
-                    if handle_resp.dragged() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    } else if handle_resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                    }
-
-                    let btn = Button::new(
-                        RichText::new(label)
-                            .size(11.5)
-                            .color(if is_this_dragged { Color32::from_gray(100) } else if is_sel { AppTheme::accent_yellow() } else { Color32::WHITE }),
-                    )
-                    .fill(if is_this_dragged { Color32::from_rgba_premultiplied(20, 24, 32, 140) } else if is_sel { AppTheme::bg_hover() } else { AppTheme::bg_card() });
-
-                    if ui.add(btn).on_hover_text("Click to select and format this item").clicked() {
-                        *action = SlideBinAction::SelectElement(Some(idx));
-                    }
-                    if ui.add(Button::new("⬆").frame(false)).clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: -1 };
-                    }
-                    if ui.add(Button::new("⬇").frame(false)).clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: 1 };
-                    }
-                    if ui.add(Button::new("🗑").frame(false)).clicked() {
-                        *action = SlideBinAction::RemoveElement(idx);
-                    }
-                });
-            }
-
-            if !clip.elements.is_empty() {
-                let last = clip.elements.len();
-                render_slide_drop_slot(ui, last, action);
-            }
-
-            // Floating drag ghost for slide elements
-            if let Some(drag_idx) = active_drag_idx {
-                if let Some(dragged_el) = clip.elements.get(drag_idx) {
-                    if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                        let ghost_size = egui::vec2(190.0, 32.0);
-                        let ghost_rect = egui::Rect::from_min_size(pointer_pos + egui::vec2(10.0, 10.0), ghost_size);
-                        let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dnd_ghost_slide_el")));
-                        painter.rect_filled(ghost_rect, egui::Rounding::same(6.0), Color32::from_rgba_premultiplied(24, 29, 40, 235));
-                        painter.rect_stroke(ghost_rect, egui::Rounding::same(6.0), egui::Stroke::new(1.5, AppTheme::accent_blue()));
-                        let ghost_label = match dragged_el {
-                            SlideElement::Text(o) => format!("✏️ Text: {}", o.text.lines().next().unwrap_or("")),
-                            SlideElement::Picture { path, .. } => format!("🖼 {}", file_label(path)),
-                            SlideElement::Video { path, .. } => format!("🎞 {}", file_label(path)),
-                            SlideElement::Audio { path, .. } => format!("🎵 {}", file_label(path)),
-                        };
-                        painter.text(
-                            egui::pos2(ghost_rect.min.x + 8.0, ghost_rect.center().y),
-                            egui::Align2::LEFT_CENTER,
-                            ghost_label,
-                            egui::FontId::proportional(11.5),
-                            AppTheme::accent_blue(),
-                        );
-                    }
-                }
-            }
-        });
-    }
 }
 
 fn file_label(p: &Path) -> String {
-    p.file_name().and_then(|n| n.to_str()).unwrap_or("File").to_string()
+    p.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.to_string_lossy().to_string())
 }
-

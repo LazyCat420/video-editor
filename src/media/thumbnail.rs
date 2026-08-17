@@ -39,7 +39,8 @@ pub fn extract_thumbnail<P: AsRef<Path>>(
     let path = media_path.as_ref();
     let ts_str = format!("{:.3}", timestamp_secs.max(0.0));
 
-    let output = Command::new("ffmpeg")
+    let ffmpeg_bin = crate::media::frame_cache::find_ffmpeg_executable();
+    let output = Command::new(&ffmpeg_bin)
         .args([
             "-ss",
             &ts_str,

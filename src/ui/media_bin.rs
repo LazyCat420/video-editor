@@ -138,7 +138,7 @@ impl MediaBinView {
                     let active_drag_id = egui::DragAndDrop::payload::<MediaAssetDrag>(ui.ctx()).map(|p| p.0);
 
                     let render_drop_slot = |ui: &mut Ui, target_index: usize, action: &mut MediaBinAction| {
-                        if let Some(drag_id) = active_drag_id {
+                        if active_drag_id.is_some() {
                             let (slot_rect, slot_resp) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), 28.0),
                                 egui::Sense::hover(),
@@ -173,12 +173,10 @@ impl MediaBinView {
                                 );
                             }
                             if let Some(released) = slot_resp.dnd_release_payload::<MediaAssetDrag>() {
-                                if released.0 != drag_id {
-                                    *action = MediaBinAction::ReorderAsset {
-                                        from_id: released.0,
-                                        to_index: target_index,
-                                    };
-                                }
+                                *action = MediaBinAction::ReorderAsset {
+                                    from_id: released.0,
+                                    to_index: target_index,
+                                };
                             }
                         }
                     };

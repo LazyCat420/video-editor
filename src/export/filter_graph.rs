@@ -220,6 +220,26 @@ pub fn build_ffmpeg_export_command(
                             filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
                             current = outl;
                         }
+                        SlideElement::Calendar(c) => {
+                            let mut text_overlay = TextOverlay::default();
+                            text_overlay.text = crate::core::calendar_gen::CalendarMonth::format_multi_month_string(
+                                c.year,
+                                c.start_month,
+                                c.month_count,
+                                c.show_holidays,
+                                crate::core::calendar_gen::CalendarStyle::BoxedGrid,
+                                &c.holidays,
+                                &c.custom_events,
+                            );
+                            text_overlay.x = c.x + c.w / 2.0;
+                            text_overlay.y = c.y + c.h / 2.0;
+                            text_overlay.font_family = crate::core::text_overlay::FontFamilyPreset::Monospace;
+                            text_overlay.box_style = crate::core::text_overlay::TextBoxStyle::TranslucentBox;
+                            let dt = build_drawtext_filter(&text_overlay, config);
+                            let outl = next_overlay_label();
+                            filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
+                            current = outl;
+                        }
                         _ => {}
                     }
                 }

@@ -33,6 +33,28 @@ pub enum TransitionKind {
 }
 
 impl TransitionKind {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::CrossFade => "🔀",
+            Self::DipToBlack => "⬛",
+            Self::DipToWhite => "⬜",
+            Self::WipeLeft => "⬅️",
+            Self::WipeRight => "➡️",
+            Self::WipeUp => "⬆️",
+            Self::WipeDown => "⬇️",
+            Self::SlideLeft => "◀️",
+            Self::SlideRight => "▶️",
+            Self::SlideUp => "🔼",
+            Self::SlideDown => "🔽",
+            Self::CircleOpen => "⭕",
+            Self::CircleClose => "🔘",
+            Self::Radial => "🕐",
+            Self::ZoomIn => "🔍",
+            Self::SqueezeHorizontal => "↔️",
+            Self::SmoothLeft => "💫",
+            Self::Pixelate => "👾",
+        }
+    }
     pub fn label(&self) -> &'static str {
         match self {
             Self::CrossFade => "Cross Fade",

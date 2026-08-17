@@ -81,10 +81,11 @@ impl TimelineView {
         let pps = timeline.zoom_pps;
 
         // Process global hotkeys
-        if ui.input(|i| i.key_pressed(Key::S) && !i.modifiers.ctrl && !i.modifiers.command) {
+        if ui.input(|i| i.key_pressed(Key::C) && !i.modifiers.ctrl && !i.modifiers.command) {
             action = TimelineAction::SplitAtPlayhead;
         }
-        if ui.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
+        // Only Delete key deletes selected clips on timeline (Backspace is reserved for text editing)
+        if ui.input(|i| i.key_pressed(Key::Delete)) {
             action = TimelineAction::DeleteSelected;
         }
 
@@ -181,7 +182,7 @@ impl TimelineView {
                 ui.separator();
 
                 let add_blank_btn = Button::new(
-                    RichText::new("➕ Add Blank Page")
+                    RichText::new("➕ Add Blank Slide")
                         .size(12.5)
                         .strong()
                         .color(Color32::WHITE),
@@ -191,7 +192,7 @@ impl TimelineView {
 
                 if ui
                     .add(add_blank_btn)
-                    .on_hover_text("Insert a blank page/slide at the playhead to build with drag & drop pictures, video, and text (PowerPoint style)")
+                    .on_hover_text("Insert a blank 3-second slide at the playhead to build with drag & drop pictures, video, and text (PowerPoint style)")
                     .clicked()
                 {
                     action = TimelineAction::AddBlankSlide { duration: 3.0 };
@@ -220,7 +221,7 @@ impl TimelineView {
 
                 if ui
                     .button(
-                        RichText::new("✂ Cut Video Here (S)")
+                        RichText::new("✂ Cut Video Here (C)")
                             .size(14.0)
                             .color(AppTheme::accent_blue()),
                     )
@@ -982,9 +983,15 @@ impl TimelineView {
                                                     let preview = o.text.lines().next().unwrap_or("Text");
                                                     ("✏️", preview, Color32::from_rgb(50, 45, 20), AppTheme::accent_yellow())
                                                 }
+                                                crate::core::text_overlay::SlideElement::Calendar(_) => {
+                                                    ("📅", "Calendar", Color32::from_rgb(20, 50, 65), Color32::from_rgb(180, 220, 255))
+                                                }
                                                 crate::core::text_overlay::SlideElement::Audio { path, .. } => {
                                                     let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("Audio");
                                                     ("🎵", fname, Color32::from_rgb(20, 50, 35), AppTheme::accent_green())
+                                                }
+                                                crate::core::text_overlay::SlideElement::Placeholder { label, .. } => {
+                                                    ("📋", label.as_str(), Color32::from_rgb(55, 45, 15), AppTheme::accent_yellow())
                                                 }
                                             };
 
