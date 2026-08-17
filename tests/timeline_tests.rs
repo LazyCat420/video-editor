@@ -1266,3 +1266,35 @@ fn test_legacy_clip_migration_on_load() {
     assert_eq!(c.elements.len(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn test_action_row_card_respects_parent_clip_rect() {
+    use video_editor::ui::components::ActionRowCard;
+
+    let ctx = egui::Context::default();
+    let mut captured_clip_rects = Vec::new();
+
+    let _ = ctx.run(Default::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let scroll_viewport = egui::Rect::from_min_max(
+                egui::Pos2::new(0.0, 100.0),
+                egui::Pos2::new(300.0, 300.0),
+            );
+            ui.set_clip_rect(scroll_viewport);
+
+            // Allocate a child ui with that clip rect
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(scroll_viewport), |ui| {
+                ActionRowCard::render(ui, "🎬", "Wipe Left", "New clip reveals by wiping in", false, 260.0);
+                captured_clip_rects.push(ui.clip_rect());
+            });
+        });
+    });
+
+    for clip in captured_clip_rects {
+        assert!(
+            clip.min.y >= 100.0,
+            "Clip rect ({:?}) must never expand above scroll_viewport min.y (100.0)",
+            clip
+        );
+    }
+}

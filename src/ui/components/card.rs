@@ -64,7 +64,7 @@ impl ActionRowCard {
                                 Vec2::new(ICON_GLYPH_W, ICON_GLYPH_H),
                                 egui::Layout::centered_and_justified(egui::Direction::TopDown),
                                 |ui| {
-                                    ui.set_clip_rect(ui.max_rect());
+                                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                                     ui.add(
                                         egui::Label::new(RichText::new(icon).size(13.0))
                                             .selectable(false),
@@ -90,7 +90,7 @@ impl ActionRowCard {
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.set_max_width(text_w);
-                            ui.set_clip_rect(ui.max_rect());
+                            ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                             ui.spacing_mut().item_spacing.y = 1.0;
                             ui.horizontal(|ui| {
                                 ui.add(
