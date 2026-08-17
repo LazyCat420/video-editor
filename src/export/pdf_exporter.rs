@@ -95,7 +95,9 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
         // B. Slide Elements (Pictures, Videos, Calendars, Text)
         for el in &clip.elements {
             match el {
-                SlideElement::Picture { path, x, y, w, h } | SlideElement::Video { path, x, y, w, h } => {
+                SlideElement::Picture { path, x, y, w, h }
+                | SlideElement::Sticker { path, x, y, w, h, .. }
+                | SlideElement::Video { path, x, y, w, h } => {
                     if let Some(img_obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, path) {
                         let im_name = format!("Im{}", xobjects.len() + 1);
                         xobjects.push((im_name.clone(), img_obj_id));

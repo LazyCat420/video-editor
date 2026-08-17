@@ -80,6 +80,7 @@ pub struct VideoEditorApp {
     pub calendar_start_month: u32,
     pub calendar_month_count: u32,
     pub calendar_show_holidays: bool,
+    pub calendar_position_preset: crate::core::calendar_gen::CalendarPositionPreset,
     pub calendar_style: crate::core::calendar_gen::CalendarStyle,
     pub calendar_holidays: Vec<crate::core::calendar_gen::HolidayItem>,
     pub calendar_custom_events: Vec<crate::core::calendar_gen::CustomCalendarEvent>,
@@ -125,6 +126,7 @@ impl Default for VideoEditorApp {
             calendar_start_month: 1,
             calendar_month_count: 1,
             calendar_show_holidays: true,
+            calendar_position_preset: crate::core::calendar_gen::CalendarPositionPreset::LeftColumn,
             calendar_style: crate::core::calendar_gen::CalendarStyle::BoxedGrid,
             calendar_holidays: crate::core::calendar_gen::CalendarMonth::default_holidays_for_year(2026),
             calendar_custom_events: Vec::new(),
@@ -529,11 +531,15 @@ impl eframe::App for VideoEditorApp {
                     }
                     MenuAction::DeleteSelected => {
                         self.snapshot_timeline();
-                        self.project.timeline.delete_selected_clips();
+                        if let Some(el_idx) = self.selected_slide_element {
+                            self.delete_slide_element(el_idx, Some(ctx));
+                        } else {
+                            self.project.timeline.delete_selected_clips();
+                        }
                         self.refresh_preview_frame(Some(ctx));
                     }
                     MenuAction::OpenTransitions => {
-                        self.sidebar_tab = crate::ui::SidebarTab::Transitions;
+                        self.sidebar_tab = crate::ui::SidebarTab::EffectsAndTransitions;
                     }
                     MenuAction::OpenExportDialog => {
                         self.export_dialog.is_open = true;
@@ -555,7 +561,7 @@ impl eframe::App for VideoEditorApp {
 
         let sidebar_width = match self.sidebar_tab {
             crate::ui::SidebarTab::Formatting => 280.0,
-            crate::ui::SidebarTab::Transitions => 280.0,
+            crate::ui::SidebarTab::Transitions | crate::ui::SidebarTab::EffectsAndTransitions => 280.0,
             crate::ui::SidebarTab::Slides => 280.0,
         };
 
@@ -590,14 +596,14 @@ impl eframe::App for VideoEditorApp {
                         ui,
                         "🎨 Formatting",
                         self.sidebar_tab == crate::ui::SidebarTab::Formatting,
-                        "✨ Transitions",
-                        self.sidebar_tab == crate::ui::SidebarTab::Transitions,
+                        "✨ Effects & Transitions",
+                        self.sidebar_tab == crate::ui::SidebarTab::EffectsAndTransitions || self.sidebar_tab == crate::ui::SidebarTab::Transitions,
                     );
                     if t_format {
                         self.sidebar_tab = crate::ui::SidebarTab::Formatting;
                     }
                     if t_trans {
-                        self.sidebar_tab = crate::ui::SidebarTab::Transitions;
+                        self.sidebar_tab = crate::ui::SidebarTab::EffectsAndTransitions;
                     }
                 } else {
                     let (t_slides, t_format, t_trans) = crate::ui::components::SidebarTabs::render_3_tabs(
@@ -606,8 +612,8 @@ impl eframe::App for VideoEditorApp {
                         self.sidebar_tab == crate::ui::SidebarTab::Slides,
                         "🎨 Formatting",
                         self.sidebar_tab == crate::ui::SidebarTab::Formatting,
-                        "✨ Transitions",
-                        self.sidebar_tab == crate::ui::SidebarTab::Transitions,
+                        "✨ Effects & Transitions",
+                        self.sidebar_tab == crate::ui::SidebarTab::EffectsAndTransitions || self.sidebar_tab == crate::ui::SidebarTab::Transitions,
                     );
                     if t_slides {
                         self.sidebar_tab = crate::ui::SidebarTab::Slides;
@@ -616,7 +622,7 @@ impl eframe::App for VideoEditorApp {
                         self.sidebar_tab = crate::ui::SidebarTab::Formatting;
                     }
                     if t_trans {
-                        self.sidebar_tab = crate::ui::SidebarTab::Transitions;
+                        self.sidebar_tab = crate::ui::SidebarTab::EffectsAndTransitions;
                     }
                 }
 
@@ -651,6 +657,14 @@ impl eframe::App for VideoEditorApp {
                             SlideDeckAction::MoveSlideDown(idx) => {
                                 self.reorder_slide(idx, idx + 1, Some(ctx));
                             }
+                            SlideDeckAction::ReorderSlideToGap { from_idx, to_gap } => {
+                                let len = self.slide_count();
+                                if let Some(to) =
+                                    crate::ui::slide_deck::gap_to_target_index(from_idx, to_gap, len)
+                                {
+                                    self.reorder_slide(from_idx, to, Some(ctx));
+                                }
+                            }
                             SlideDeckAction::AdjustSlideDuration { clip_id, delta_secs } => {
                                 self.adjust_slide_duration(clip_id, delta_secs, Some(ctx));
                             }
@@ -660,9 +674,9 @@ impl eframe::App for VideoEditorApp {
                             }
                         }
                     }
-                    crate::ui::SidebarTab::Transitions => {
-                        match crate::ui::TransitionBinView::render(ui, &mut self.project.timeline) {
-                            crate::ui::TransitionBinAction::SetTransition {
+                    crate::ui::SidebarTab::Transitions | crate::ui::SidebarTab::EffectsAndTransitions => {
+                        match crate::ui::EffectsAndTransitionsBinView::render(ui, &mut self.project.timeline) {
+                            crate::ui::EffectsAndTransitionsAction::SetTransition {
                                 clip_id,
                                 slot,
                                 transition,
@@ -683,7 +697,39 @@ impl eframe::App for VideoEditorApp {
                                     self.refresh_preview_frame(Some(ctx));
                                 }
                             }
-                            crate::ui::TransitionBinAction::None => {}
+                            crate::ui::EffectsAndTransitionsAction::ToggleEffect { clip_id, kind } => {
+                                self.snapshot_timeline();
+                                if let Some(c) = self.project.timeline.get_clip_mut(clip_id) {
+                                    c.toggle_effect(kind);
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::EffectsAndTransitionsAction::ClearEffects { clip_id } => {
+                                self.snapshot_timeline();
+                                if let Some(c) = self.project.timeline.get_clip_mut(clip_id) {
+                                    c.clear_effects();
+                                }
+                                self.refresh_preview_frame(Some(ctx));
+                            }
+                            crate::ui::EffectsAndTransitionsAction::AddSticker { path, name, category } => {
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    self.snapshot_timeline();
+                                    if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                                        clip.elements.push(crate::core::text_overlay::SlideElement::Sticker {
+                                            path,
+                                            name,
+                                            category,
+                                            x: 0.38,
+                                            y: 0.38,
+                                            w: 0.24,
+                                            h: 0.24,
+                                        });
+                                        self.selected_slide_element = Some(clip.elements.len() - 1);
+                                    }
+                                    self.refresh_preview_frame(Some(ctx));
+                                }
+                            }
+                            crate::ui::EffectsAndTransitionsAction::None => {}
                         }
                     }
                     crate::ui::SidebarTab::Formatting => {
@@ -715,6 +761,24 @@ impl eframe::App for VideoEditorApp {
                                     self.snapshot_timeline();
                                     if let Some(clip) = self.project.timeline.get_clip_mut(id) {
                                         clip.elements.push(crate::core::text_overlay::SlideElement::Text(overlay));
+                                        self.selected_slide_element = Some(clip.elements.len() - 1);
+                                    }
+                                    self.refresh_preview_frame(Some(ctx));
+                                }
+                            }
+                            crate::ui::SlideBinAction::AddStickerElement { path, name, category } => {
+                                if let Some(id) = self.active_slide().map(|c| c.id) {
+                                    self.snapshot_timeline();
+                                    if let Some(clip) = self.project.timeline.get_clip_mut(id) {
+                                        clip.elements.push(crate::core::text_overlay::SlideElement::Sticker {
+                                            path,
+                                            name,
+                                            category,
+                                            x: 0.38,
+                                            y: 0.38,
+                                            w: 0.24,
+                                            h: 0.24,
+                                        });
                                         self.selected_slide_element = Some(clip.elements.len() - 1);
                                     }
                                     self.refresh_preview_frame(Some(ctx));
@@ -959,7 +1023,11 @@ impl eframe::App for VideoEditorApp {
                         }
                         TimelineAction::DeleteSelected => {
                             self.snapshot_timeline();
-                            self.project.timeline.delete_selected_clips();
+                            if let Some(el_idx) = self.selected_slide_element {
+                                self.delete_slide_element(el_idx, Some(ctx));
+                            } else {
+                                self.project.timeline.delete_selected_clips();
+                            }
                             self.refresh_preview_frame(Some(ctx));
                         }
                         TimelineAction::DeleteTrack(id) => {
@@ -1127,6 +1195,11 @@ impl eframe::App for VideoEditorApp {
         }
         if ctx.input(|i| i.modifiers.command && i.key_pressed(Key::Y)) {
             self.redo(Some(ctx));
+        }
+        if (ctx.input(|i| i.key_pressed(Key::Delete)) || ctx.input(|i| i.key_pressed(Key::Backspace))) && !ctx.wants_keyboard_input() {
+            if let Some(sel_idx) = self.selected_slide_element {
+                self.delete_slide_element(sel_idx, Some(ctx));
+            }
         }
 
         // ==========================================

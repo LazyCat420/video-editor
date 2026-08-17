@@ -323,6 +323,35 @@ impl VideoEditorApp {
                         calendar: None,
                     });
                 }
+                SlideElement::Sticker { path, name, category: _, x, y, w, h } => {
+                    let mut tex = self.slide_textures.get(&path).cloned();
+                    if tex.is_none() {
+                        if !path.exists() {
+                            crate::core::stickers::StickerCatalog::ensure_sticker_assets_exist(std::path::Path::new("assets"));
+                        }
+                        if let Some(c) = ctx {
+                            if let Ok(dyn_img) = image::open(&path) {
+                                let rgba = dyn_img.to_rgba8();
+                                let size = [rgba.width() as usize, rgba.height() as usize];
+                                let pixels = rgba.into_raw();
+                                let color_img = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                                let label = format!("slide_sticker_{}", path.display());
+                                let t = c.load_texture(label, color_img, egui::TextureOptions::LINEAR);
+                                self.slide_textures.insert(path.clone(), t.clone());
+                                tex = Some(t);
+                            }
+                        }
+                    }
+                    visuals.push(SlideVisual {
+                        idx,
+                        kind: SlideVisualKind::Sticker,
+                        bounds: (x, y, w, h),
+                        label: Some(name),
+                        texture: tex,
+                        overlay: None,
+                        calendar: None,
+                    });
+                }
                 SlideElement::Picture { path, x, y, w, h } => {
                     let mut tex = self.slide_textures.get(&path).cloned();
                     if tex.is_none() && path.exists() {

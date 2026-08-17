@@ -993,6 +993,9 @@ impl TimelineView {
                                                 crate::core::text_overlay::SlideElement::Placeholder { label, .. } => {
                                                     ("📋", label.as_str(), Color32::from_rgb(55, 45, 15), AppTheme::accent_yellow())
                                                 }
+                                                crate::core::text_overlay::SlideElement::Sticker { name, .. } => {
+                                                    ("🎀", name.as_str(), Color32::from_rgb(55, 25, 45), Color32::from_rgb(255, 180, 220))
+                                                }
                                             };
 
                                             let full_label = format!("{} {}", badge_icon, badge_text);

@@ -26,6 +26,7 @@ pub struct SlideVisual {
 pub enum SlideVisualKind {
     Text,
     Picture,
+    Sticker,
     Video,
     Placeholder,
     Calendar,
@@ -373,6 +374,16 @@ impl PreviewPlayerView {
                         egui::Stroke::new(1.0, Color32::from_white_alpha(120)),
                     );
                 }
+                if v.kind == SlideVisualKind::Sticker {
+                    if let Some(tex) = &v.texture {
+                        painter.image(
+                            tex.id(),
+                            *srect,
+                            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                }
                 if let Some(overlay) = &v.overlay {
                     if selected_element == Some(v.idx) {
                         let anchor = rect.min + Vec2::new(overlay.x * rect.width(), overlay.y * rect.height());
@@ -434,6 +445,15 @@ impl PreviewPlayerView {
                     } else {
                         crate::ui::text_renderer::TextRenderer::draw_text_overlay(&painter, rect, overlay);
                     }
+                }
+            }
+
+            // 2.5. Draw Celebration & Screen Effects (Fireworks, Confetti, Balloons, Birds, Clapping, Shooting Stars)
+            if let Some(clip) = timeline.get_selected_clip() {
+                if !clip.effects.is_empty() {
+                    let cur_t = timeline.playhead.as_secs_f64();
+                    crate::core::effects::EffectParticleSimulator::render_preview(&painter, rect, cur_t, &clip.effects);
+                    ui.ctx().request_repaint(); // Smooth 60fps real-time particle animation
                 }
             }
 
@@ -667,7 +687,7 @@ impl PreviewPlayerView {
 
         // 5. Keyboard shortcuts for selected element
         if let Some(sel_idx) = selected_element {
-            if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+            if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
                 *action = PlayerAction::DeleteElement(sel_idx);
                 return;
             }

@@ -2,6 +2,7 @@ use crate::VideoEditorApp;
 use crate::core::clip::Clip;
 use crate::core::text_overlay::{SlideBackground, SlideElement};
 use crate::core::track::TrackKind;
+use crate::ui::SlideReorderDrag;
 use crate::ui::theme::AppTheme;
 use egui::{Button, Color32, Frame, RichText, Rounding, Sense, Stroke, Ui, Vec2};
 use std::path::PathBuf;
@@ -15,8 +16,33 @@ pub enum SlideDeckAction {
     DeleteSlide(u64),
     MoveSlideUp(usize),
     MoveSlideDown(usize),
+    /// Drag-and-drop reorder: move the slide at `from_idx` into the insertion
+    /// gap `to_gap` (0..=len), where gap `g` means "land between the slides
+    /// currently at g-1 and g". The handler converts the gap to a final index.
+    ReorderSlideToGap { from_idx: usize, to_gap: usize },
     AdjustSlideDuration { clip_id: u64, delta_secs: f64 },
     DropFilesOnSlide { clip_id: u64, paths: Vec<PathBuf> },
+}
+
+/// Convert a drop *gap* into the index the slide ends up at after the move.
+///
+/// A gap is a slot *between* cards: gap `g` in a deck of `len` slides means
+/// "land between the slides currently at `g - 1` and `g`", so gaps run `0..=len`.
+/// Reordering is `remove(from)` then `insert(target)`; removing first shifts
+/// every later element down by one, so a gap to the right of `from` overshoots
+/// by exactly one and must be decremented. Returns `None` when the move is a
+/// no-op (dropping a slide back into either gap flanking its own position),
+/// which keeps a stray click-drag from pushing an undo snapshot.
+pub fn gap_to_target_index(from_idx: usize, to_gap: usize, len: usize) -> Option<usize> {
+    if from_idx >= len {
+        return None;
+    }
+    // Both gaps touching the dragged card leave the deck exactly as it was.
+    if to_gap == from_idx || to_gap == from_idx + 1 {
+        return None;
+    }
+    let target = if to_gap > from_idx { to_gap - 1 } else { to_gap };
+    Some(target.min(len - 1))
 }
 
 pub struct SlideDeckView;
@@ -63,6 +89,7 @@ impl SlideDeckView {
         for el in &clip.elements {
             match el {
                 SlideElement::Picture { path, x, y, w, h }
+                | SlideElement::Sticker { path, x, y, w, h, .. }
                 | SlideElement::Video { path, x, y, w, h } => {
                     let r = sub(*x, *y, *w, *h).intersect(rect);
                     if let Some(tex) = app.slide_textures.get(path) {
@@ -275,6 +302,7 @@ impl SlideDeckView {
                                 SlideElement::Text(_) => icon_summary.push_str("🔤"),
                                 SlideElement::Calendar(_) => icon_summary.push_str("📅"),
                                 SlideElement::Picture { .. } => icon_summary.push_str("🖼"),
+                                SlideElement::Sticker { .. } => icon_summary.push_str("🎀"),
                                 SlideElement::Video { .. } => icon_summary.push_str("🎬"),
                                 SlideElement::Audio { .. } => icon_summary.push_str("🎵"),
                                 SlideElement::Placeholder { .. } => icon_summary.push_str("➕"),
@@ -401,11 +429,20 @@ impl SlideDeckView {
                 ui.horizontal(|ui| {
                     ui.add_space(4.0);
 
+                    // Which slide (if any) is mid-drag right now. Used to dim the
+                    // card being carried and to arm the drop-indicator line.
+                    let dragging_idx =
+                        egui::DragAndDrop::payload::<SlideReorderDrag>(ui.ctx()).map(|p| p.0);
+
+                    // Card rects, collected in layout order so the drop gap can be
+                    // resolved from the pointer's x position after the row is built.
+                    let mut card_rects: Vec<egui::Rect> = Vec::with_capacity(clips.len());
+
                     for (idx, clip) in clips.iter().enumerate() {
                         let is_active = Some(clip.id) == active_id || clip.is_selected;
                         let slide_num = idx + 1;
 
-                        let card_action = Self::render_horizontal_slide_card(
+                        let (card_action, card_rect) = Self::render_horizontal_slide_card(
                             ui,
                             app,
                             idx,
@@ -413,13 +450,63 @@ impl SlideDeckView {
                             clip,
                             is_active,
                             total_slides,
+                            dragging_idx,
                         );
+                        card_rects.push(card_rect);
 
                         if !matches!(card_action, SlideDeckAction::None) {
                             action = card_action;
                         }
 
                         ui.add_space(8.0);
+                    }
+
+                    // Resolve the drop: map pointer-x onto an insertion gap by
+                    // comparing against each card's centre, so releasing over a
+                    // card's left half lands before it and the right half after.
+                    // Dropping past the last card appends, which is how a slide
+                    // reaches the end of the deck in a single gesture.
+                    if let Some(from_idx) = dragging_idx {
+                        let pointer = ui.input(|i| i.pointer.interact_pos());
+                        if let Some(pos) = pointer {
+                            let gap = card_rects
+                                .iter()
+                                .position(|r| pos.x < r.center().x)
+                                .unwrap_or(card_rects.len());
+
+                            // Live indicator: a vertical bar sitting in the gap the
+                            // slide would land in, so the target is visible before release.
+                            if gap_to_target_index(from_idx, gap, card_rects.len()).is_some() {
+                                let x = match card_rects.get(gap) {
+                                    Some(r) => r.left() - 4.0,
+                                    None => card_rects
+                                        .last()
+                                        .map(|r| r.right() + 4.0)
+                                        .unwrap_or(ui.max_rect().left()),
+                                };
+                                let (top, bottom) = card_rects
+                                    .first()
+                                    .map(|r| (r.top(), r.bottom()))
+                                    .unwrap_or((ui.max_rect().top(), ui.max_rect().bottom()));
+                                ui.painter().line_segment(
+                                    [egui::pos2(x, top), egui::pos2(x, bottom)],
+                                    Stroke::new(3.0, AppTheme::accent_yellow()),
+                                );
+                            }
+
+                            // egui clears the payload on release; take it here so the
+                            // drop resolves once, on the frame the pointer comes up.
+                            if ui.input(|i| i.pointer.any_released()) {
+                                if let Some(payload) =
+                                    egui::DragAndDrop::take_payload::<SlideReorderDrag>(ui.ctx())
+                                {
+                                    action = SlideDeckAction::ReorderSlideToGap {
+                                        from_idx: payload.0,
+                                        to_gap: gap,
+                                    };
+                                }
+                            }
+                        }
                     }
 
                     // "+ Add Slide" Quick Card at the end of the filmstrip
@@ -478,25 +565,35 @@ impl SlideDeckView {
         clip: &Clip,
         is_active: bool,
         total_slides: usize,
-    ) -> SlideDeckAction {
+        dragging_idx: Option<usize>,
+    ) -> (SlideDeckAction, egui::Rect) {
         let mut action = SlideDeckAction::None;
 
-        let card_w = 160.0;
-        let card_h = 112.0;
+        let card_w = 175.0;
+        let card_h = 114.0;
 
-        let border_stroke = if is_active {
+        let is_being_dragged = dragging_idx == Some(idx);
+
+        let border_stroke = if is_being_dragged {
+            // The carried card reads as a "hole" the deck will close up.
+            Stroke::new(2.0, AppTheme::accent_cyan())
+        } else if is_active {
             Stroke::new(2.5, AppTheme::accent_yellow())
         } else {
             Stroke::new(1.0, Color32::from_rgb(45, 50, 65))
         };
 
-        let card_bg = if is_active {
+        let card_bg = if is_being_dragged {
+            // Dim the card being carried so the deck reads as a gap opening up
+            // rather than the slide being in two places at once.
+            Color32::from_rgb(16, 22, 30)
+        } else if is_active {
             Color32::from_rgb(26, 36, 54)
         } else {
             AppTheme::bg_card()
         };
 
-        Frame::none()
+        let card_rect = Frame::none()
             .fill(card_bg)
             .rounding(Rounding::same(6.0))
             .stroke(border_stroke)
@@ -506,30 +603,34 @@ impl SlideDeckView {
                 ui.set_height(card_h);
 
                 ui.vertical(|ui| {
-                    // 1. Top Header Row: Slide # badge, duration, and quick reorder
+                    // 1. Top Header Row: Slide # badge, duration, and quick reorder (clean spacing so arrows never overlap)
                     ui.horizontal(|ui| {
                         let num_badge = Button::new(
                             RichText::new(format!("#{}", slide_num))
-                                .size(11.5)
+                                .size(11.0)
                                 .strong()
                                 .color(if is_active { Color32::WHITE } else { AppTheme::text_secondary() }),
                         )
                         .fill(if is_active { AppTheme::accent_blue() } else { Color32::from_rgb(20, 24, 32) })
-                        .min_size(Vec2::new(28.0, 20.0));
+                        .min_size(Vec2::new(26.0, 18.0));
 
                         if ui.add(num_badge).clicked() {
                             action = SlideDeckAction::SelectSlide(clip.id);
                         }
 
+                        ui.add_space(2.0);
                         ui.label(
                             RichText::new(format!("{:.1}s", clip.duration().as_secs_f64()))
-                                .size(11.0)
+                                .size(10.5)
                                 .color(AppTheme::text_secondary()),
                         );
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            ui.spacing_mut().button_padding = Vec2::new(2.0, 1.0);
+
                             if ui
-                                .add(Button::new(RichText::new("×").size(12.0).color(Color32::from_rgb(255, 140, 140))).min_size(Vec2::new(16.0, 16.0)))
+                                .add(Button::new(RichText::new("×").size(11.5).color(Color32::from_rgb(255, 140, 140))).min_size(Vec2::new(16.0, 16.0)))
                                 .on_hover_text("Delete slide")
                                 .clicked()
                             {
@@ -537,12 +638,12 @@ impl SlideDeckView {
                             }
 
                             if idx + 1 < total_slides {
-                                if ui.add(Button::new("▶").min_size(Vec2::new(16.0, 16.0))).on_hover_text("Move right").clicked() {
+                                if ui.add(Button::new(RichText::new("▶").size(9.5)).min_size(Vec2::new(16.0, 16.0))).on_hover_text("Move right").clicked() {
                                     action = SlideDeckAction::MoveSlideDown(idx);
                                 }
                             }
                             if idx > 0 {
-                                if ui.add(Button::new("◀").min_size(Vec2::new(16.0, 16.0))).on_hover_text("Move left").clicked() {
+                                if ui.add(Button::new(RichText::new("◀").size(9.5)).min_size(Vec2::new(16.0, 16.0))).on_hover_text("Move left").clicked() {
                                     action = SlideDeckAction::MoveSlideUp(idx);
                                 }
                             }
@@ -554,8 +655,22 @@ impl SlideDeckView {
                     // 2. 16:9 Aspect Ratio Thumbnail Box (148 x 72 px):
                     // a real miniature of the slide (background + elements laid
                     // out at their true positions), not an icon summary.
+                    // The thumbnail doubles as the drag handle: click still selects,
+                    // but holding and moving picks the slide up for reordering. The
+                    // header buttons keep their own click senses and are unaffected.
                     let thumb_size = Vec2::new(card_w - 12.0, 72.0);
-                    let (thumb_rect, thumb_resp) = ui.allocate_exact_size(thumb_size, Sense::click());
+                    let (thumb_rect, thumb_resp) =
+                        ui.allocate_exact_size(thumb_size, Sense::click_and_drag());
+
+                    if thumb_resp.drag_started() {
+                        egui::DragAndDrop::set_payload(ui.ctx(), SlideReorderDrag(idx));
+                    }
+                    if thumb_resp.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if thumb_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+
                     let painter = ui.painter();
 
                     let drawn_pic = Self::paint_slide_mini(painter, thumb_rect, clip, app);
@@ -610,13 +725,17 @@ impl SlideDeckView {
                         );
                     }
 
+                    // `clicked()` is already false for the release that ends a drag,
+                    // so a reorder gesture never doubles as a selection.
                     if thumb_resp.clicked() {
                         action = SlideDeckAction::SelectSlide(clip.id);
                     }
                 });
-            });
+            })
+            .response
+            .rect;
 
-        action
+        (action, card_rect)
     }
 
 }

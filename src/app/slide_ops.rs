@@ -322,6 +322,18 @@ Great for highlights and memories.".to_string();
         }
     }
 
+    /// Number of slides in the deck — the clip count of the video track, which is
+    /// the same list the filmstrip indexes into.
+    pub fn slide_count(&self) -> usize {
+        self.project
+            .timeline
+            .tracks
+            .iter()
+            .find(|t| t.kind == TrackKind::Video)
+            .map(|t| t.clips.len())
+            .unwrap_or(0)
+    }
+
     pub fn reorder_slide(&mut self, from_idx: usize, to_idx: usize, ctx: Option<&Context>) {
         self.snapshot_timeline();
         for track in &mut self.project.timeline.tracks {
@@ -627,6 +639,14 @@ Great for highlights and memories.".to_string();
                 }
                 SlideDeckAction::MoveSlideDown(idx) => {
                     self.reorder_slide(idx, idx + 1, Some(ctx));
+                }
+                SlideDeckAction::ReorderSlideToGap { from_idx, to_gap } => {
+                    let len = self.slide_count();
+                    if let Some(to) =
+                        crate::ui::slide_deck::gap_to_target_index(from_idx, to_gap, len)
+                    {
+                        self.reorder_slide(from_idx, to, Some(ctx));
+                    }
                 }
                 SlideDeckAction::AdjustSlideDuration { clip_id, delta_secs } => {
                     self.adjust_slide_duration(clip_id, delta_secs, Some(ctx));

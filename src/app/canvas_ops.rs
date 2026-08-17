@@ -28,6 +28,17 @@ impl VideoEditorApp {
                     h: 0.30,
                 }
             }
+            crate::ui::PendingElement::Sticker { path, name, category } => {
+                SlideElement::Sticker {
+                    path,
+                    name,
+                    category,
+                    x: (x - 0.12).clamp(0.0, 0.76),
+                    y: (y - 0.12).clamp(0.0, 0.76),
+                    w: 0.24,
+                    h: 0.24,
+                }
+            }
             crate::ui::PendingElement::Video(path) => {
                 let _ = self.add_media_to_bin(&path);
                 SlideElement::Video {

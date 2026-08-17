@@ -270,7 +270,9 @@ pub fn export_to_pptx<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> st
         // B. Slide Elements (Pictures, Videos, Calendars, Text)
         for el in &clip.elements {
             match el {
-                SlideElement::Picture { path, x, y, w, h } | SlideElement::Video { path, x, y, w, h } => {
+                SlideElement::Picture { path, x, y, w, h }
+                | SlideElement::Sticker { path, x, y, w, h, .. }
+                | SlideElement::Video { path, x, y, w, h } => {
                     let mut img_bytes = Vec::new();
                     let mut ext = "png".to_string();
 

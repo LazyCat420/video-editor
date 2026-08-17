@@ -168,6 +168,26 @@ impl SlideBinView {
         in_element_inspector: bool,
     ) {
         ui.vertical(|ui| {
+            // 0. Calendar Position Preset
+            ui.label(RichText::new("📐 Calendar Layout Position:").size(12.0).strong().color(AppTheme::accent_cyan()));
+            ui.add_space(2.0);
+            let presets = crate::core::calendar_gen::CalendarPositionPreset::ALL;
+            ui.columns(2, |cols| {
+                for (idx, preset) in presets.iter().enumerate() {
+                    let is_active = app.calendar_position_preset == *preset;
+                    let btn = Button::new(RichText::new(preset.button_title()).size(10.0).strong())
+                        .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })
+                        .min_size(egui::vec2(cols[idx % 2].available_width(), 24.0));
+                    if cols[idx % 2].add(btn).on_hover_text(preset.label()).clicked() {
+                        app.calendar_position_preset = *preset;
+                        if in_element_inspector {
+                            *action = SlideBinAction::UpdateActiveCalendarSlide;
+                        }
+                    }
+                }
+            });
+            ui.add_space(6.0);
+
             // 1. Months in Slide Selector (Clean row layout, never cut off)
             ui.label(RichText::new("Months in Slide:").size(12.0).strong().color(AppTheme::text_primary()));
             ui.add_space(2.0);
@@ -521,15 +541,22 @@ impl SlideBinView {
                     // unbounded label (long filename, long text line) is exactly
                     // what used to widen the panel and open the dead gap.
                     let desc = match el {
-                        SlideElement::Text(t) => format!("🔤 Text: \"{}\"", truncate_chars(t.text.lines().next().unwrap_or(""), 18)),
+                        SlideElement::Text(t) => format!("🔤 Text: \"{}\"", truncate_chars(t.text.lines().next().unwrap_or(""), 15)),
                         SlideElement::Calendar(c) => format!("📅 Calendar: {} {}", CalendarMonth::name_for_month(c.start_month), c.year),
                         SlideElement::Picture { path, .. } => format!("🖼 Picture: {}", file_label(path)),
+                        SlideElement::Sticker { name, category, .. } => format!("🎀 Sticker: {} ({})", name, category.short_label()),
                         SlideElement::Video { path, .. } => format!("🎬 Video: {}", file_label(path)),
                         SlideElement::Audio { path, .. } => format!("🎵 Audio: {}", file_label(path)),
                         SlideElement::Placeholder { slot_id, label, .. } => format!("➕ Slot #{}: {}", slot_id, label),
                     };
-                    if ui.button(RichText::new(desc).size(12.0)).clicked() {
+                    if ui.button(RichText::new(desc).size(11.5)).clicked() {
                         *action = SlideBinAction::SelectElement(Some(idx));
+                    }
+                    if ui.add(Button::new(RichText::new("🗑").size(11.0).color(Color32::from_rgb(255, 140, 140))).min_size(egui::vec2(18.0, 18.0)))
+                        .on_hover_text("Delete this element")
+                        .clicked()
+                    {
+                        *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
             }
@@ -673,6 +700,15 @@ impl SlideBinView {
                         element: SlideElement::Calendar(updated),
                     };
                 }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.add(Button::new(RichText::new("🗑 Delete Calendar").size(11.5).color(Color32::from_rgb(255, 140, 140))))
+                        .on_hover_text("Remove this calendar element from the slide")
+                        .clicked()
+                    {
+                        *action = SlideBinAction::RemoveElement(idx);
+                    }
+                });
             }
             SlideElement::Text(overlay) => {
                 let mut updated = overlay.clone();
@@ -823,6 +859,24 @@ impl SlideBinView {
                     };
                 }
             }
+            SlideElement::Sticker { name, category, .. } => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("🎀 Sticker: {}", name)).size(13.0).strong().color(AppTheme::accent_cyan()));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("✖ Deselect").clicked() {
+                            *action = SlideBinAction::SelectElement(None);
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                ui.label(RichText::new(format!("Theme Category: {}", category.label())).size(11.0).color(AppTheme::text_secondary()));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("🗑 Delete Sticker").clicked() {
+                        *action = SlideBinAction::RemoveElement(idx);
+                    }
+                });
+            }
             SlideElement::Picture { path, .. } => {
                 Self::inspector_media_header(ui, "🖼 Picture", AppTheme::accent_cyan(), path, action);
                 ui.add_space(4.0);
@@ -904,7 +958,7 @@ impl SlideBinView {
                 ui.label(RichText::new("Drag any photo or video from the Files tab and drop it directly onto this slot on the canvas.")
                     .size(11.5).color(AppTheme::text_muted()));
                 ui.add_space(4.0);
-                if ui.button("🗑 Delete Slot").clicked() {
+                if ui.add(Button::new(RichText::new("🗑 Delete Slot").size(11.5).color(Color32::from_rgb(255, 140, 140)))).clicked() {
                     *action = SlideBinAction::RemoveElement(idx);
                 }
             }

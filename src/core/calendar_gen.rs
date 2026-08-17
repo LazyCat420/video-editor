@@ -840,6 +840,97 @@ impl CalendarMonth {
     }
 }
 
+/// Preset positioning for calendar elements on slides
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CalendarPositionPreset {
+    LeftColumn,    // Left 50% column (Default): x=0.03, y=0.04, w=0.46, h=0.92
+    RightColumn,   // Right 50% column: x=0.51, y=0.04, w=0.46, h=0.92
+    BottomHalf,    // Bottom 50% row: x=0.05, y=0.52, w=0.90, h=0.44
+    TopHalf,       // Top 50% row: x=0.05, y=0.04, w=0.90, h=0.44
+    TopLeft,       // Top-Left quadrant: x=0.03, y=0.04, w=0.46, h=0.44
+    TopRight,      // Top-Right quadrant: x=0.51, y=0.04, w=0.46, h=0.44
+    BottomLeft,    // Bottom-Left quadrant: x=0.03, y=0.52, w=0.46, h=0.44
+    BottomRight,   // Bottom-Right quadrant: x=0.51, y=0.52, w=0.46, h=0.44
+    FullSlide,     // Full slide: x=0.03, y=0.04, w=0.94, h=0.92
+}
+
+impl Default for CalendarPositionPreset {
+    fn default() -> Self {
+        Self::LeftColumn
+    }
+}
+
+impl CalendarPositionPreset {
+    pub const ALL: &'static [CalendarPositionPreset] = &[
+        CalendarPositionPreset::LeftColumn,
+        CalendarPositionPreset::RightColumn,
+        CalendarPositionPreset::BottomHalf,
+        CalendarPositionPreset::TopHalf,
+        CalendarPositionPreset::TopLeft,
+        CalendarPositionPreset::TopRight,
+        CalendarPositionPreset::BottomLeft,
+        CalendarPositionPreset::BottomRight,
+        CalendarPositionPreset::FullSlide,
+    ];
+
+    pub fn bounds(&self) -> (f32, f32, f32, f32) {
+        match self {
+            Self::LeftColumn => (0.03, 0.04, 0.46, 0.92),
+            Self::RightColumn => (0.51, 0.04, 0.46, 0.92),
+            Self::BottomHalf => (0.05, 0.52, 0.90, 0.44),
+            Self::TopHalf => (0.05, 0.04, 0.90, 0.44),
+            Self::TopLeft => (0.03, 0.04, 0.46, 0.44),
+            Self::TopRight => (0.51, 0.04, 0.46, 0.44),
+            Self::BottomLeft => (0.03, 0.52, 0.46, 0.44),
+            Self::BottomRight => (0.51, 0.52, 0.46, 0.44),
+            Self::FullSlide => (0.03, 0.04, 0.94, 0.92),
+        }
+    }
+
+    /// Complementary media/photo placeholder bounds for this calendar preset
+    pub fn complementary_photo_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        match self {
+            Self::LeftColumn => Some((0.51, 0.04, 0.46, 0.92)),
+            Self::RightColumn => Some((0.03, 0.04, 0.46, 0.92)),
+            Self::BottomHalf => Some((0.05, 0.04, 0.90, 0.44)),
+            Self::TopHalf => Some((0.05, 0.52, 0.90, 0.44)),
+            Self::TopLeft => Some((0.51, 0.04, 0.46, 0.92)),
+            Self::TopRight => Some((0.03, 0.04, 0.46, 0.92)),
+            Self::BottomLeft => Some((0.51, 0.04, 0.46, 0.92)),
+            Self::BottomRight => Some((0.03, 0.04, 0.46, 0.92)),
+            Self::FullSlide => None,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::LeftColumn => "Left 50% (Default)",
+            Self::RightColumn => "Right 50%",
+            Self::BottomHalf => "Bottom 50%",
+            Self::TopHalf => "Top 50%",
+            Self::TopLeft => "Top Left",
+            Self::TopRight => "Top Right",
+            Self::BottomLeft => "Bottom Left",
+            Self::BottomRight => "Bottom Right",
+            Self::FullSlide => "Full Slide",
+        }
+    }
+
+    pub fn button_title(&self) -> &'static str {
+        match self {
+            Self::LeftColumn => "◧ Left 50% (Default)",
+            Self::RightColumn => "◨ Right 50%",
+            Self::BottomHalf => "⬓ Bottom 50%",
+            Self::TopHalf => "⬒ Top 50%",
+            Self::TopLeft => "◰ Top Left",
+            Self::TopRight => "◳ Top Right",
+            Self::BottomLeft => "◱ Bottom Left",
+            Self::BottomRight => "◲ Bottom Right",
+            Self::FullSlide => "⏹ Full Slide",
+        }
+    }
+}
+
 /// Interactive vector graphical calendar element configuration
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CalendarOverlay {
@@ -874,10 +965,10 @@ impl Default for CalendarOverlay {
             start_month: 1,
             month_count: 1,
             show_holidays: true,
-            x: 0.05,
-            y: 0.45,
-            w: 0.90,
-            h: 0.50,
+            x: 0.03,
+            y: 0.04,
+            w: 0.46,
+            h: 0.92,
             holidays: Vec::new(),
             custom_events: Vec::new(),
         }

@@ -52,6 +52,8 @@ pub struct Clip {
     /// Placed slide elements (text / extra pictures / videos / audio) drawn over the base.
     #[serde(default)]
     pub elements: Vec<crate::core::text_overlay::SlideElement>,
+    #[serde(default)]
+    pub effects: Vec<crate::core::effects::SlideEffect>,
     pub has_video: bool,
     pub has_audio: bool,
     /// Is the clip currently selected in the UI?
@@ -91,6 +93,7 @@ impl Clip {
             title_card_bg: None,
             background: None,
             elements: Vec::new(),
+            effects: Vec::new(),
             has_video,
             has_audio,
             is_selected: false,
@@ -150,6 +153,7 @@ impl Clip {
                 egui::Color32::from_rgb(18, 18, 24),
             )),
             elements: Vec::new(),
+            effects: Vec::new(),
             has_video: false,
             has_audio: false,
             is_selected: false,
@@ -158,6 +162,22 @@ impl Clip {
 
     /// True when this clip is a static slide (blank slide or title card) rather than a
     /// streamed media clip.
+        pub fn has_effect(&self, kind: crate::core::effects::SlideEffectKind) -> bool {
+        self.effects.iter().any(|e| e.kind == kind && e.enabled)
+    }
+
+    pub fn toggle_effect(&mut self, kind: crate::core::effects::SlideEffectKind) {
+        if let Some(pos) = self.effects.iter().position(|e| e.kind == kind) {
+            self.effects.remove(pos);
+        } else {
+            self.effects.push(crate::core::effects::SlideEffect::new(kind));
+        }
+    }
+
+    pub fn clear_effects(&mut self) {
+        self.effects.clear();
+    }
+
     pub fn is_static_slide(&self) -> bool {
         !self.has_video && self.background.is_some()
     }

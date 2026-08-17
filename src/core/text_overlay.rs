@@ -1,4 +1,4 @@
-pub use crate::core::calendar_gen::CalendarOverlay;
+pub use crate::core::calendar_gen::{CalendarOverlay, CalendarPositionPreset};
 pub 
 
 use egui::Color32;
@@ -302,6 +302,15 @@ pub enum SlideElement {
         w: f32,
         h: f32,
     },
+    Sticker {
+        path: PathBuf,
+        name: String,
+        category: crate::core::stickers::StickerCategory,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
     Video {
         path: PathBuf,
         x: f32,
@@ -340,6 +349,7 @@ impl SlideElement {
             SlideElement::Text(o) => (o.x, o.y, 0.0, 0.0),
             SlideElement::Calendar(c) => (c.x, c.y, c.w, c.h),
             SlideElement::Picture { x, y, w, h, .. }
+            | SlideElement::Sticker { x, y, w, h, .. }
             | SlideElement::Video { x, y, w, h, .. }
             | SlideElement::Placeholder { x, y, w, h, .. } => {
                 (*x, *y, *w, *h)
@@ -361,6 +371,7 @@ impl SlideElement {
                 c.h = h.clamp(0.05, 1.0);
             }
             SlideElement::Picture { .. }
+            | SlideElement::Sticker { .. }
             | SlideElement::Video { .. }
             | SlideElement::Placeholder { .. } => {
                 *self = self.with_bounds(x, y, w, h);
@@ -386,6 +397,15 @@ impl SlideElement {
             }
             SlideElement::Picture { path, .. } => SlideElement::Picture {
                 path: path.clone(),
+                x,
+                y,
+                w,
+                h,
+            },
+            SlideElement::Sticker { path, name, category, .. } => SlideElement::Sticker {
+                path: path.clone(),
+                name: name.clone(),
+                category: *category,
                 x,
                 y,
                 w,

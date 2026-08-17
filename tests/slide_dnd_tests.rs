@@ -1752,3 +1752,154 @@ fn test_slideshow_horizontal_filmstrip_actions() {
     timeline.tracks[0].clips[0].source_out = timeline.tracks[0].clips[0].source_in + new_dur;
     assert_eq!(timeline.tracks[0].clips[0].duration().as_secs_f64(), 7.5);
 }
+
+// ---------------------------------------------------------------------------
+// Filmstrip drag-and-drop slide reordering.
+//
+// These drive the SHIPPING helpers (`gap_to_target_index` + `reorder_slide`)
+// rather than re-deriving the index math locally, so the assertions still bind
+// if the production conversion ever changes.
+// ---------------------------------------------------------------------------
+
+/// Build a deck of `n` named slides: "S1".."Sn", each 5s.
+fn deck_of(n: usize) -> video_editor::VideoEditorApp {
+    use video_editor::VideoEditorApp;
+    let mut app = VideoEditorApp::default();
+    for i in 0..n {
+        app.insert_blank_slide_at_playhead(5.0, None);
+        app.project.timeline.tracks[0].clips[i].name = format!("S{}", i + 1);
+    }
+    app.reflow_slide_timeline_positions();
+    app
+}
+
+fn deck_names(app: &video_editor::VideoEditorApp) -> Vec<String> {
+    app.project.timeline.tracks[0]
+        .clips
+        .iter()
+        .map(|c| c.name.clone())
+        .collect()
+}
+
+#[test]
+fn test_gap_to_target_index_shift_correction() {
+    use video_editor::ui::slide_deck::gap_to_target_index;
+
+    // Dragging RIGHT: removing the source first shifts later slides down one,
+    // so the gap must be decremented or the slide overshoots by a position.
+    // S1 dropped in the gap after S4 (gap 4) in a 5-deck must land at index 3.
+    assert_eq!(gap_to_target_index(0, 4, 5), Some(3));
+    // Dropping past the final card appends: last index, never out of bounds.
+    assert_eq!(gap_to_target_index(0, 5, 5), Some(4));
+
+    // Dragging LEFT: nothing before the source has shifted, so the gap is the
+    // destination index unchanged.
+    assert_eq!(gap_to_target_index(4, 0, 5), Some(0));
+    assert_eq!(gap_to_target_index(3, 1, 5), Some(1));
+
+    // Both gaps flanking the dragged card are no-ops, so an accidental
+    // click-drag in place never pushes an undo snapshot.
+    assert_eq!(gap_to_target_index(2, 2, 5), None);
+    assert_eq!(gap_to_target_index(2, 3, 5), None);
+
+    // Out-of-range source is rejected rather than panicking.
+    assert_eq!(gap_to_target_index(9, 1, 5), None);
+}
+
+#[test]
+fn test_drag_slide_to_arbitrary_position_reorders_deck() {
+    use video_editor::ui::slide_deck::gap_to_target_index;
+
+    // Drag the FIRST slide to the very END in one gesture — the move the
+    // one-step arrows would need four presses to achieve.
+    let mut app = deck_of(5);
+    let to = gap_to_target_index(0, 5, 5).expect("drop past last card is a real move");
+    app.reorder_slide(0, to, None);
+    assert_eq!(deck_names(&app), vec!["S2", "S3", "S4", "S5", "S1"]);
+
+    // Drag the LAST slide to the very FRONT.
+    let mut app = deck_of(5);
+    let to = gap_to_target_index(4, 0, 5).expect("drop before first card is a real move");
+    app.reorder_slide(4, to, None);
+    assert_eq!(deck_names(&app), vec!["S5", "S1", "S2", "S3", "S4"]);
+
+    // Drag a middle slide (S2) into the gap between S4 and S5.
+    let mut app = deck_of(5);
+    let to = gap_to_target_index(1, 4, 5).expect("middle move");
+    app.reorder_slide(1, to, None);
+    assert_eq!(deck_names(&app), vec!["S1", "S3", "S4", "S2", "S5"]);
+}
+
+#[test]
+fn test_dragged_slide_keeps_its_content_and_timeline_reflows() {
+    use video_editor::core::text_overlay::{SlideBackground, TextOverlay};
+    use video_editor::ui::slide_deck::gap_to_target_index;
+
+    let mut app = deck_of(3);
+    // Give S1 identifiable content, then drag it to the end. Reordering must
+    // move the whole slide, not just relabel positions.
+    app.project.timeline.tracks[0].clips[0].background =
+        Some(SlideBackground::Solid(egui::Color32::from_rgb(9, 9, 9)));
+    let mut ov = TextOverlay::default();
+    ov.text = "carry me".to_string();
+    app.project.timeline.tracks[0].clips[0]
+        .elements
+        .push(video_editor::core::text_overlay::SlideElement::Text(ov));
+
+    // Vary durations so a reflow error shows up as a bad start time.
+    app.project.timeline.tracks[0].clips[1].source_duration =
+        video_editor::core::time::TimeCode::from_secs_f64(10.0);
+    app.project.timeline.tracks[0].clips[1].source_out =
+        video_editor::core::time::TimeCode::from_secs_f64(10.0);
+    app.reflow_slide_timeline_positions();
+
+    let to = gap_to_target_index(0, 3, 3).expect("to the end");
+    app.reorder_slide(0, to, None);
+
+    let clips = &app.project.timeline.tracks[0].clips;
+    assert_eq!(
+        clips.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+        vec!["S2", "S3", "S1"]
+    );
+    // The moved slide still owns its background and its text element.
+    let moved = &clips[2];
+    assert!(matches!(moved.background, Some(SlideBackground::Solid(_))));
+    assert_eq!(moved.elements.len(), 1);
+
+    // Timeline positions are contiguous after the move: S2(10s), S3(5s), S1(5s).
+    assert_eq!(clips[0].timeline_start.as_secs_f64(), 0.0);
+    assert_eq!(clips[1].timeline_start.as_secs_f64(), 10.0);
+    assert_eq!(clips[2].timeline_start.as_secs_f64(), 15.0);
+}
+
+#[test]
+fn test_arrow_reorder_still_moves_one_position() {
+    // The one-step arrow buttons the user also asked for: MoveSlideDown(idx)
+    // maps to reorder_slide(idx, idx+1) and MoveSlideUp to (idx, idx-1).
+    let mut app = deck_of(4);
+
+    app.reorder_slide(0, 1, None); // ▶ on S1
+    assert_eq!(deck_names(&app), vec!["S2", "S1", "S3", "S4"]);
+
+    app.reorder_slide(1, 0, None); // ◀ moves it back
+    assert_eq!(deck_names(&app), vec!["S1", "S2", "S3", "S4"]);
+
+    // A move past the last slide is a no-op, not a panic or a lost slide.
+    let len = app.slide_count();
+    app.reorder_slide(len - 1, len, None);
+    assert_eq!(deck_names(&app), vec!["S1", "S2", "S3", "S4"]);
+}
+
+#[test]
+fn test_slide_reorder_is_undoable() {
+    use video_editor::ui::slide_deck::gap_to_target_index;
+
+    let mut app = deck_of(3);
+    let to = gap_to_target_index(0, 3, 3).expect("to the end");
+    app.reorder_slide(0, to, None);
+    assert_eq!(deck_names(&app), vec!["S2", "S3", "S1"]);
+
+    // reorder_slide snapshots before mutating, so Ctrl+Z restores the deck.
+    app.undo(None);
+    assert_eq!(deck_names(&app), vec!["S1", "S2", "S3"]);
+}

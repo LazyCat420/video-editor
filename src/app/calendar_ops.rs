@@ -1,10 +1,11 @@
 use crate::app::VideoEditorApp;
-use crate::core::calendar_gen::{CalendarMonth, CalendarOverlay};
+use crate::core::calendar_gen::CalendarMonth;
 use crate::core::clip::Clip;
-use crate::core::text_overlay::SlideElement;
+use crate::core::text_overlay::{CalendarOverlay, SlideElement};
 use crate::core::time::TimeCode;
 use crate::core::track::TrackKind;
 use egui::Context;
+use image;
 
 impl VideoEditorApp {
     pub fn insert_template_calendar_slide(
@@ -18,31 +19,35 @@ impl VideoEditorApp {
         self.snapshot_timeline();
         let track_id = self.project.timeline.tracks.iter().find(|t| t.kind == TrackKind::Video).map(|t| t.id)
             .unwrap_or_else(|| self.project.timeline.add_track("Video Track".to_string(), TrackKind::Video));
-        let next_id = self.project.timeline.next_id();
+
         let count = month_count.clamp(1, 3);
         let end_month = (start_month + count - 1).min(12);
-
         let slide_title = if count == 1 {
             format!("{} {}", CalendarMonth::name_for_month(start_month), year)
         } else {
             format!("{} - {} {}", CalendarMonth::short_name_for_month(start_month), CalendarMonth::short_name_for_month(end_month), year)
         };
 
+        let next_id = self.project.timeline.next_id();
         let mut slide = Clip::new_blank_slide(next_id, track_id, slide_title.clone(), 5.0);
         slide.timeline_start = self.project.timeline.playhead;
         slide.is_selected = true;
 
-        // Top landscape photo / artwork slot
-        slide.elements.push(SlideElement::Placeholder {
-            slot_id: 1,
-            label: format!("{} Artwork / Photo", slide_title),
-            x: 0.05,
-            y: 0.05,
-            w: 0.90,
-            h: 0.44,
-        });
+        let (cal_x, cal_y, cal_w, cal_h) = self.calendar_position_preset.bounds();
 
-        // Bottom vector calendar element
+        // Complementary photo / artwork placeholder slot if applicable
+        if let Some((px, py, pw, ph)) = self.calendar_position_preset.complementary_photo_bounds() {
+            slide.elements.push(SlideElement::Placeholder {
+                slot_id: 1,
+                label: format!("{} Artwork / Photo", slide_title),
+                x: px,
+                y: py,
+                w: pw,
+                h: ph,
+            });
+        }
+
+        // Vector calendar element
         let mut cal_overlay = CalendarOverlay::default();
         cal_overlay.year = year;
         cal_overlay.start_month = start_month;
@@ -54,10 +59,10 @@ impl VideoEditorApp {
             self.calendar_holidays.clone()
         };
         cal_overlay.custom_events = self.calendar_custom_events.clone();
-        cal_overlay.x = 0.05;
-        cal_overlay.y = 0.52;
-        cal_overlay.w = 0.90;
-        cal_overlay.h = 0.44;
+        cal_overlay.x = cal_x;
+        cal_overlay.y = cal_y;
+        cal_overlay.w = cal_w;
+        cal_overlay.h = cal_h;
         slide.elements.push(SlideElement::Calendar(cal_overlay));
 
         for t in &mut self.project.timeline.tracks {
@@ -89,6 +94,8 @@ impl VideoEditorApp {
         let mut cur_time = self.project.timeline.playhead;
         let count = month_count.clamp(1, 3);
         let mut start_m = 1;
+        let (cal_x, cal_y, cal_w, cal_h) = self.calendar_position_preset.bounds();
+        let photo_bounds = self.calendar_position_preset.complementary_photo_bounds();
 
         while start_m <= 12 {
             let end_m = (start_m + count - 1).min(12);
@@ -102,17 +109,19 @@ impl VideoEditorApp {
             slide.timeline_start = cur_time;
             slide.is_selected = start_m == 1;
 
-            // Top landscape photo / artwork slot
-            slide.elements.push(SlideElement::Placeholder {
-                slot_id: 1,
-                label: format!("{} Artwork / Photo", slide_title),
-                x: 0.05,
-                y: 0.05,
-                w: 0.90,
-                h: 0.44,
-            });
+            // Complementary landscape photo / artwork slot
+            if let Some((px, py, pw, ph)) = photo_bounds {
+                slide.elements.push(SlideElement::Placeholder {
+                    slot_id: 1,
+                    label: format!("{} Artwork / Photo", slide_title),
+                    x: px,
+                    y: py,
+                    w: pw,
+                    h: ph,
+                });
+            }
 
-            // Bottom vector calendar element
+            // Vector calendar element
             let mut cal_overlay = CalendarOverlay::default();
             cal_overlay.year = year;
             cal_overlay.start_month = start_m;
@@ -120,10 +129,10 @@ impl VideoEditorApp {
             cal_overlay.show_holidays = show_holidays;
             cal_overlay.holidays = self.calendar_holidays.clone();
             cal_overlay.custom_events = self.calendar_custom_events.clone();
-            cal_overlay.x = 0.05;
-            cal_overlay.y = 0.52;
-            cal_overlay.w = 0.90;
-            cal_overlay.h = 0.44;
+            cal_overlay.x = cal_x;
+            cal_overlay.y = cal_y;
+            cal_overlay.w = cal_w;
+            cal_overlay.h = cal_h;
             slide.elements.push(SlideElement::Calendar(cal_overlay));
 
             if let Some(track) = self.project.timeline.get_track_mut(track_id) {
@@ -155,6 +164,7 @@ impl VideoEditorApp {
                 };
                 slide.name = slide_title.clone();
 
+                let (cal_x, cal_y, cal_w, cal_h) = self.calendar_position_preset.bounds();
                 let mut cal_overlay = CalendarOverlay::default();
                 cal_overlay.year = year;
                 cal_overlay.start_month = start_month;
@@ -166,10 +176,10 @@ impl VideoEditorApp {
                     self.calendar_holidays.clone()
                 };
                 cal_overlay.custom_events = self.calendar_custom_events.clone();
-                cal_overlay.x = 0.05;
-                cal_overlay.y = 0.52;
-                cal_overlay.w = 0.90;
-                cal_overlay.h = 0.44;
+                cal_overlay.x = cal_x;
+                cal_overlay.y = cal_y;
+                cal_overlay.w = cal_w;
+                cal_overlay.h = cal_h;
 
                 let mut replaced = false;
                 for el in &mut slide.elements {
@@ -198,6 +208,11 @@ impl VideoEditorApp {
                         c.show_holidays = self.calendar_show_holidays;
                         c.holidays = self.calendar_holidays.clone();
                         c.custom_events = self.calendar_custom_events.clone();
+                        let (px, py, pw, ph) = self.calendar_position_preset.bounds();
+                        c.x = px;
+                        c.y = py;
+                        c.w = pw;
+                        c.h = ph;
                     }
                 }
             }

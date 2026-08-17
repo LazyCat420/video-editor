@@ -26,16 +26,18 @@ impl CalendarRenderer {
         );
 
         let month_count = cal.month_count.clamp(1, 3);
-        let pad_x = 10.0 * scale;
-        let pad_y = 8.0 * scale;
+        let pad_x = 8.0 * scale;
+        let pad_y = 6.0 * scale;
         let inner_rect = card_rect.shrink2(Vec2::new(pad_x, pad_y));
         if inner_rect.width() <= 20.0 || inner_rect.height() <= 20.0 {
             return;
         }
 
-        let gutter = 10.0 * scale;
+        // Multi-month stacking: Stack on top of each other in a vertical column format
+        let gutter = 8.0 * scale;
         let total_gutters = gutter * (month_count.saturating_sub(1) as f32);
-        let col_w = (inner_rect.width() - total_gutters) / (month_count as f32);
+        let row_h = (inner_rect.height() - total_gutters) / (month_count as f32);
+        let month_scale = (row_h / 240.0).clamp(0.35, 2.5);
 
         for m_offset in 0..month_count {
             let month = cal.start_month + m_offset;
@@ -43,21 +45,21 @@ impl CalendarRenderer {
                 break;
             }
 
-            let col_min_x = inner_rect.min.x + (m_offset as f32) * (col_w + gutter);
-            let col_rect = Rect::from_min_size(
-                Pos2::new(col_min_x, inner_rect.min.y),
-                Vec2::new(col_w, inner_rect.height()),
+            let row_min_y = inner_rect.min.y + (m_offset as f32) * (row_h + gutter);
+            let row_rect = Rect::from_min_size(
+                Pos2::new(inner_rect.min.x, row_min_y),
+                Vec2::new(inner_rect.width(), row_h),
             );
 
             Self::draw_single_month_column(
                 painter,
-                col_rect,
+                row_rect,
                 cal.year,
                 month,
                 cal.show_holidays,
                 &cal.holidays,
                 &cal.custom_events,
-                scale,
+                month_scale,
             );
         }
     }

@@ -65,6 +65,7 @@ fn collect_sources(
             for el in &clip.elements {
                 let p = match el {
                     SlideElement::Picture { path, .. }
+                    | SlideElement::Sticker { path, .. }
                     | SlideElement::Video { path, .. }
                     | SlideElement::Audio { path, .. } => Some(path),
                     _ => None,
@@ -191,6 +192,7 @@ pub fn build_ffmpeg_export_command(
                 for (ei, el) in clip.elements.iter().enumerate() {
                     match el {
                         SlideElement::Picture { path, x, y, w, h }
+                        | SlideElement::Sticker { path, x, y, w, h, .. }
                         | SlideElement::Video { path, x, y, w, h } => {
                             let ii = *source_to_input_idx.get(path).ok_or("elem input")?;
                             let px = ((x.min(1.0) * wd as f32) as i64).clamp(0, wd - 1);

@@ -1,89 +1,97 @@
+use egui::{
+    Button, Color32, Frame, Margin, RichText, Rounding, Sense, Stroke, Ui, Vec2,
+};
 use crate::ui::theme::AppTheme;
-use egui::{Button, Color32, Frame, Margin, RichText, Rounding, Sense, Stroke, Ui, Vec2};
 
-/// Modular LEGO Action Row Card (Icon + Title/Desc + Action Button).
 pub struct ActionRowCard;
 
-/// Horizontal inner margin of the card frame.
-const CARD_MARGIN_X: f32 = 8.0;
-/// Glyph cell inside the icon badge. Fixed so a wide emoji cannot grow the card.
-const ICON_GLYPH_W: f32 = 16.0;
-const ICON_GLYPH_H: f32 = 18.0;
-
 impl ActionRowCard {
-    /// `card_w` is the exact width the row must occupy. The caller owns it (it knows the
-    /// container's width); the card never measures it, so no row can widen its siblings.
     pub fn render(
         ui: &mut Ui,
         icon: &str,
         title: &str,
         desc: &str,
         is_active: bool,
-        card_w: f32,
+        budget_w: f32,
+    ) -> bool {
+        Self::render_with_image(ui, None, icon, title, desc, is_active, budget_w)
+    }
+
+    pub fn render_with_image(
+        ui: &mut Ui,
+        texture: Option<&egui::TextureHandle>,
+        fallback_icon: &str,
+        title: &str,
+        desc: &str,
+        is_active: bool,
+        budget_w: f32,
     ) -> bool {
         let mut clicked = false;
+
+        let outer_margin_x = 4.0;
+        let card_w = (budget_w - 2.0 * outer_margin_x).max(180.0);
+
         let bg_color = if is_active {
-            Color32::from_rgb(32, 45, 64)
+            Color32::from_rgb(25, 40, 60)
         } else {
             AppTheme::bg_card()
         };
-        let border_stroke = if is_active {
-            Stroke::new(1.5, AppTheme::accent_yellow())
-        } else {
-            Stroke::new(1.0, Color32::from_rgb(45, 48, 60))
-        };
 
-        // Column widths derive from `card_w`, the budget the caller imposes, never from
-        // `ui.available_width()` mid-row. Widths read mid-row compound: a wide emoji badge or
-        // a long description grows the row, the parent grows with it, and the next card reads
-        // the inflated value — the list ratchets wider and drags the SidePanel with it, which
-        // paints as a dead gap beside the sidebar.
-        let inner_w = (card_w - 2.0 * CARD_MARGIN_X).max(60.0);
+        let stroke_color = if is_active {
+            AppTheme::accent_yellow()
+        } else {
+            Color32::from_rgb(45, 52, 68)
+        };
 
         let resp = Frame::none()
             .fill(bg_color)
             .rounding(Rounding::same(6.0))
-            .stroke(border_stroke)
-            .inner_margin(Margin::symmetric(CARD_MARGIN_X, 6.0))
+            .stroke(Stroke::new(if is_active { 1.5 } else { 1.0 }, stroke_color))
+            .inner_margin(Margin::symmetric(6.0, 5.0))
             .show(ui, |ui| {
-                ui.set_max_width(inner_w);
+                ui.set_max_width(card_w);
+                let inner_w = card_w - 2.0 * 6.0;
+
                 ui.horizontal(|ui| {
-                    ui.set_max_width(inner_w);
-                    // 1. Icon Badge (fixed size)
-                    //
-                    // The glyph is centered in a hard-sized cell instead of being measured:
-                    // emoji widths vary (a variation-selector arrow like "◀️", or "🔍") and a
-                    // self-sizing badge was one of the two things widening the card.
+                    ui.spacing_mut().item_spacing.x = 6.0;
+
+                    // 1. Left Thumbnail / Icon Badge
+                    const ICON_GLYPH_W: f32 = 28.0;
+                    const ICON_GLYPH_H: f32 = 28.0;
+
                     Frame::none()
-                        .fill(Color32::from_rgb(18, 22, 30))
+                        .fill(if is_active {
+                            Color32::from_rgb(30, 55, 80)
+                        } else {
+                            Color32::from_rgb(20, 24, 34)
+                        })
                         .rounding(Rounding::same(4.0))
                         .stroke(Stroke::new(1.0, Color32::from_rgb(40, 48, 65)))
-                        .inner_margin(Margin::symmetric(5.0, 3.0))
+                        .inner_margin(Margin::same(2.0))
                         .show(ui, |ui| {
                             ui.allocate_ui_with_layout(
                                 Vec2::new(ICON_GLYPH_W, ICON_GLYPH_H),
                                 egui::Layout::centered_and_justified(egui::Direction::TopDown),
                                 |ui| {
                                     ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
-                                    ui.add(
-                                        egui::Label::new(RichText::new(icon).size(13.0))
-                                            .selectable(false),
-                                    );
+                                    if let Some(tex) = texture {
+                                        ui.image((tex.id(), Vec2::new(ICON_GLYPH_W - 2.0, ICON_GLYPH_H - 2.0)));
+                                    } else {
+                                        ui.add(
+                                            egui::Label::new(RichText::new(fallback_icon).size(13.0))
+                                                .selectable(false),
+                                        );
+                                    }
                                 },
                             );
                         });
 
                     ui.add_space(2.0);
 
-                    // 2. Middle Text Column: whatever the fixed badge and button leave over.
-                    // `item_spacing.x` is counted explicitly — a horizontal layout inserts it
-                    // between each pair of columns, and leaving it out of the budget was
-                    // enough on its own to push the row past the sidebar width.
+                    // 2. Middle Text Column
                     let btn_w = 54.0;
                     let gap = ui.spacing().item_spacing.x;
-                    let badge_w = ICON_GLYPH_W + 2.0 * 5.0 + 2.0;
-                    // The extra 2px absorbs sub-pixel rounding in the badge/button widths, so
-                    // the row lands at or just under budget rather than 1px over it.
+                    let badge_w = ICON_GLYPH_W + 4.0;
                     let text_w = (inner_w - badge_w - btn_w - 2.0 - 2.0 * gap - 2.0).max(40.0);
                     ui.allocate_ui_with_layout(
                         Vec2::new(text_w, 34.0),

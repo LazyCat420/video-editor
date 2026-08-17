@@ -1,8 +1,12 @@
 pub mod calendar_gen;
 pub use calendar_gen::{CalendarMonth, CalendarStyle, CustomCalendarEvent, HolidayCategory, HolidayItem};
 pub mod clip;
+pub mod effects;
+pub use effects::{EffectParticleSimulator, SlideEffect, SlideEffectKind};
 pub mod envelope;
 pub mod history;
+pub mod stickers;
+pub use stickers::{StickerCatalog, StickerCategory, StickerHolidayCategory, StickerItem};
 pub mod transition;
 pub use transition::{Transition, TransitionKind};
 pub mod project;

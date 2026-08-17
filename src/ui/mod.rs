@@ -16,6 +16,12 @@ pub struct TrackReorderDrag(pub u64);
 #[derive(Clone, Debug)]
 pub struct SlideElementDrag(pub usize);
 
+/// Drag-and-drop payload: a slide's filmstrip index being dragged to reorder the
+/// deck. Carries only the source index; the destination is resolved at drop time
+/// from the pointer's x position, so one gesture can move a slide to any spot.
+#[derive(Clone, Debug)]
+pub struct SlideReorderDrag(pub usize);
+
 pub mod media_bin;
 pub mod menu_bar;
 pub mod node_graph_view;
@@ -23,6 +29,7 @@ pub mod preview_player;
 pub mod slide_bin;
 pub mod slide_deck;
 pub mod theme;
+pub mod effects_and_transitions_bin;
 pub mod timeline_view;
 pub mod transition_bin;
 
@@ -47,6 +54,7 @@ pub enum SidebarTab {
     Slides,
     Formatting,
     Transitions,
+    EffectsAndTransitions,
 }
 
 impl Default for SidebarTab {
@@ -64,7 +72,10 @@ pub use slide_bin::SlideBinView;
 pub use slide_deck::{SlideDeckAction, SlideDeckView};
 pub use theme::AppTheme;
 pub use timeline_view::TimelineView;
-pub use transition_bin::{TransitionBinAction, TransitionBinView, TransitionSlot};
+pub use effects_and_transitions_bin::{
+    EffectsAndTransitionsAction, EffectsAndTransitionsAction as TransitionBinAction,
+    EffectsAndTransitionsBinView, EffectsAndTransitionsBinView as TransitionBinView, TransitionSlot,
+};
 
 use crate::core::text_overlay::{SlideElement, TextOverlay};
 use std::path::PathBuf;
@@ -73,6 +84,7 @@ use std::path::PathBuf;
 pub enum PendingElement {
     Text(TextOverlay),
     Picture(PathBuf),
+    Sticker { path: PathBuf, name: String, category: crate::core::stickers::StickerCategory },
     Video(PathBuf),
 }
 
@@ -83,6 +95,7 @@ pub enum SlideBinAction {
     SetActiveBackground(crate::core::text_overlay::SlideBackground),
     AddAudioElement(PathBuf),
     AddTextElement(TextOverlay),
+    AddStickerElement { path: PathBuf, name: String, category: crate::core::stickers::StickerCategory },
     /// Arm a pending element so the next preview click places it.
     ArmPlace(PendingElement),
     UpdateElement { idx: usize, element: SlideElement },
