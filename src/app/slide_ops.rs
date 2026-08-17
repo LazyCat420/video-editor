@@ -8,7 +8,39 @@ use crate::ui::theme::AppTheme;
 use egui::{Button, Color32, Context, RichText, Ui, Vec2};
 
 impl VideoEditorApp {
-    /// The active slide (prioritizes selected clip on a video track, then clip under playhead).
+    /// The slide the playhead is currently over — playback's notion of "current".
+    ///
+    /// Selection is deliberately ignored here: during playback the picture must
+    /// follow the playhead across slide boundaries, and the selection-first
+    /// resolver (`active_slide`) is what used to pin the preview to whichever
+    /// slide the user last clicked.
+    pub fn slide_for_playback(&self) -> Option<&Clip> {
+        let playhead = self.project.timeline.playhead;
+        for track in &self.project.timeline.tracks {
+            if track.kind == TrackKind::Video {
+                if let Some(c) = track.get_clip_at(playhead) {
+                    return Some(c);
+                }
+            }
+        }
+        None
+    }
+
+    /// The slide the preview should render right now.
+    ///
+    /// Playing → the slide under the playhead (`slide_for_playback`), so Play
+    /// walks the whole deck. Paused → the selection-first `active_slide`, so
+    /// clicking a slide in the deck still previews it for editing.
+    pub fn slide_to_render(&self) -> Option<&Clip> {
+        if self.project.timeline.is_playing {
+            self.slide_for_playback()
+        } else {
+            self.active_slide()
+        }
+    }
+
+    /// The active slide for EDITING (prioritizes selected clip on a video track,
+    /// then clip under playhead). Render paths must use `slide_to_render` instead.
     pub fn active_slide(&self) -> Option<&Clip> {
         for track in &self.project.timeline.tracks {
             if track.kind == TrackKind::Video {
@@ -54,12 +86,40 @@ impl VideoEditorApp {
             });
         let next_id = self.project.timeline.next_id();
         let mut clip = Clip::new_blank_slide(next_id, track_id, "Slide 1".to_string(), 5.0);
-        clip.timeline_start = self.project.timeline.playhead;
         clip.is_selected = true;
         if let Some(track) = self.project.timeline.get_track_mut(track_id) {
             track.add_clip(clip);
         }
+        // First slide of the deck: anchor it at zero regardless of where the
+        // playhead happened to be when the drop landed.
+        self.reflow_slide_timeline_positions();
         next_id
+    }
+
+    /// Insert a freshly-built slide right after the currently active slide
+    /// (PowerPoint's insert rule: the new slide becomes the active one, so
+    /// repeated adds chain in order), then repack the deck contiguously.
+    ///
+    /// The repack matters: slide starts used to come from the playhead with no
+    /// overlap prevention, so adding a slide right after Rewind stacked it
+    /// exactly on top of slide 1.
+    fn insert_slide_after_active(&mut self, track_id: u64, mut clip: Clip) {
+        let insert_after = self.active_slide().map(|c| c.id);
+        for t in &mut self.project.timeline.tracks {
+            for c in &mut t.clips {
+                c.is_selected = false;
+            }
+        }
+        clip.is_selected = true;
+        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
+            clip.track_id = track.id;
+            let pos = insert_after
+                .and_then(|aid| track.clips.iter().position(|c| c.id == aid).map(|i| i + 1))
+                .unwrap_or(track.clips.len());
+            let pos = pos.min(track.clips.len());
+            track.clips.insert(pos, clip);
+        }
+        self.reflow_slide_timeline_positions();
     }
 
     pub fn insert_blank_slide_at_playhead(&mut self, duration: f64, ctx: Option<&Context>) {
@@ -77,20 +137,8 @@ impl VideoEditorApp {
                     .add_track("Video Track".to_string(), TrackKind::Video)
             });
         let next_id = self.project.timeline.next_id();
-        let mut clip = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), duration);
-        clip.timeline_start = self.project.timeline.playhead;
-        clip.is_selected = true;
-        // Deselect other clips so the newly created blank slide is the active slide
-        for t in &mut self.project.timeline.tracks {
-            for c in &mut t.clips {
-                if c.id != next_id {
-                    c.is_selected = false;
-                }
-            }
-        }
-        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-            track.add_clip(clip);
-        }
+        let clip = Clip::new_blank_slide(next_id, track_id, "Blank Slide".to_string(), duration);
+        self.insert_slide_after_active(track_id, clip);
         self.sidebar_tab = crate::ui::SidebarTab::Formatting;
         self.selected_slide_element = None;
         self.refresh_preview_frame(ctx);
@@ -153,8 +201,6 @@ impl VideoEditorApp {
             .unwrap_or_else(|| self.project.timeline.add_track("Video Track".to_string(), TrackKind::Video));
         let next_id = self.project.timeline.next_id();
         let mut slide = Clip::new_blank_slide(next_id, track_id, "Title + 2 Media".to_string(), 5.0);
-        slide.timeline_start = self.project.timeline.playhead;
-        slide.is_selected = true;
 
         let mut title = TextOverlay::default();
         title.text = "Add Slide Title Here".to_string();
@@ -184,14 +230,7 @@ impl VideoEditorApp {
             h: 0.65,
         });
 
-        for t in &mut self.project.timeline.tracks {
-            for c in &mut t.clips {
-                c.is_selected = false;
-            }
-        }
-        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-            track.add_clip(slide);
-        }
+        self.insert_slide_after_active(track_id, slide);
         self.refresh_preview_frame(ctx);
     }
 
@@ -201,8 +240,6 @@ impl VideoEditorApp {
             .unwrap_or_else(|| self.project.timeline.add_track("Video Track".to_string(), TrackKind::Video));
         let next_id = self.project.timeline.next_id();
         let mut slide = Clip::new_blank_slide(next_id, track_id, "Title + 4 Grid".to_string(), 5.0);
-        slide.timeline_start = self.project.timeline.playhead;
-        slide.is_selected = true;
 
         let mut title = TextOverlay::default();
         title.text = "Grid Photo Gallery".to_string();
@@ -230,14 +267,7 @@ impl VideoEditorApp {
             });
         }
 
-        for t in &mut self.project.timeline.tracks {
-            for c in &mut t.clips {
-                c.is_selected = false;
-            }
-        }
-        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-            track.add_clip(slide);
-        }
+        self.insert_slide_after_active(track_id, slide);
         self.refresh_preview_frame(ctx);
     }
 
@@ -247,8 +277,6 @@ impl VideoEditorApp {
             .unwrap_or_else(|| self.project.timeline.add_track("Video Track".to_string(), TrackKind::Video));
         let next_id = self.project.timeline.next_id();
         let mut slide = Clip::new_blank_slide(next_id, track_id, "Feature Showcase".to_string(), 5.0);
-        slide.timeline_start = self.project.timeline.playhead;
-        slide.is_selected = true;
 
         slide.elements.push(SlideElement::Placeholder {
             slot_id: 1,
@@ -278,14 +306,7 @@ Great for highlights and memories.".to_string();
         body.font_family = FontFamilyPreset::SansSerif;
         slide.elements.push(SlideElement::Text(body));
 
-        for t in &mut self.project.timeline.tracks {
-            for c in &mut t.clips {
-                c.is_selected = false;
-            }
-        }
-        if let Some(track) = self.project.timeline.get_track_mut(track_id) {
-            track.add_clip(slide);
-        }
+        self.insert_slide_after_active(track_id, slide);
         self.refresh_preview_frame(ctx);
     }
 
@@ -482,8 +503,15 @@ Great for highlights and memories.".to_string();
         let mut duration_delta = None;
         let mut nav_prev = false;
         let mut nav_next = false;
+        let mut strip_action = crate::ui::slide_deck::SlideDeckAction::None;
 
-        ui.horizontal_centered(|ui| {
+        // Load any missing element textures so the filmstrip below can draw
+        // real slide miniatures.
+        self.ensure_slide_thumb_textures(ctx);
+
+        ui.vertical(|ui| {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
             ui.add_space(8.0);
 
             let total_slides = self.project.timeline.tracks.iter()
@@ -562,6 +590,54 @@ Great for highlights and memories.".to_string();
             });
         });
 
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(2.0);
+
+        // The slide filmstrip: one card per slide with a live miniature, filling
+        // the rest of the panel (previously dead black space — the filmstrip
+        // renderer existed but was never called).
+        strip_action = crate::ui::slide_deck::SlideDeckView::render_horizontal_filmstrip(ui, self);
+        });
+
+        {
+            use crate::ui::slide_deck::SlideDeckAction;
+            match strip_action {
+                SlideDeckAction::None => {}
+                SlideDeckAction::SelectSlide(id) => {
+                    self.project.timeline.select_clip(id);
+                    if let Some(c) = self.project.timeline.get_clip(id) {
+                        let start = c.timeline_start;
+                        self.seek_to(start, ctx);
+                    }
+                }
+                SlideDeckAction::AddBlankSlide { duration } => {
+                    self.insert_blank_slide_at_playhead(duration, Some(ctx));
+                }
+                SlideDeckAction::DuplicateSlide(id) => {
+                    self.duplicate_slide(id, Some(ctx));
+                }
+                SlideDeckAction::DeleteSlide(id) => {
+                    self.delete_slide_by_id(id, Some(ctx));
+                }
+                SlideDeckAction::MoveSlideUp(idx) => {
+                    if idx > 0 {
+                        self.reorder_slide(idx, idx - 1, Some(ctx));
+                    }
+                }
+                SlideDeckAction::MoveSlideDown(idx) => {
+                    self.reorder_slide(idx, idx + 1, Some(ctx));
+                }
+                SlideDeckAction::AdjustSlideDuration { clip_id, delta_secs } => {
+                    self.adjust_slide_duration(clip_id, delta_secs, Some(ctx));
+                }
+                SlideDeckAction::DropFilesOnSlide { clip_id, paths } => {
+                    self.project.timeline.select_clip(clip_id);
+                    self.drop_files_on_canvas(paths, 0.5, 0.5, Some(ctx));
+                }
+            }
+        }
+
         if let Some((id, delta)) = duration_delta {
             self.adjust_slide_duration(id, delta, Some(ctx));
         }
@@ -574,37 +650,22 @@ Great for highlights and memories.".to_string();
         if to_add_blank {
             self.insert_blank_slide_at_playhead(5.0, Some(ctx));
         }
-        if nav_prev {
-            let active_idx = self.project.timeline.tracks.iter()
+        if nav_prev || nav_next {
+            // Select AND seek: navigation that only moved `is_selected` left the
+            // playhead behind, so the very next Play started somewhere else.
+            let slides: Vec<(u64, TimeCode, bool)> = self.project.timeline.tracks.iter()
                 .filter(|t| t.kind == TrackKind::Video)
                 .flat_map(|t| t.clips.iter())
-                .position(|c| c.is_selected);
-            if let Some(idx) = active_idx {
-                if idx > 0 {
-                    self.reorder_slide(0, 0, Some(ctx)); // triggers select
-                    if let Some(track) = self.project.timeline.tracks.iter_mut().find(|t| t.kind == TrackKind::Video) {
-                        for (i, c) in track.clips.iter_mut().enumerate() {
-                            c.is_selected = i == idx - 1;
-                        }
-                    }
-                    self.refresh_preview_frame(Some(ctx));
-                }
-            }
-        }
-        if nav_next {
-            let active_idx = self.project.timeline.tracks.iter()
-                .filter(|t| t.kind == TrackKind::Video)
-                .flat_map(|t| t.clips.iter())
-                .position(|c| c.is_selected);
-            if let Some(idx) = active_idx {
-                if let Some(track) = self.project.timeline.tracks.iter_mut().find(|t| t.kind == TrackKind::Video) {
-                    if idx + 1 < track.clips.len() {
-                        for (i, c) in track.clips.iter_mut().enumerate() {
-                            c.is_selected = i == idx + 1;
-                        }
+                .map(|c| (c.id, c.timeline_start, c.is_selected))
+                .collect();
+            if let Some(idx) = slides.iter().position(|(_, _, sel)| *sel) {
+                let target = if nav_prev { idx.checked_sub(1) } else { Some(idx + 1) };
+                if let Some(t_idx) = target {
+                    if let Some(&(id, start, _)) = slides.get(t_idx) {
+                        self.project.timeline.select_clip(id);
+                        self.seek_to(start, ctx);
                     }
                 }
-                self.refresh_preview_frame(Some(ctx));
             }
         }
     }

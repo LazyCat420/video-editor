@@ -93,6 +93,25 @@ impl StreamVideoPlayer {
         }
     }
 
+    /// True when a fresh `start()` is needed to honour a request for `source_time`.
+    ///
+    /// Deliberately keyed on `active_path`/`last_pts` rather than `is_running`:
+    /// the worker thread flips `is_running` off at EOF, and a video shorter than
+    /// its slide would otherwise re-spawn ffmpeg past EOF on every frame. Only
+    /// three states demand a restart — never started this file (or `stop()`
+    /// cleared it), switched files, or the request jumped *backwards* past what
+    /// a forward-only pipe can serve (a rewind). Forward stalls are the decoder
+    /// catching up and must be waited out, not restarted.
+    pub fn needs_restart_for(&self, path: &Path, source_time: f64) -> bool {
+        if self.active_path.as_deref() != Some(path) {
+            return true;
+        }
+        match self.last_pts {
+            None => true,
+            Some(last) => source_time + 0.25 < last,
+        }
+    }
+
     /// Stop the continuous video playback stream without blocking the UI thread.
     pub fn stop(&mut self) {
         self.is_running.store(false, Ordering::SeqCst);

@@ -22,6 +22,97 @@ pub enum SlideDeckAction {
 pub struct SlideDeckView;
 
 impl SlideDeckView {
+    /// Paint a real miniature of the slide into `rect`: background first, then
+    /// every element mapped through its normalized (0..1) canvas coordinates.
+    /// Returns true if at least one element was drawn, so callers can fall back
+    /// to a text badge for slides whose textures haven't loaded yet.
+    fn paint_slide_mini(
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        clip: &Clip,
+        app: &VideoEditorApp,
+    ) -> bool {
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0));
+
+        // Background: solid color, picture texture, or the dark canvas default.
+        match &clip.background {
+            Some(SlideBackground::Solid(c)) => {
+                painter.rect_filled(rect, Rounding::same(3.0), *c);
+            }
+            Some(SlideBackground::Picture(p)) => {
+                if let Some(tex) = app.slide_textures.get(p) {
+                    painter.image(tex.id(), rect, uv, Color32::WHITE);
+                } else {
+                    painter.rect_filled(rect, Rounding::same(3.0), Color32::from_rgb(18, 20, 24));
+                }
+            }
+            None => {
+                painter.rect_filled(rect, Rounding::same(3.0), Color32::from_rgb(18, 20, 24));
+            }
+        }
+
+        // Map normalized slide coordinates into the thumbnail rect.
+        let sub = |x: f32, y: f32, w: f32, h: f32| {
+            egui::Rect::from_min_size(
+                rect.min + Vec2::new(x * rect.width(), y * rect.height()),
+                Vec2::new(w * rect.width(), h * rect.height()),
+            )
+        };
+
+        let mut drew = false;
+        for el in &clip.elements {
+            match el {
+                SlideElement::Picture { path, x, y, w, h }
+                | SlideElement::Video { path, x, y, w, h } => {
+                    let r = sub(*x, *y, *w, *h).intersect(rect);
+                    if let Some(tex) = app.slide_textures.get(path) {
+                        painter.image(tex.id(), r, uv, Color32::WHITE);
+                    } else {
+                        // Texture still loading: a placeholder block keeps the
+                        // layout honest instead of showing nothing.
+                        painter.rect_filled(r, Rounding::same(2.0), Color32::from_rgb(40, 44, 54));
+                    }
+                    drew = true;
+                }
+                SlideElement::Text(o) => {
+                    if !o.text.trim().is_empty() {
+                        // Text x/y anchor the CENTER of the text box on the canvas.
+                        let pos = rect.min + Vec2::new(o.x * rect.width(), o.y * rect.height());
+                        let scaled = (o.font_size * rect.height() / 360.0).clamp(6.0, 16.0);
+                        painter.text(
+                            pos,
+                            egui::Align2::CENTER_CENTER,
+                            o.text.lines().next().unwrap_or(""),
+                            egui::FontId::proportional(scaled),
+                            o.text_color,
+                        );
+                        drew = true;
+                    }
+                }
+                SlideElement::Calendar(c) => {
+                    let r = sub(c.x, c.y, c.w, c.h).intersect(rect);
+                    painter.rect_filled(r, Rounding::same(2.0), Color32::from_white_alpha(20));
+                    painter.text(
+                        r.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "📅",
+                        egui::FontId::proportional((r.height() * 0.6).clamp(8.0, 18.0)),
+                        Color32::WHITE,
+                    );
+                    drew = true;
+                }
+                SlideElement::Placeholder { x, y, w, h, .. } => {
+                    let r = sub(*x, *y, *w, *h).intersect(rect);
+                    painter.rect_stroke(r, Rounding::same(2.0), Stroke::new(1.0, Color32::from_white_alpha(60)));
+                }
+                SlideElement::Audio { .. } => {}
+            }
+        }
+
+        painter.rect_stroke(rect, Rounding::same(3.0), Stroke::new(1.0, Color32::from_white_alpha(40)));
+        drew
+    }
+
     pub fn render(ui: &mut Ui, app: &mut VideoEditorApp) -> SlideDeckAction {
         let mut action = SlideDeckAction::None;
 
@@ -101,6 +192,7 @@ impl SlideDeckView {
 
                             let card_action = Self::render_slide_card(
                                 ui,
+                                app,
                                 idx,
                                 slide_num,
                                 clip,
@@ -123,6 +215,7 @@ impl SlideDeckView {
 
     fn render_slide_card(
         ui: &mut Ui,
+        app: &VideoEditorApp,
         idx: usize,
         slide_num: usize,
         clip: &Clip,
@@ -171,17 +264,11 @@ impl SlideDeckView {
                     let (rect, response) = ui.allocate_exact_size(thumb_size, Sense::click());
 
                     let painter = ui.painter();
-                    // Background color fill
-                    let bg_fill = match &clip.background {
-                        Some(SlideBackground::Solid(c)) => *c,
-                        _ => Color32::from_rgb(18, 20, 24),
-                    };
-                    painter.rect_filled(rect, Rounding::same(3.0), bg_fill);
-                    painter.rect_stroke(rect, Rounding::same(3.0), Stroke::new(1.0, Color32::from_white_alpha(40)));
+                    let drew = Self::paint_slide_mini(painter, rect, clip, app);
 
-                    // Miniature element badges/icons on thumbnail
+                    // Miniature element badges/icons on thumbnail (fallback while textures load)
                     let num_elements = clip.elements.len();
-                    if num_elements > 0 {
+                    if num_elements > 0 && !drew {
                         let mut icon_summary = String::new();
                         for el in &clip.elements {
                             match el {
@@ -464,36 +551,16 @@ impl SlideDeckView {
 
                     ui.add_space(2.0);
 
-                    // 2. 16:9 Aspect Ratio Thumbnail Box (148 x 72 px)
+                    // 2. 16:9 Aspect Ratio Thumbnail Box (148 x 72 px):
+                    // a real miniature of the slide (background + elements laid
+                    // out at their true positions), not an icon summary.
                     let thumb_size = Vec2::new(card_w - 12.0, 72.0);
                     let (thumb_rect, thumb_resp) = ui.allocate_exact_size(thumb_size, Sense::click());
                     let painter = ui.painter();
 
-                    let bg_color = match &clip.background {
-                        Some(SlideBackground::Solid(c)) => *c,
-                        _ => Color32::from_rgb(18, 22, 28),
-                    };
-                    painter.rect_filled(thumb_rect, Rounding::same(4.0), bg_color);
-                    painter.rect_stroke(thumb_rect, Rounding::same(4.0), Stroke::new(1.0, Color32::from_white_alpha(35)));
+                    let drawn_pic = Self::paint_slide_mini(painter, thumb_rect, clip, app);
 
-                    // If the slide has pictures and cached texture, draw the primary photo on thumbnail
-                    let mut drawn_pic = false;
-                    for el in &clip.elements {
-                        if let SlideElement::Picture { path, .. } = el {
-                            if let Some(tex) = app.slide_textures.get(path) {
-                                painter.image(
-                                    tex.id(),
-                                    thumb_rect,
-                                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
-                                    Color32::WHITE,
-                                );
-                                drawn_pic = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    // Element badges overlay on thumbnail
+                    // Element badges overlay on thumbnail (fallback while textures load)
                     let elem_count = clip.elements.len();
                     if elem_count > 0 && !drawn_pic {
                         let mut badge_text = String::new();

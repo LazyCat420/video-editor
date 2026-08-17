@@ -162,3 +162,70 @@ that transitions (`composite_transition`) are fed the rendered slide's
 - Nothing here is confirmed on screen. Per the repo's history the Windows `.exe`
   will not render under Xvfb, so visual confirmation needs a build the user runs,
   or the linux target. The tests above are logic-level, not pixel-level.
+
+---
+
+# SHIPPED — implementation + proof (2026-08-16)
+
+All of the above is now implemented, plus four more defects found while
+auditing slide creation and the slideshow UI at the user's request.
+
+## What changed
+
+| Fix | Where |
+| --- | --- |
+| `slide_for_playback()` / `slide_to_render()` split; 4 render sites swapped | `slide_ops.rs`, `playback.rs`, `mod.rs` |
+| Selection follows the playhead during playback (`sync_selection_to_playhead`) | `playback.rs`, called from the playing branch of `update()` |
+| `pause_playback`/`seek_to` DROP slide decoders (`clear()`, Drop stops ffmpeg) instead of stopping them in place | `playback.rs` |
+| Decoder restart predicate `needs_restart_for` — restarts on rewind/file-switch/never-started, never on EOF or forward stalls (no ffmpeg spawn storm) | `stream_player.rs` |
+| Slide inserts go through `insert_slide_after_active` + reflow — no more overlapping slides when the playhead isn't at the deck end (e.g. right after Rewind) | `slide_ops.rs` (blank + 3 templates + `resolve_target_slide_id`) |
+| Bottom slideshow panel now calls `render_horizontal_filmstrip` (it existed but had ZERO callers — budgeted, never drawn) below the transport row | `slide_ops.rs::render_bottom_slideshow_bar` |
+| Deck thumbnails are real miniatures (`paint_slide_mini`: background + elements at true positions; textures prefetched by `ensure_slide_thumb_textures`) | `slide_deck.rs`, `playback.rs` |
+| Prev/Next Slide now select AND seek (they previously only moved `is_selected`, so the next Play started elsewhere; also removed a `reorder_slide(0,0)` no-op hack) | `slide_ops.rs` |
+| Preview canvas left-anchored (`vertical` not `vertical_centered`) — the 16:9 letterbox slack no longer opens a black bar against the sidebar | `preview_player.rs` |
+
+## Proof
+
+- `tests/playback_sequence_tests.rs` grew from 4 to 10 tests. The originally
+  RED test (`playback_follows_the_playhead_not_the_selection`, failed with
+  `left: Some(5), right: Some(3)` on the old code) is GREEN through the real
+  render entry (`slide_to_render`). The metric can fail: it did, on HEAD~.
+- New: playhead walk 0→15s visits slides exactly `[1,2,3]` with no
+  backtracking under adversarial selection; selection sync fires only while
+  playing; Rewind→Play renders slide 1; three inserts at playhead ZERO pack to
+  `[0,5,10]`; mid-deck insert lands after the playhead slide; pause AND seek
+  leave `slide_video_players` empty.
+- Full suite: **97 tests, 0 failures** — including the 44 pre-existing
+  slide-DnD tests. Two of those initially failed against a playhead-position
+  insert; the after-active-slide (PowerPoint) rule satisfies both old and new
+  expectations and was adopted deliberately.
+
+## Open items
+
+- NOT verified on screen: the Windows .exe does not render under Xvfb on this
+  box, so filmstrip layout, thumbnail quality, and the sidebar gap need one
+  visual pass by the user (test list below).
+- `active_slide()`'s tier-3 "first clip" fallback is unchanged; editing paths
+  still use selection-first resolution on purpose.
+- Slide-element AUDIO during playback is still not mixed (pre-existing).
+
+## What YOU should test (player test list) — UNVERIFIED on screen
+
+1. **Rewind → Play with 2+ slides**: click slide 2 first, hit ⏮ Rewind, then
+   PLAY. Right: it plays slide 1 then slide 2 to the end, and the highlighted
+   card in the strip follows along. Bug: picture stays on slide 2 or the
+   highlight doesn't move.
+2. **Slide videos after rewind**: put a video on slide 1, play past it, rewind,
+   play again. Right: the video plays again from its start. Bug: frozen frame.
+3. **Bottom strip**: in Slideshow mode the area under the transport buttons
+   shows one card per slide with a real miniature (photos where the photos
+   are, text where the text is), plus an ➕ Add Slide card. Bug: black void or
+   icon-only cards after a few seconds (textures may take a moment on first
+   load — that part is expected).
+4. **Add New Slide right after Rewind**: total duration must GROW by 5s (check
+   the 00:xx/00:xx readout). Bug: total unchanged → slides overlapped.
+5. **Prev/Next Slide buttons**: clicking them moves both the preview AND the
+   playhead (the time readout jumps to that slide's start).
+6. **Sidebar gap**: the preview canvas should sit flush against the sidebar
+   with slack only on the far right. Bug: black column between sidebar and
+   canvas.

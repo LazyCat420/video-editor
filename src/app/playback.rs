@@ -25,9 +25,10 @@ impl VideoEditorApp {
         self.project.timeline.is_playing = false;
         self.current_playing_clip_id = None;
         self.stream_player.stop();
-        for player in self.slide_video_players.values_mut() {
-            player.stop();
-        }
+        // Drop the slide decoders entirely (Drop calls stop()). A stopped-but-kept
+        // entry made `slide_visuals` treat the decoder as already started, so after
+        // a rewind it was never start()ed again and yielded no frames.
+        self.slide_video_players.clear();
     }
 
     pub fn toggle_playback(&mut self, ctx: &Context) {
@@ -46,9 +47,9 @@ impl VideoEditorApp {
 
     pub fn seek_to(&mut self, target_time: TimeCode, ctx: &Context) {
         self.project.timeline.playhead = target_time;
-        for player in self.slide_video_players.values_mut() {
-            player.stop();
-        }
+        // See pause_playback: entries must be removed, not stopped in place,
+        // or the decoders never restart at the new position.
+        self.slide_video_players.clear();
         if self.project.timeline.is_playing {
             if let Some((clip_id, path, sec, rem_dur)) = self.get_active_video_clip_info(target_time) {
                 self.current_playing_clip_id = Some(clip_id);
@@ -61,6 +62,88 @@ impl VideoEditorApp {
             self.current_playing_clip_id = None;
             self.stream_player.stop();
             self.refresh_preview_frame(Some(ctx));
+        }
+    }
+
+    /// While playing, keep the deck selection on the slide under the playhead.
+    ///
+    /// This is what makes the filmstrip highlight (and "Slide X of Y") follow
+    /// playback without the user clicking each slide, and it leaves the
+    /// selection on the last-played slide when playback stops.
+    pub fn sync_selection_to_playhead(&mut self) {
+        if !self.project.timeline.is_playing {
+            return;
+        }
+        let Some(id) = self.slide_for_playback().map(|c| c.id) else {
+            return;
+        };
+        if self.project.timeline.get_selected_clip().map(|c| c.id) != Some(id) {
+            self.project.timeline.select_clip(id);
+        }
+    }
+
+    /// Cache a texture for every slide's picture/video element (and picture
+    /// background) so deck thumbnails can draw a real miniature instead of an
+    /// icon badge. Pictures load once (failures are remembered in
+    /// `failed_picture_loads`); videos retry `frame_cache` until a frame at
+    /// t=0 is decoded.
+    pub(crate) fn ensure_slide_thumb_textures(&mut self, ctx: &Context) {
+        use crate::core::text_overlay::{SlideBackground, SlideElement};
+
+        let mut wanted: Vec<(PathBuf, bool)> = Vec::new(); // (path, is_still_image)
+        for track in &self.project.timeline.tracks {
+            if track.kind != TrackKind::Video {
+                continue;
+            }
+            for clip in &track.clips {
+                if let Some(SlideBackground::Picture(p)) = &clip.background {
+                    wanted.push((p.clone(), true));
+                }
+                for el in &clip.elements {
+                    match el {
+                        SlideElement::Picture { path, .. } => wanted.push((path.clone(), true)),
+                        SlideElement::Video { path, .. } => wanted.push((path.clone(), false)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for (path, is_image) in wanted {
+            if self.slide_textures.contains_key(&path) || self.failed_picture_loads.contains(&path) {
+                continue;
+            }
+            if is_image {
+                if !path.exists() {
+                    self.failed_picture_loads.insert(path);
+                    continue;
+                }
+                match image::open(&path) {
+                    Ok(dyn_img) => {
+                        let rgba = dyn_img.to_rgba8();
+                        let size = [rgba.width() as usize, rgba.height() as usize];
+                        let color_img = ColorImage::from_rgba_unmultiplied(size, &rgba.into_raw());
+                        let t = ctx.load_texture(
+                            format!("slide_pic_{}", path.display()),
+                            color_img,
+                            egui::TextureOptions::LINEAR,
+                        );
+                        self.slide_textures.insert(path, t);
+                    }
+                    Err(_) => {
+                        // Remembered so a corrupt file can't stall the UI with
+                        // a fresh synchronous decode attempt every frame.
+                        self.failed_picture_loads.insert(path);
+                    }
+                }
+            } else if let Some(img) = self.frame_cache.fetch_frame(&path, 0.0, Some(ctx)) {
+                let t = ctx.load_texture(
+                    format!("slide_thumb_{}", path.display()),
+                    img,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.slide_textures.insert(path, t);
+            }
         }
     }
 
@@ -199,7 +282,7 @@ impl VideoEditorApp {
         use crate::core::text_overlay::SlideElement;
         use crate::ui::preview_player::{SlideVisual, SlideVisualKind};
         let mut visuals = Vec::new();
-        let Some(active) = self.active_slide().cloned() else {
+        let Some(active) = self.slide_to_render().cloned() else {
             return visuals;
         };
         let playhead = self.project.timeline.playhead;
@@ -274,12 +357,14 @@ impl VideoEditorApp {
                 }
                 SlideElement::Video { path, x, y, w, h } => {
                     let tex = if self.project.timeline.is_playing {
-                        let is_first = !self.slide_video_players.contains_key(&path);
                         let player = self.slide_video_players.entry(path.clone()).or_insert_with(|| {
                             crate::media::stream_player::StreamVideoPlayer::new()
                         });
 
-                        if is_first {
+                        // Restart on first use, after a rewind (elapsed jumped
+                        // backwards), or when the same file re-enters on a later
+                        // slide — never on forward stalls or EOF.
+                        if player.needs_restart_for(&path, slide_elapsed) {
                             player.start(&path, slide_elapsed, None, ctx);
                         }
 
@@ -351,7 +436,7 @@ impl VideoEditorApp {
     pub(crate) fn refresh_preview_frame(&mut self, ctx: Option<&Context>) {
         let playhead = self.project.timeline.playhead;
 
-        if let Some(active) = self.active_slide().cloned() {
+        if let Some(active) = self.slide_to_render().cloned() {
             let base = self.base_frame_for(&active, ctx);
             let frame = if let Some(base) = base {
                 self.composite_transition(active.track_id, active.id, base, playhead, ctx)

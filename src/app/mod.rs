@@ -387,7 +387,10 @@ impl eframe::App for VideoEditorApp {
                 self.pause_playback();
                 self.project.timeline.playhead = TimeCode::ZERO;
             } else {
-                if let Some(active_slide) = self.active_slide().cloned() {
+                // The picture must follow the playhead, not the selection —
+                // and the deck highlight follows the picture.
+                self.sync_selection_to_playhead();
+                if let Some(active_slide) = self.slide_for_playback().cloned() {
                     let base = self.base_frame_for(&active_slide, Some(ctx));
                     if let Some(base) = base {
                         let final_frame = self.composite_transition(
@@ -444,7 +447,7 @@ impl eframe::App for VideoEditorApp {
         } else {
             let playhead = self.project.timeline.playhead;
             if self.last_frame_time != Some(playhead) {
-                if let Some(active_slide) = self.active_slide().cloned() {
+                if let Some(active_slide) = self.slide_to_render().cloned() {
                     let base = self.base_frame_for(&active_slide, Some(ctx));
                     if let Some(base) = base {
                         let final_frame = self.composite_transition(

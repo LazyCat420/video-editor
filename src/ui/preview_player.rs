@@ -255,7 +255,13 @@ impl PreviewPlayerView {
     ) -> PlayerAction {
         let mut action = PlayerAction::None;
 
-        ui.vertical_centered(|ui| {
+        // Plain `vertical` (left-anchored), NOT `vertical_centered`: the canvas
+        // is 16:9-locked, so in a wide window centering splits the horizontal
+        // slack into two dark bars — and the left bar lands flush against the
+        // sidebar, reading as a dead black gap between sidebar and preview.
+        // Anchoring left puts the canvas against the sidebar and all slack on
+        // the far right.
+        ui.vertical(|ui| {
             let available_size = ui.available_size();
             let canvas_height = (available_size.y - 72.0).max(200.0);
             let canvas_width = (available_size.x - 12.0).max(300.0);
