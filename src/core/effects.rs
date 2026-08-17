@@ -529,24 +529,39 @@ impl EffectParticleSimulator {
                         };
 
                         painter.line_segment([p_a, p_b], Stroke::new(seg_width, seg_color));
+
+                        // Micro-glitter stardust shedding along trail
+                        if seg > 1 && seg % 2 == 0 {
+                            let glitter_seed = spark_seed.wrapping_mul(97).wrapping_add(seg as u32);
+                            let lateral_x = Self::hash_range(glitter_seed, -4.0, 4.0) * scale;
+                            let lateral_y = Self::hash_range(glitter_seed.wrapping_add(1), -2.0, 4.0) * scale;
+                            let glitter_pos = Pos2::new(p_a.x + lateral_x, p_a.y + lateral_y);
+                            let strobe_twinkle = (t * 50.0 + glitter_seed as f64 * 1.5).sin() as f32 * 0.5 + 0.5;
+                            let glitter_alpha = (seg_alpha * strobe_twinkle * 220.0).clamp(0.0, 255.0) as u8;
+                            painter.circle_filled(
+                                glitter_pos,
+                                0.9 * scale * depth_a,
+                                Color32::from_rgba_unmultiplied(255, 235, 160, glitter_alpha),
+                            );
+                        }
                     }
 
                     // --- DRAW SPARK HEAD & GLOW ---
                     Self::draw_glow(painter, head_pos, spark_size, spark_color, spark_alpha);
                     painter.circle_filled(
                         head_pos,
-                        (spark_size * 0.6).max(0.5),
+                        (spark_size * 0.65).max(0.6),
                         Color32::from_rgba_unmultiplied(255, 255, 255, (spark_alpha * 255.0) as u8),
                     );
 
-                    // Occasional 8-point sparkle cross on bright leading sparks
-                    if s % 5 == 0 && burst_p < 0.65 {
-                        let sparkle_a = spark_alpha * (1.0 - burst_p / 0.65);
+                    // Optical 8-point diffraction spike on leading bright stars
+                    if s % 4 == 0 && burst_p < 0.60 {
+                        let sparkle_a = spark_alpha * (1.0 - burst_p / 0.60);
                         Self::draw_sparkle(
                             painter,
                             head_pos,
-                            spark_size * 2.6,
-                            Color32::from_rgba_unmultiplied(255, 255, 220, (sparkle_a * 220.0) as u8),
+                            spark_size * 3.0,
+                            Color32::from_rgba_unmultiplied(255, 255, 225, (sparkle_a * 235.0) as u8),
                             true,
                         );
                     }
@@ -604,31 +619,33 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 2. CONFETTI — 3D Tumbling Projection, Depth Layers, Wind, Ribbons
+    // 2. CONFETTI — 3D Tumbling Projection, Metallic Foil, Spiral Serpentine
     // =========================================================================
     fn draw_confetti(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
-        let piece_count = (40.0 * intensity).round() as usize;
+        let piece_count = (48.0 * intensity).round() as usize;
         let scale = Self::scale(rect);
+
+        // Rich palette including metallic foil & party colors
         let colors = [
-            Color32::from_rgb(255, 50, 85),   // Hot Pink
-            Color32::from_rgb(255, 200, 30),  // Marigold
-            Color32::from_rgb(30, 200, 100),  // Emerald
-            Color32::from_rgb(30, 160, 255),  // Sky Blue
-            Color32::from_rgb(190, 70, 255),  // Violet
-            Color32::from_rgb(255, 120, 40),  // Tangerine
-            Color32::from_rgb(50, 230, 220),  // Teal
-            Color32::from_rgb(255, 255, 255), // White
+            Color32::from_rgb(255, 215, 0),   // Metallic Gold Foil
+            Color32::from_rgb(230, 240, 255), // Platinum Silver Foil
+            Color32::from_rgb(255, 45, 85),   // Hot Crimson Pink
+            Color32::from_rgb(30, 210, 110),  // Emerald Green
+            Color32::from_rgb(30, 160, 255),  // Electric Cyan
+            Color32::from_rgb(195, 65, 255),  // Holographic Violet
+            Color32::from_rgb(255, 130, 30),  // Tangerine
+            Color32::from_rgb(255, 255, 255), // Bright White
         ];
 
-        // Global wind: slow sinusoidal horizontal force
-        let wind = (t * 0.7).sin() as f32 * 0.03;
+        // Global wind: sinusoidal horizontal drift with micro-vortices
+        let wind = (t * 0.75).sin() as f32 * 0.035;
 
         // Draw 3 depth layers: back (small/muted), mid, front (large/vivid)
         for layer in 0..3_u32 {
             let layer_scale = match layer {
                 0 => 0.55,  // back
                 1 => 0.85,  // mid
-                _ => 1.2,   // front
+                _ => 1.25,  // front
             };
             let layer_alpha = match layer {
                 0 => 0.5,
@@ -642,40 +659,39 @@ impl EffectParticleSimulator {
             };
             let layer_offset = layer * piece_count as u32 / 3;
 
-            let start = (layer_offset) as usize;
+            let start = layer_offset as usize;
             let end = (start + piece_count / 3).min(piece_count);
 
             for i in start..end {
                 let seed = Self::hash((i as u32).wrapping_mul(97).wrapping_add(23).wrapping_add(layer * 10000));
                 let speed_mult = 0.6 + Self::hash_f(seed) * 0.8;
-                let fall_period = (3.5 / (speed_mult * layer_speed)) as f64;
+                let fall_period = (3.4 / (speed_mult * layer_speed)) as f64;
                 let phase = Self::hash_f(seed.wrapping_add(1)) as f64 * fall_period;
                 let local_t = (t + phase) % fall_period;
                 let progress = (local_t / fall_period) as f32;
 
                 // Position with wind drift and sinusoidal sway
                 let x_base = Self::hash_range(seed.wrapping_add(2), 0.02, 0.98);
-                let sway = (local_t * 3.2 + Self::hash_f(seed.wrapping_add(3)) as f64 * 10.0).sin() as f32 * 0.04;
+                let sway = (local_t * 3.4 + Self::hash_f(seed.wrapping_add(3)) as f64 * 10.0).sin() as f32 * 0.045;
                 let px = rect.min.x + (x_base + sway + wind * progress).clamp(0.01, 0.99) * rect.width();
-                let py = rect.min.y + progress * (rect.height() + 40.0 * scale) - 20.0 * scale;
+                let py = rect.min.y + progress * (rect.height() + 45.0 * scale) - 20.0 * scale;
 
-                // 3D rotation angles (different rates for tumbling effect)
-                let theta = (local_t * (4.0 + Self::hash_f(seed.wrapping_add(4)) as f64 * 3.0)) as f32;
-                let phi = (local_t * (2.5 + Self::hash_f(seed.wrapping_add(5)) as f64 * 4.0)) as f32;
+                // 3D rotation angles
+                let theta = (local_t * (4.2 + Self::hash_f(seed.wrapping_add(4)) as f64 * 3.2)) as f32;
+                let phi = (local_t * (2.8 + Self::hash_f(seed.wrapping_add(5)) as f64 * 4.0)) as f32;
 
-                // Piece dimensions
-                let piece_type = Self::hash(seed.wrapping_add(6)) % 4; // 0-1: rect, 2: circle, 3: ribbon
+                let piece_type = Self::hash(seed.wrapping_add(6)) % 4; // 0-1: rect, 2: circle, 3: spiral ribbon
                 let color = colors[i % colors.len()];
-                let a_mult = layer_alpha * (1.0 - (progress - 0.85).max(0.0) / 0.15); // fade at bottom
+                let a_mult = layer_alpha * (1.0 - (progress - 0.86).max(0.0) / 0.14);
                 let alpha = (a_mult * 255.0).clamp(0.0, 255.0) as u8;
                 let piece_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
                 let center = Pos2::new(px, py);
 
                 match piece_type {
                     0 | 1 => {
-                        // Tumbling rectangle — 3D projected parallelogram
-                        let hw = (4.5 + (i % 3) as f32 * 1.5) * scale * layer_scale;
-                        let hh = (3.0 + (i % 2) as f32 * 1.0) * scale * layer_scale;
+                        // 3D Tumbling rectangle — projected parallelogram
+                        let hw = (4.8 + (i % 3) as f32 * 1.6) * scale * layer_scale;
+                        let hh = (3.2 + (i % 2) as f32 * 1.1) * scale * layer_scale;
                         let corners = Self::rotated_rect_corners(center, hw, hh, theta, phi);
 
                         painter.add(Shape::convex_polygon(
@@ -684,48 +700,70 @@ impl EffectParticleSimulator {
                             Stroke::NONE,
                         ));
 
-                        // Glint highlight when roughly face-on (large projected area)
+                        // Metallic foil glint flare when face-on
                         let projected_area = theta.cos().abs() * phi.cos().abs();
-                        if projected_area > 0.85 {
-                            let glint_a = ((projected_area - 0.85) / 0.15 * 120.0) as u8;
+                        if projected_area > 0.82 {
+                            let glint_a = ((projected_area - 0.82) / 0.18 * 160.0) as u8;
                             painter.add(Shape::convex_polygon(
                                 corners.to_vec(),
                                 Color32::from_rgba_unmultiplied(255, 255, 255, (glint_a as f32 * layer_alpha) as u8),
                                 Stroke::NONE,
                             ));
+                            // Tiny sparkle star on center of foil
+                            if layer == 2 && projected_area > 0.92 {
+                                Self::draw_sparkle(
+                                    painter,
+                                    center,
+                                    hw * 1.5,
+                                    Color32::from_rgba_unmultiplied(255, 255, 240, (glint_a as f32 * layer_alpha) as u8),
+                                    false,
+                                );
+                            }
                         }
                     }
                     2 => {
-                        // Round confetti dot
-                        let r = (3.0 + (i % 3) as f32 * 1.5) * scale * layer_scale;
+                        // Round metallic foil dot
+                        let r = (3.2 + (i % 3) as f32 * 1.5) * scale * layer_scale;
                         painter.circle_filled(center, r, piece_color);
-                        // Tiny highlight
+                        // Specular gloss dot
                         painter.circle_filled(
-                            Pos2::new(center.x - r * 0.3, center.y - r * 0.3),
+                            Pos2::new(center.x - r * 0.32, center.y - r * 0.32),
                             r * 0.35,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, (alpha as f32 * 0.4) as u8),
+                            Color32::from_rgba_unmultiplied(255, 255, 255, (alpha as f32 * 0.55) as u8),
                         );
                     }
                     _ => {
-                        // Ribbon / streamer — wavy multi-segment line
-                        let ribbon_len = (18.0 + Self::hash_f(seed.wrapping_add(7)) * 12.0) * scale * layer_scale;
-                        let segments = 6;
-                        let stroke_w = (2.0 + Self::hash_f(seed.wrapping_add(8)) * 1.5) * scale * layer_scale;
+                        // 3D Curling spiral serpentine streamer
+                        let ribbon_len = (22.0 + Self::hash_f(seed.wrapping_add(7)) * 14.0) * scale * layer_scale;
+                        let segments = 8;
+                        let stroke_w = (2.2 + Self::hash_f(seed.wrapping_add(8)) * 1.6) * scale * layer_scale;
+                        let coil_radius = 5.0 * scale * layer_scale;
+
                         for seg in 0..segments {
                             let t0 = seg as f32 / segments as f32;
                             let t1 = (seg + 1) as f32 / segments as f32;
-                            let wave0 = (t0 * 4.0 + theta).sin() * 4.0 * scale * layer_scale;
-                            let wave1 = (t1 * 4.0 + theta).sin() * 4.0 * scale * layer_scale;
+
+                            // 3D helical coil
+                            let angle0 = t0 * 6.28 + theta;
+                            let angle1 = t1 * 6.28 + theta;
+                            let wave0 = angle0.sin() * coil_radius;
+                            let wave1 = angle1.sin() * coil_radius;
+
                             let p0 = Pos2::new(center.x + wave0, center.y + t0 * ribbon_len);
                             let p1 = Pos2::new(center.x + wave1, center.y + t1 * ribbon_len);
-                            let seg_alpha = alpha as f32 * (1.0 - t1 * 0.3);
+
+                            let seg_alpha = alpha as f32 * (1.0 - t1 * 0.25);
+                            let depth_factor = (angle0.cos() * 0.3 + 0.7).clamp(0.4, 1.0);
+
                             painter.line_segment(
                                 [p0, p1],
                                 Stroke::new(
-                                    stroke_w * (1.0 - t1 * 0.3),
+                                    stroke_w * depth_factor,
                                     Color32::from_rgba_unmultiplied(
-                                        color.r(), color.g(), color.b(),
-                                        seg_alpha.clamp(0.0, 255.0) as u8,
+                                        color.r(),
+                                        color.g(),
+                                        color.b(),
+                                        (seg_alpha * depth_factor).clamp(0.0, 255.0) as u8,
                                     ),
                                 ),
                             );
@@ -737,112 +775,144 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 3. FLOATING BALLOONS — Ellipse Polygon, 3-Layer Shading, Bezier String
+    // 3. FLOATING BALLOONS — Glossy Latex 3D Material, Teardrop, Bounce Rim
     // =========================================================================
     fn draw_balloons(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let balloon_count = (10.0 * intensity).round() as usize;
         let scale = Self::scale(rect);
+
+        // Rich, saturated party balloon colors with dark shadow tones
         let colors = [
-            Color32::from_rgb(235, 40, 60),   // Cherry Red
-            Color32::from_rgb(35, 150, 245),  // Sky Blue
-            Color32::from_rgb(245, 185, 15),  // Sunny Yellow
-            Color32::from_rgb(45, 200, 105),  // Mint Green
-            Color32::from_rgb(180, 55, 230),  // Violet
-            Color32::from_rgb(245, 110, 35),  // Orange
-            Color32::from_rgb(245, 95, 170),  // Hot Pink
-            Color32::from_rgb(95, 210, 230),  // Aqua
+            (Color32::from_rgb(235, 30, 50), Color32::from_rgb(140, 10, 25)),   // Ruby Red
+            (Color32::from_rgb(30, 145, 255), Color32::from_rgb(15, 75, 160)),  // Electric Royal Blue
+            (Color32::from_rgb(255, 195, 10), Color32::from_rgb(165, 115, 5)),  // Bright Gold
+            (Color32::from_rgb(40, 205, 100), Color32::from_rgb(15, 110, 50)),  // Emerald Green
+            (Color32::from_rgb(185, 50, 240), Color32::from_rgb(105, 20, 150)), // Vibrant Purple
+            (Color32::from_rgb(255, 105, 30), Color32::from_rgb(160, 50, 10)),  // Tangerine Orange
+            (Color32::from_rgb(255, 80, 170), Color32::from_rgb(160, 25, 95)),  // Hot Magenta
+            (Color32::from_rgb(40, 215, 230), Color32::from_rgb(15, 115, 130)), // Cyan Aqua
         ];
 
         for i in 0..balloon_count {
             let seed = Self::hash((i as u32).wrapping_mul(137).wrapping_add(43));
-            let rise_period = (4.5 + Self::hash_f(seed) * 2.5) as f64;
+            let rise_period = (4.8 + Self::hash_f(seed) * 2.2) as f64;
             let phase = Self::hash_f(seed.wrapping_add(1)) as f64 * rise_period;
             let local_t = (t + phase) % rise_period;
             let progress = (local_t / rise_period) as f32;
 
-            // Position with sway and bobbing
-            let x_base = Self::hash_range(seed.wrapping_add(2), 0.08, 0.92);
-            let sway = (local_t * 1.5 + Self::hash_f(seed.wrapping_add(3)) as f64 * 6.0).sin() as f32 * 0.04;
-            let bob = (local_t * 3.5 + Self::hash_f(seed.wrapping_add(4)) as f64 * 4.0).sin() as f32 * 3.0 * scale;
-            let px = rect.min.x + (x_base + sway).clamp(0.05, 0.95) * rect.width();
-            let py = rect.max.y - progress * (rect.height() + 80.0 * scale) + 40.0 * scale + bob;
+            // Lateral sway & harmonic buoyancy bobbing
+            let x_base = Self::hash_range(seed.wrapping_add(2), 0.06, 0.94);
+            let sway = (local_t * 1.4 + Self::hash_f(seed.wrapping_add(3)) as f64 * 6.0).sin() as f32 * 0.038;
+            let bob = (local_t * 3.2 + Self::hash_f(seed.wrapping_add(4)) as f64 * 4.0).sin() as f32 * 3.5 * scale;
+            let px = rect.min.x + (x_base + sway).clamp(0.04, 0.96) * rect.width();
+            let py = rect.max.y - progress * (rect.height() + 90.0 * scale) + 45.0 * scale + bob;
 
-            // Size variation for depth illusion
-            let size_mult = Self::hash_range(seed.wrapping_add(5), 0.7, 1.3);
-            let rx = 13.0 * scale * size_mult;
-            let ry = rx * 1.28; // slightly taller than wide
+            let size_mult = Self::hash_range(seed.wrapping_add(5), 0.75, 1.25);
+            let rx = 14.0 * scale * size_mult;
+            let ry = rx * 1.30;
 
-            // Tilt angle from sway
-            let tilt = (local_t * 1.5 + Self::hash_f(seed.wrapping_add(3)) as f64 * 6.0).cos() as f32 * 0.12;
+            // Tilt angle from aerodynamic sway
+            let tilt = (local_t * 1.4 + Self::hash_f(seed.wrapping_add(3)) as f64 * 6.0).cos() as f32 * 0.12;
 
-            let col = colors[i % colors.len()];
+            let (main_col, dark_col) = colors[i % colors.len()];
             let balloon_center = Pos2::new(px, py);
 
-            // Layer 1: Dark shadow base (slightly offset down-right)
-            let dark_col = Color32::from_rgb(
-                (col.r() as f32 * 0.5) as u8,
-                (col.g() as f32 * 0.5) as u8,
-                (col.b() as f32 * 0.5) as u8,
-            );
-            let shadow_pts = Self::ellipse_points(
-                Pos2::new(balloon_center.x + 1.5 * scale, balloon_center.y + 1.5 * scale),
-                rx, ry, 20,
-            );
-            painter.add(Shape::convex_polygon(shadow_pts, dark_col, Stroke::NONE));
-
-            // Layer 2: Main balloon body (ellipse polygon)
-            // Apply tilt by slightly skewing the ellipse x-coordinates
-            let body_pts: Vec<Pos2> = (0..20)
+            // 1. Teardrop balloon geometry (24 perimeter points: wide top dome, pinched neck)
+            let num_pts = 24;
+            let body_pts: Vec<Pos2> = (0..num_pts)
                 .map(|j| {
-                    let angle = (j as f32) * std::f32::consts::TAU / 20.0;
-                    let bx = rx * angle.cos();
-                    let by = ry * angle.sin();
-                    // Apply tilt rotation
+                    let angle = (j as f32) * std::f32::consts::TAU / (num_pts as f32);
+                    let sin_a = angle.sin();
+                    let cos_a = angle.cos();
+
+                    // Lower hemisphere tapers into teardrop neck
+                    let r_mod = if sin_a > 0.0 {
+                        rx * (1.0 - 0.22 * sin_a)
+                    } else {
+                        rx
+                    };
+
+                    let bx = r_mod * cos_a;
+                    let by = ry * sin_a;
+
+                    // Apply tilt skew
                     let tx = bx * tilt.cos() - by * tilt.sin();
                     let ty = bx * tilt.sin() + by * tilt.cos();
                     Pos2::new(balloon_center.x + tx, balloon_center.y + ty)
                 })
                 .collect();
-            painter.add(Shape::convex_polygon(body_pts, col, Stroke::NONE));
 
-            // Layer 3: Specular highlight (smaller ellipse, offset top-left, white with alpha)
-            let hl_offset_x = -rx * 0.3;
-            let hl_offset_y = -ry * 0.35;
-            let hl_center = Pos2::new(balloon_center.x + hl_offset_x, balloon_center.y + hl_offset_y);
-            let hl_pts = Self::ellipse_points(hl_center, rx * 0.4, ry * 0.35, 12);
+            // Layer 1: Dark base shadow (ambient occlusion on lower-right)
+            let shadow_pts: Vec<Pos2> = body_pts
+                .iter()
+                .map(|p| Pos2::new(p.x + 1.2 * scale, p.y + 1.5 * scale))
+                .collect();
+            painter.add(Shape::convex_polygon(shadow_pts, dark_col, Stroke::NONE));
+
+            // Layer 2: Glossy balloon body polygon with translucent Fresnel rim stroke
+            painter.add(Shape::convex_polygon(
+                body_pts.clone(),
+                main_col,
+                Stroke::new(1.2 * scale, Color32::from_rgba_unmultiplied(255, 255, 255, 55)),
+            ));
+
+            // Layer 3: Curved Specular Crescent Highlight (Glossy Studio Light Reflection)
+            let hl_center = Pos2::new(balloon_center.x - rx * 0.32, balloon_center.y - ry * 0.36);
+            let hl_pts = Self::ellipse_points(hl_center, rx * 0.38, ry * 0.32, 16);
             painter.add(Shape::convex_polygon(
                 hl_pts,
-                Color32::from_rgba_unmultiplied(255, 255, 255, 110),
+                Color32::from_rgba_unmultiplied(255, 255, 255, 175),
+                Stroke::NONE,
+            ));
+            // Secondary small pinpoint glint
+            painter.circle_filled(
+                Pos2::new(hl_center.x - rx * 0.12, hl_center.y - ry * 0.14),
+                rx * 0.16,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 240),
+            );
+
+            // Layer 4: Secondary Ambient Bounce Glint (Soft rim light on lower-right edge)
+            let bounce_center = Pos2::new(balloon_center.x + rx * 0.30, balloon_center.y + ry * 0.35);
+            let bounce_pts = Self::ellipse_points(bounce_center, rx * 0.28, ry * 0.22, 12);
+            painter.add(Shape::convex_polygon(
+                bounce_pts,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 60),
                 Stroke::NONE,
             ));
 
-            // Balloon knot (small triangle at bottom)
-            let knot_y = balloon_center.y + ry * 0.9;
-            let knot_pts = vec![
-                Pos2::new(px - 2.5 * scale, knot_y),
-                Pos2::new(px + 2.5 * scale, knot_y),
-                Pos2::new(px, knot_y + 4.0 * scale),
-            ];
-            painter.add(Shape::convex_polygon(knot_pts, col, Stroke::NONE));
+            // Layer 5: Gathered Latex Neck Bead & Tied Knot
+            let knot_y = balloon_center.y + ry * 0.95;
+            let bead_center = Pos2::new(px, knot_y);
+            // Rolled rubber bead lip
+            painter.circle_filled(bead_center, 3.2 * scale, dark_col);
+            painter.circle_filled(bead_center, 2.5 * scale, main_col);
 
-            // Curved string using cubic bezier (sampled as line segments)
-            let string_start = Pos2::new(px, knot_y + 4.0 * scale);
-            let string_sway = (local_t * 2.5 + Self::hash_f(seed.wrapping_add(6)) as f64 * 5.0).sin() as f32;
-            let string_len = 28.0 * scale;
-            let string_end = Pos2::new(px + string_sway * 6.0 * scale, string_start.y + string_len);
+            // Tied triangular knot
+            let knot_pts = vec![
+                Pos2::new(px - 3.2 * scale, knot_y + 1.5 * scale),
+                Pos2::new(px + 3.2 * scale, knot_y + 1.5 * scale),
+                Pos2::new(px, knot_y + 5.5 * scale),
+            ];
+            painter.add(Shape::convex_polygon(knot_pts, main_col, Stroke::NONE));
+
+            // Layer 6: Cubic Bezier dangling curly ribbon string
+            let string_start = Pos2::new(px, knot_y + 5.5 * scale);
+            let string_sway = (local_t * 2.8 + Self::hash_f(seed.wrapping_add(6)) as f64 * 5.0).sin() as f32;
+            let string_len = 32.0 * scale;
+            let string_end = Pos2::new(px + string_sway * 7.0 * scale, string_start.y + string_len);
             let cp1 = Pos2::new(
-                px + string_sway * 3.0 * scale,
-                string_start.y + string_len * 0.35,
+                px + string_sway * 3.5 * scale,
+                string_start.y + string_len * 0.33,
             );
             let cp2 = Pos2::new(
-                px + string_sway * 5.0 * scale,
-                string_start.y + string_len * 0.7,
+                px - string_sway * 4.0 * scale,
+                string_start.y + string_len * 0.68,
             );
 
-            let string_segments = 6;
+            let string_segments = 7;
             let string_stroke = Stroke::new(
-                0.9 * scale,
-                Color32::from_rgba_unmultiplied(200, 200, 220, 160),
+                1.0 * scale,
+                Color32::from_rgba_unmultiplied(220, 220, 235, 175),
             );
             for seg in 0..string_segments {
                 let t0 = seg as f32 / string_segments as f32;
@@ -895,7 +965,6 @@ impl EffectParticleSimulator {
             let wing_stroke = Stroke::new((2.0 + depth * 0.8) * scale, bird_color);
 
             // Multi-segment curved wings (3 segments per wing, with flap displacement)
-            // Left wing: tip → mid → inner → body
             let tip_y_offset = -flap * wing_span * 0.55;
             let mid_y_offset = -flap * wing_span * 0.3;
             let inner_y_offset = -flap * wing_span * 0.1;
@@ -942,157 +1011,202 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 5. CLAPPING APPLAUSE — Palm Polygons, Shockwave, Sparkle Burst, Pulse
+    // 5. CLAPPING APPLAUSE — Cheering Audience Crowd Popping Up from Bottom
     // =========================================================================
     fn draw_clapping(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
-        let clap_pairs = (5.0 * intensity).round() as usize;
-        let clap_period = 0.85;
         let scale = Self::scale(rect);
+        let bottom_y = rect.max.y;
+        let width = rect.width();
 
-        for i in 0..clap_pairs {
-            let seed = Self::hash((i as u32).wrapping_mul(89).wrapping_add(31));
-            let offset = Self::hash_f(seed) as f64 * clap_period;
+        // ---------------------------------------------------------------------
+        // LAYER 1: BACK-ROW CHEERING SILHOUETTES
+        // ---------------------------------------------------------------------
+        let back_count = (10.0 * intensity).round() as usize;
+        let back_color = Color32::from_rgba_unmultiplied(22, 28, 42, 210);
+
+        for b in 0..back_count {
+            let b_seed = (b as u32).wrapping_mul(173).wrapping_add(19);
+            let b_x_norm = 0.04 + (b as f32 + Self::hash_range(b_seed, -0.2, 0.2)) / (back_count as f32) * 0.92;
+            let b_x = rect.min.x + b_x_norm * width;
+
+            // Enthusiastic bobbing up and down
+            let bob = (t * 5.4 + b as f64 * 1.3).sin() as f32 * 4.0 * scale;
+            let head_y = bottom_y - (38.0 * scale) + bob;
+            let head_r = 8.5 * scale;
+
+            // Head circle
+            painter.circle_filled(Pos2::new(b_x, head_y), head_r, back_color);
+
+            // Shoulders / upper torso
+            let shoulder_w = 14.0 * scale;
+            let torso_pts = vec![
+                Pos2::new(b_x - shoulder_w, bottom_y),
+                Pos2::new(b_x - shoulder_w * 0.8, head_y + head_r * 0.8),
+                Pos2::new(b_x + shoulder_w * 0.8, head_y + head_r * 0.8),
+                Pos2::new(b_x + shoulder_w, bottom_y),
+            ];
+            painter.add(Shape::convex_polygon(torso_pts, back_color, Stroke::NONE));
+
+            // Cheering raised arms waving in the air
+            let wave_left = (t * 6.0 + b as f64 * 1.5).sin() as f32 * 5.0 * scale;
+            let wave_right = (t * 6.0 + b as f64 * 1.5 + 1.0).sin() as f32 * 5.0 * scale;
+
+            let arm_stroke = Stroke::new(3.0 * scale, back_color);
+            painter.line_segment(
+                [
+                    Pos2::new(b_x - shoulder_w * 0.7, head_y + head_r),
+                    Pos2::new(b_x - shoulder_w * 1.1 + wave_left, head_y - 12.0 * scale),
+                ],
+                arm_stroke,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(b_x + shoulder_w * 0.7, head_y + head_r),
+                    Pos2::new(b_x + shoulder_w * 1.1 + wave_right, head_y - 12.0 * scale),
+                ],
+                arm_stroke,
+            );
+        }
+
+        // ---------------------------------------------------------------------
+        // LAYER 2: FRONT-ROW ANIMATED CLAPPING PEOPLE
+        // ---------------------------------------------------------------------
+        let front_count = (6.0 * intensity).round().max(4.0) as usize;
+        let shirt_colors = [
+            Color32::from_rgb(35, 75, 160),  // Navy
+            Color32::from_rgb(180, 45, 60),  // Crimson
+            Color32::from_rgb(30, 140, 85),  // Emerald
+            Color32::from_rgb(215, 145, 30), // Gold Amber
+            Color32::from_rgb(140, 50, 160), // Plum
+            Color32::from_rgb(45, 150, 180), // Teal
+        ];
+        let skin_tones = [
+            Color32::from_rgb(255, 220, 185), // Fair
+            Color32::from_rgb(240, 195, 155), // Warm Tan
+            Color32::from_rgb(205, 150, 110), // Olive
+            Color32::from_rgb(155, 100, 70),  // Deep Brown
+        ];
+
+        for k in 0..front_count {
+            let k_seed = (k as u32).wrapping_mul(239).wrapping_add(71);
+            let k_x_norm = 0.08 + (k as f32 / (front_count - 1) as f32) * 0.84;
+            let k_x = rect.min.x + k_x_norm * width;
+
+            let shirt_col = shirt_colors[k % shirt_colors.len()];
+            let skin_col = skin_tones[k % skin_tones.len()];
+
+            // Rhythmic body bounce
+            let bounce = (t * 6.2 + k as f64 * 1.1).sin() as f32 * 5.0 * scale;
+            let head_center = Pos2::new(k_x, bottom_y - 46.0 * scale + bounce);
+            let head_r = 9.5 * scale;
+
+            // Torso / shirt polygon
+            let shoulder_w = 18.0 * scale;
+            let shoulder_y = head_center.y + head_r * 0.9;
+            let torso_pts = vec![
+                Pos2::new(k_x - shoulder_w * 1.15, bottom_y),
+                Pos2::new(k_x - shoulder_w, shoulder_y),
+                Pos2::new(k_x + shoulder_w, shoulder_y),
+                Pos2::new(k_x + shoulder_w * 1.15, bottom_y),
+            ];
+            painter.add(Shape::convex_polygon(torso_pts, shirt_col, Stroke::NONE));
+
+            // Head circle
+            painter.circle_filled(head_center, head_r, skin_col);
+
+            // Hair polygon on top of head
+            let hair_col = Color32::from_rgb(35, 25, 20);
+            let hair_pts = vec![
+                Pos2::new(head_center.x - head_r, head_center.y),
+                Pos2::new(head_center.x - head_r * 0.9, head_center.y - head_r * 0.8),
+                Pos2::new(head_center.x, head_center.y - head_r * 1.2),
+                Pos2::new(head_center.x + head_r * 0.9, head_center.y - head_r * 0.8),
+                Pos2::new(head_center.x + head_r, head_center.y),
+            ];
+            painter.add(Shape::convex_polygon(hair_pts, hair_col, Stroke::NONE));
+
+            // Clapping cycle animation
+            let clap_period = 0.55;
+            let offset = k as f64 * 0.13;
             let local_t = (t + offset) % clap_period;
-            let clap_p = (local_t / clap_period) as f32;
+            let clap_p = (local_t / clap_period) as f32; // 0.0 to 1.0
 
-            let cx_norm = Self::hash_range(seed.wrapping_add(1), 0.15, 0.85);
-            let cy_norm = Self::hash_range(seed.wrapping_add(2), 0.30, 0.80);
-            let center = Pos2::new(
-                rect.min.x + cx_norm * rect.width(),
-                rect.min.y + cy_norm * rect.height(),
-            );
+            // Arm movement: hands come together overhead
+            let hand_sep = ((clap_p * std::f32::consts::TAU).sin().abs()) * 16.0 * scale;
+            let overhead_y = head_center.y - 24.0 * scale;
 
-            // Impact timing: quick clap at start, slow release
-            let impact = (1.0 - (clap_p * 3.0).min(1.0)).powi(2);
-            let size = (24.0 + impact * 6.0) * scale;
-            let hand_sep = (1.0 - impact) * 14.0 * scale;
+            let left_shoulder = Pos2::new(k_x - shoulder_w * 0.85, shoulder_y);
+            let right_shoulder = Pos2::new(k_x + shoulder_w * 0.85, shoulder_y);
 
-            // Scale pulse: hands enlarge briefly on impact
-            let pulse = if impact > 0.5 { 1.0 + (impact - 0.5) * 0.3 } else { 1.0 };
-            let palm_r = size * 0.42 * pulse;
+            let left_hand = Pos2::new(k_x - hand_sep, overhead_y);
+            let right_hand = Pos2::new(k_x + hand_sep, overhead_y);
 
-            let left_center = Pos2::new(center.x - hand_sep, center.y);
-            let right_center = Pos2::new(center.x + hand_sep, center.y);
+            // Draw arms in shirt color
+            let arm_stroke = Stroke::new(4.0 * scale, shirt_col);
+            painter.line_segment([left_shoulder, left_hand], arm_stroke);
+            painter.line_segment([right_shoulder, right_hand], arm_stroke);
 
-            // Palm ovals (slightly taller than wide)
-            let palm_col = Color32::from_rgb(255, 218, 170);
-            let palm_dark = Color32::from_rgb(220, 185, 145);
+            // Hands (skin tone)
+            let hand_r = 3.5 * scale;
+            painter.circle_filled(left_hand, hand_r, skin_col);
+            painter.circle_filled(right_hand, hand_r, skin_col);
 
-            // Left palm: dark base then lighter overlay
-            let left_base = Self::ellipse_points(
-                Pos2::new(left_center.x + 0.5 * scale, left_center.y + 0.5 * scale),
-                palm_r * 0.95, palm_r * 1.1, 12,
-            );
-            painter.add(Shape::convex_polygon(left_base, palm_dark, Stroke::NONE));
-            let left_pts = Self::ellipse_points(left_center, palm_r * 0.95, palm_r * 1.1, 12);
-            painter.add(Shape::convex_polygon(left_pts, palm_col, Stroke::NONE));
+            // -----------------------------------------------------------------
+            // LAYER 3: CELEBRATION IMPACT FX (When Hands Meet Overhead)
+            // -----------------------------------------------------------------
+            let is_clapping_impact = hand_sep < 3.0 * scale;
+            if is_clapping_impact {
+                let impact_center = Pos2::new(k_x, overhead_y);
 
-            // Right palm
-            let right_base = Self::ellipse_points(
-                Pos2::new(right_center.x + 0.5 * scale, right_center.y + 0.5 * scale),
-                palm_r * 0.95, palm_r * 1.1, 12,
-            );
-            painter.add(Shape::convex_polygon(right_base, palm_dark, Stroke::NONE));
-            let right_pts = Self::ellipse_points(right_center, palm_r * 0.95, palm_r * 1.1, 12);
-            painter.add(Shape::convex_polygon(right_pts, palm_col, Stroke::NONE));
-
-            // Finger stubs on each palm (3 small circles on top)
-            for f in 0..3 {
-                let fx = (f as f32 - 1.0) * palm_r * 0.5;
-                let fy = -palm_r * 0.9;
-                let finger_r = palm_r * 0.22;
-                // Left hand fingers
-                painter.circle_filled(
-                    Pos2::new(left_center.x + fx, left_center.y + fy),
-                    finger_r,
-                    palm_col,
-                );
-                // Right hand fingers
-                painter.circle_filled(
-                    Pos2::new(right_center.x + fx, right_center.y + fy),
-                    finger_r,
-                    palm_col,
-                );
-            }
-
-            // Impact effects (only during clap contact)
-            if impact > 0.1 {
-                // Expanding shockwave ring
-                let ring_progress = 1.0 - impact;
-                let ring_r = size * 0.6 + ring_progress * 25.0 * scale;
-                let ring_alpha = (impact * 200.0) as u8;
+                // Expanding golden shockwave ring
                 painter.circle_stroke(
-                    center,
-                    ring_r,
-                    Stroke::new(
-                        (2.5 * impact).max(0.5) * scale,
-                        Color32::from_rgba_unmultiplied(255, 230, 80, ring_alpha),
-                    ),
+                    impact_center,
+                    8.0 * scale,
+                    Stroke::new(1.8 * scale, Color32::from_rgba_unmultiplied(255, 220, 80, 220)),
                 );
 
-                // Second ring (delayed, fainter)
-                if ring_progress > 0.15 {
-                    let ring2_r = size * 0.6 + (ring_progress - 0.15) * 30.0 * scale;
-                    let ring2_a = (impact * 100.0) as u8;
-                    painter.circle_stroke(
-                        center,
-                        ring2_r,
-                        Stroke::new(
-                            (1.5 * impact).max(0.3) * scale,
-                            Color32::from_rgba_unmultiplied(255, 255, 200, ring2_a),
-                        ),
-                    );
-                }
+                // 4-point celebration sparkle cross
+                Self::draw_sparkle(
+                    painter,
+                    impact_center,
+                    6.5 * scale,
+                    Color32::from_rgba_unmultiplied(255, 245, 160, 240),
+                    true,
+                );
 
-                // Sparkle burst: 8 particles flying outward
-                for r in 0..8 {
-                    let angle = (r as f32) * (std::f32::consts::TAU / 8.0)
-                        + Self::hash_range(seed.wrapping_add(r as u32 + 100), -0.2, 0.2)
-                        + (t * 1.5) as f32;
-                    let dist = (size * 0.5 + (1.0 - impact) * 18.0 * scale)
-                        * Self::hash_range(seed.wrapping_add(r as u32 + 200), 0.7, 1.3);
-                    let spark_pos = Pos2::new(
-                        center.x + angle.cos() * dist,
-                        center.y + angle.sin() * dist,
+                // Mini celebration confetti burst
+                for sp in 0..4 {
+                    let sp_ang = (sp as f32) * (std::f32::consts::TAU / 4.0) + (t * 2.0) as f32;
+                    let sp_pos = Pos2::new(
+                        impact_center.x + sp_ang.cos() * 9.0 * scale,
+                        impact_center.y + sp_ang.sin() * 9.0 * scale,
                     );
-                    let spark_a = impact * 255.0;
-                    let spark_r = (2.0 * impact).max(0.5) * scale;
                     painter.circle_filled(
-                        spark_pos,
-                        spark_r,
-                        Color32::from_rgba_unmultiplied(255, 240, 100, spark_a.clamp(0.0, 255.0) as u8),
-                    );
-                }
-
-                // Sparkle cross at impact center
-                if impact > 0.3 {
-                    Self::draw_sparkle(
-                        painter,
-                        center,
-                        size * 0.5 * impact,
-                        Color32::from_rgba_unmultiplied(255, 255, 180, (impact * 200.0) as u8),
-                        true,
+                        sp_pos,
+                        1.2 * scale,
+                        Color32::from_rgba_unmultiplied(255, 230, 90, 220),
                     );
                 }
             }
 
-            // Musical note glyphs floating upward (after clap)
-            if clap_p > 0.3 && clap_p < 0.9 {
-                let note_p = (clap_p - 0.3) / 0.6;
-                let note_alpha = ((1.0 - note_p) * 200.0) as u8;
-                let notes = ["♪", "♫"];
-                for n in 0..2_u32 {
-                    let nx = center.x + Self::hash_range(seed.wrapping_add(n + 300), -15.0, 15.0) * scale;
-                    let ny = center.y - note_p * 30.0 * scale - n as f32 * 8.0 * scale;
-                    let note_sway = (t * 3.0 + n as f64 * 1.5).sin() as f32 * 4.0 * scale;
-                    painter.text(
-                        Pos2::new(nx + note_sway, ny),
-                        egui::Align2::CENTER_CENTER,
-                        notes[n as usize % 2],
-                        egui::FontId::proportional(11.0 * scale),
-                        Color32::from_rgba_unmultiplied(255, 230, 100, note_alpha),
-                    );
-                }
+            // Floating celebration notes & stars rising from crowd
+            if k % 2 == 0 {
+                let note_progress = (clap_p + 0.3) % 1.0;
+                let note_alpha = ((1.0 - note_progress) * 220.0) as u8;
+                let note_y = overhead_y - note_progress * 35.0 * scale;
+                let note_sway = (t * 3.5 + k as f64 * 1.5).sin() as f32 * 6.0 * scale;
+                let note_pos = Pos2::new(k_x + note_sway, note_y);
+
+                let symbols = ["♪", "♫", "✨", "⭐", "👏"];
+                let symbol = symbols[(k + (t * 2.0) as usize) % symbols.len()];
+
+                painter.text(
+                    note_pos,
+                    egui::Align2::CENTER_CENTER,
+                    symbol,
+                    egui::FontId::proportional(12.0 * scale),
+                    Color32::from_rgba_unmultiplied(255, 230, 90, note_alpha),
+                );
             }
         }
     }
