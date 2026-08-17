@@ -1011,7 +1011,7 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 5. CLAPPING APPLAUSE — Cheering Audience Crowd Popping Up from Bottom
+    // 5. CLAPPING APPLAUSE — Articulated Audience Crowd with Bending Elbows
     // =========================================================================
     fn draw_clapping(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let scale = Self::scale(rect);
@@ -1069,71 +1069,198 @@ impl EffectParticleSimulator {
         }
 
         // ---------------------------------------------------------------------
-        // LAYER 2: FRONT-ROW ANIMATED CLAPPING PEOPLE
+        // LAYER 2: FRONT-ROW ARTICULATED CLAPPING FIGURES (Bending Elbows & Shirts)
         // ---------------------------------------------------------------------
         let front_count = (6.0 * intensity).round().max(4.0) as usize;
-        let shirt_colors = [
-            Color32::from_rgb(35, 75, 160),  // Navy
-            Color32::from_rgb(180, 45, 60),  // Crimson
-            Color32::from_rgb(30, 140, 85),  // Emerald
-            Color32::from_rgb(215, 145, 30), // Gold Amber
-            Color32::from_rgb(140, 50, 160), // Plum
-            Color32::from_rgb(45, 150, 180), // Teal
-        ];
-        let skin_tones = [
-            Color32::from_rgb(255, 220, 185), // Fair
-            Color32::from_rgb(240, 195, 155), // Warm Tan
-            Color32::from_rgb(205, 150, 110), // Olive
-            Color32::from_rgb(155, 100, 70),  // Deep Brown
+
+        // Character Archetypes: (Shirt Color, Collar Color, Skin Tone, Hair Color, Hair Style)
+        let character_archetypes = [
+            // 0: Crimson Polo with White Collar, Tan Skin, Brunette Side-Part
+            (
+                Color32::from_rgb(185, 38, 52),
+                Color32::from_rgb(245, 245, 250),
+                Color32::from_rgb(240, 195, 155),
+                Color32::from_rgb(58, 35, 18),
+                0,
+            ),
+            // 1: Emerald Green V-Neck, Fair Skin, Textured Curly Top
+            (
+                Color32::from_rgb(26, 142, 86),
+                Color32::from_rgb(18, 95, 58),
+                Color32::from_rgb(255, 222, 190),
+                Color32::from_rgb(28, 24, 22),
+                1,
+            ),
+            // 2: Royal Blue Crew Neck with Gold Rim, Warm Tan Skin, Wavy Flowing Hair
+            (
+                Color32::from_rgb(32, 85, 180),
+                Color32::from_rgb(255, 210, 50),
+                Color32::from_rgb(245, 200, 160),
+                Color32::from_rgb(212, 162, 69),
+                2,
+            ),
+            // 3: Warm Amber Hoodie with Dark Trim, Deep Brown Skin, Spiky Crop
+            (
+                Color32::from_rgb(215, 140, 25),
+                Color32::from_rgb(140, 85, 12),
+                Color32::from_rgb(155, 100, 70),
+                Color32::from_rgb(30, 20, 15),
+                3,
+            ),
+            // 4: Plum Magenta V-Neck, Olive Skin, Ponytail
+            (
+                Color32::from_rgb(150, 45, 165),
+                Color32::from_rgb(220, 180, 230),
+                Color32::from_rgb(210, 155, 115),
+                Color32::from_rgb(45, 30, 25),
+                0,
+            ),
+            // 5: Teal Collared Shirt, Fair Skin, Chestnut Side-Part
+            (
+                Color32::from_rgb(40, 155, 185),
+                Color32::from_rgb(25, 105, 125),
+                Color32::from_rgb(255, 218, 185),
+                Color32::from_rgb(107, 50, 29),
+                2,
+            ),
         ];
 
         for k in 0..front_count {
-            let _k_seed = (k as u32).wrapping_mul(239).wrapping_add(71);
+            let (shirt_col, collar_col, skin_col, hair_col, hair_style) =
+                character_archetypes[k % character_archetypes.len()];
+
             let k_x_norm = 0.08 + (k as f32 / (front_count - 1) as f32) * 0.84;
             let k_x = rect.min.x + k_x_norm * width;
 
-            let shirt_col = shirt_colors[k % shirt_colors.len()];
-            let skin_col = skin_tones[k % skin_tones.len()];
-
             // Rhythmic body bounce
             let bounce = (t * 6.2 + k as f64 * 1.1).sin() as f32 * 5.0 * scale;
-            let head_center = Pos2::new(k_x, bottom_y - 46.0 * scale + bounce);
+            let head_center = Pos2::new(k_x, bottom_y - 48.0 * scale + bounce);
             let head_r = 9.5 * scale;
+            let shoulder_y = head_center.y + head_r * 0.95;
+            let shoulder_w = 19.0 * scale;
 
-            // Torso / shirt polygon
-            let shoulder_w = 18.0 * scale;
-            let shoulder_y = head_center.y + head_r * 0.9;
+            // 1. Torso & Shirt with Natural Shoulder Contours
             let torso_pts = vec![
-                Pos2::new(k_x - shoulder_w * 1.15, bottom_y),
-                Pos2::new(k_x - shoulder_w, shoulder_y),
-                Pos2::new(k_x + shoulder_w, shoulder_y),
-                Pos2::new(k_x + shoulder_w * 1.15, bottom_y),
+                Pos2::new(k_x - shoulder_w * 1.18, bottom_y),
+                Pos2::new(k_x - shoulder_w, shoulder_y + 2.0 * scale),
+                Pos2::new(k_x - shoulder_w * 0.6, shoulder_y - 1.0 * scale),
+                Pos2::new(k_x + shoulder_w * 0.6, shoulder_y - 1.0 * scale),
+                Pos2::new(k_x + shoulder_w, shoulder_y + 2.0 * scale),
+                Pos2::new(k_x + shoulder_w * 1.18, bottom_y),
             ];
             painter.add(Shape::convex_polygon(torso_pts, shirt_col, Stroke::NONE));
 
-            // Head circle
+            // Shirt Collar / Neckline Detailing
+            let collar_pts = vec![
+                Pos2::new(k_x - 5.5 * scale, shoulder_y - 1.0 * scale),
+                Pos2::new(k_x, shoulder_y + 6.0 * scale),
+                Pos2::new(k_x + 5.5 * scale, shoulder_y - 1.0 * scale),
+            ];
+            painter.add(Shape::convex_polygon(
+                collar_pts,
+                collar_col,
+                Stroke::new(1.0 * scale, Color32::from_rgba_unmultiplied(0, 0, 0, 40)),
+            ));
+
+            // 2. Head Silhouette, Jaw Shading & Cheering Open Mouth
+            // Shadow under chin
+            painter.circle_filled(
+                Pos2::new(head_center.x, head_center.y + head_r * 0.4),
+                head_r * 0.9,
+                Color32::from_rgb(
+                    (skin_col.r() as f32 * 0.85) as u8,
+                    (skin_col.g() as f32 * 0.85) as u8,
+                    (skin_col.b() as f32 * 0.85) as u8,
+                ),
+            );
+            // Main head
             painter.circle_filled(head_center, head_r, skin_col);
 
-            // Hair polygon on top of head
-            let hair_col = Color32::from_rgb(35, 25, 20);
-            let hair_pts = vec![
-                Pos2::new(head_center.x - head_r, head_center.y),
-                Pos2::new(head_center.x - head_r * 0.9, head_center.y - head_r * 0.8),
-                Pos2::new(head_center.x, head_center.y - head_r * 1.2),
-                Pos2::new(head_center.x + head_r * 0.9, head_center.y - head_r * 0.8),
-                Pos2::new(head_center.x + head_r, head_center.y),
-            ];
-            painter.add(Shape::convex_polygon(hair_pts, hair_col, Stroke::NONE));
+            // Cheering smiling mouth (open red crescent/oval)
+            let mouth_y = head_center.y + head_r * 0.28;
+            let mouth_open = (t * 6.2 + k as f64 * 1.1).sin().abs() as f32 * 1.5 * scale + 2.0 * scale;
+            painter.circle_filled(
+                Pos2::new(head_center.x, mouth_y),
+                mouth_open,
+                Color32::from_rgb(175, 35, 45),
+            );
+            // Top teeth highlight
+            painter.line_segment(
+                [
+                    Pos2::new(head_center.x - 1.8 * scale, mouth_y - mouth_open * 0.4),
+                    Pos2::new(head_center.x + 1.8 * scale, mouth_y - mouth_open * 0.4),
+                ],
+                Stroke::new(1.0 * scale, Color32::WHITE),
+            );
 
-            // Clapping cycle animation
-            let clap_period = 0.55;
-            let offset = k as f64 * 0.13;
+            // Rosy cheeks
+            let cheek_col = Color32::from_rgba_unmultiplied(255, 120, 130, 95);
+            painter.circle_filled(Pos2::new(head_center.x - 5.0 * scale, mouth_y), 2.2 * scale, cheek_col);
+            painter.circle_filled(Pos2::new(head_center.x + 5.0 * scale, mouth_y), 2.2 * scale, cheek_col);
+
+            // 3. Hair Styles
+            match hair_style {
+                1 => {
+                    // Textured curly top (cluster of overlapping circles)
+                    for c in 0..6 {
+                        let c_ang = (c as f32) * std::f32::consts::PI / 5.0 + std::f32::consts::PI;
+                        let cx = head_center.x + c_ang.cos() * head_r * 0.95;
+                        let cy = head_center.y + c_ang.sin() * head_r * 0.95;
+                        painter.circle_filled(Pos2::new(cx, cy), 4.5 * scale, hair_col);
+                    }
+                    painter.circle_filled(Pos2::new(head_center.x, head_center.y - head_r * 0.7), 5.5 * scale, hair_col);
+                }
+                2 => {
+                    // Wavy flowing hair
+                    let hair_pts = vec![
+                        Pos2::new(head_center.x - head_r * 1.15, head_center.y + head_r * 0.6),
+                        Pos2::new(head_center.x - head_r * 1.1, head_center.y - head_r * 0.6),
+                        Pos2::new(head_center.x, head_center.y - head_r * 1.3),
+                        Pos2::new(head_center.x + head_r * 1.1, head_center.y - head_r * 0.6),
+                        Pos2::new(head_center.x + head_r * 1.15, head_center.y + head_r * 0.6),
+                        Pos2::new(head_center.x + head_r * 0.8, head_center.y - head_r * 0.2),
+                        Pos2::new(head_center.x - head_r * 0.8, head_center.y - head_r * 0.2),
+                    ];
+                    painter.add(Shape::convex_polygon(hair_pts, hair_col, Stroke::NONE));
+                }
+                3 => {
+                    // Spiky hair
+                    let hair_pts = vec![
+                        Pos2::new(head_center.x - head_r, head_center.y),
+                        Pos2::new(head_center.x - head_r * 0.8, head_center.y - head_r * 0.9),
+                        Pos2::new(head_center.x - head_r * 0.4, head_center.y - head_r * 1.4),
+                        Pos2::new(head_center.x, head_center.y - head_r * 1.1),
+                        Pos2::new(head_center.x + head_r * 0.4, head_center.y - head_r * 1.4),
+                        Pos2::new(head_center.x + head_r * 0.8, head_center.y - head_r * 0.9),
+                        Pos2::new(head_center.x + head_r, head_center.y),
+                    ];
+                    painter.add(Shape::convex_polygon(hair_pts, hair_col, Stroke::NONE));
+                }
+                _ => {
+                    // Classic side-part
+                    let hair_pts = vec![
+                        Pos2::new(head_center.x - head_r * 1.05, head_center.y + head_r * 0.2),
+                        Pos2::new(head_center.x - head_r * 0.9, head_center.y - head_r * 0.8),
+                        Pos2::new(head_center.x - head_r * 0.2, head_center.y - head_r * 1.25),
+                        Pos2::new(head_center.x + head_r * 0.9, head_center.y - head_r * 0.85),
+                        Pos2::new(head_center.x + head_r * 1.05, head_center.y + head_r * 0.2),
+                        Pos2::new(head_center.x + head_r * 0.5, head_center.y - head_r * 0.3),
+                        Pos2::new(head_center.x - head_r * 0.5, head_center.y - head_r * 0.3),
+                    ];
+                    painter.add(Shape::convex_polygon(hair_pts, hair_col, Stroke::NONE));
+                }
+            }
+
+            // 4. Clapping Cycle & 2-Segment Articulated Arms (Bending Elbows)
+            let clap_period = 0.52;
+            let offset = k as f64 * 0.12;
             let local_t = (t + offset) % clap_period;
-            let clap_p = (local_t / clap_period) as f32; // 0.0 to 1.0
+            let clap_p = (local_t / clap_period) as f32;
 
-            // Arm movement: hands come together overhead
-            let hand_sep = ((clap_p * std::f32::consts::TAU).sin().abs()) * 16.0 * scale;
-            let overhead_y = head_center.y - 24.0 * scale;
+            // Arm movement & hand separation
+            let clap_sin = (clap_p * std::f32::consts::TAU).sin().abs();
+            let hand_sep = clap_sin * 15.0 * scale;
+            let overhead_y = head_center.y - 25.0 * scale;
 
             let left_shoulder = Pos2::new(k_x - shoulder_w * 0.85, shoulder_y);
             let right_shoulder = Pos2::new(k_x + shoulder_w * 0.85, shoulder_y);
@@ -1141,59 +1268,76 @@ impl EffectParticleSimulator {
             let left_hand = Pos2::new(k_x - hand_sep, overhead_y);
             let right_hand = Pos2::new(k_x + hand_sep, overhead_y);
 
-            // Draw arms in shirt color
-            let arm_stroke = Stroke::new(4.0 * scale, shirt_col);
-            painter.line_segment([left_shoulder, left_hand], arm_stroke);
-            painter.line_segment([right_shoulder, right_hand], arm_stroke);
+            // Inverse Kinematics: Elbows flare outward naturally when hands meet
+            let elbow_flare = (1.0 - clap_sin) * 8.0 * scale + 5.0 * scale;
+            let left_elbow = Pos2::new(
+                (left_shoulder.x + left_hand.x) * 0.5 - elbow_flare,
+                (left_shoulder.y + left_hand.y) * 0.5 + 2.0 * scale,
+            );
+            let right_elbow = Pos2::new(
+                (right_shoulder.x + right_hand.x) * 0.5 + elbow_flare,
+                (right_shoulder.y + right_hand.y) * 0.5 + 2.0 * scale,
+            );
 
-            // Hands (skin tone)
-            let hand_r = 3.5 * scale;
+            // Upper arms (Shoulder -> Elbow in shirt sleeve color)
+            let upper_arm_stroke = Stroke::new(4.5 * scale, shirt_col);
+            painter.line_segment([left_shoulder, left_elbow], upper_arm_stroke);
+            painter.line_segment([right_shoulder, right_elbow], upper_arm_stroke);
+
+            // Forearms (Elbow -> Hand in skin tone)
+            let forearm_stroke = Stroke::new(3.6 * scale, skin_col);
+            painter.line_segment([left_elbow, left_hand], forearm_stroke);
+            painter.line_segment([right_elbow, right_hand], forearm_stroke);
+
+            // Detailed Hands: Palm + Thumb pads
+            let hand_r = 3.6 * scale;
             painter.circle_filled(left_hand, hand_r, skin_col);
             painter.circle_filled(right_hand, hand_r, skin_col);
+            // Thumb silhouettes
+            painter.circle_filled(Pos2::new(left_hand.x + 1.8 * scale, left_hand.y + 1.2 * scale), hand_r * 0.55, skin_col);
+            painter.circle_filled(Pos2::new(right_hand.x - 1.8 * scale, right_hand.y + 1.2 * scale), hand_r * 0.55, skin_col);
 
-            // -----------------------------------------------------------------
-            // LAYER 3: CELEBRATION IMPACT FX (When Hands Meet Overhead)
-            // -----------------------------------------------------------------
-            let is_clapping_impact = hand_sep < 3.0 * scale;
-            if is_clapping_impact {
+            // 5. Celebration Impact FX Overhead
+            let is_impact = hand_sep < 2.5 * scale;
+            if is_impact {
                 let impact_center = Pos2::new(k_x, overhead_y);
 
-                // Expanding golden shockwave ring
+                // Golden shockwave ring
                 painter.circle_stroke(
                     impact_center,
-                    8.0 * scale,
-                    Stroke::new(1.8 * scale, Color32::from_rgba_unmultiplied(255, 220, 80, 220)),
+                    9.0 * scale,
+                    Stroke::new(1.8 * scale, Color32::from_rgba_unmultiplied(255, 225, 80, 230)),
                 );
 
                 // 4-point celebration sparkle cross
                 Self::draw_sparkle(
                     painter,
                     impact_center,
-                    6.5 * scale,
-                    Color32::from_rgba_unmultiplied(255, 245, 160, 240),
+                    7.0 * scale,
+                    Color32::from_rgba_unmultiplied(255, 245, 170, 250),
                     true,
                 );
 
-                // Mini celebration confetti burst
+                // Micro celebration sparks
                 for sp in 0..4 {
                     let sp_ang = (sp as f32) * (std::f32::consts::TAU / 4.0) + (t * 2.0) as f32;
                     let sp_pos = Pos2::new(
-                        impact_center.x + sp_ang.cos() * 9.0 * scale,
-                        impact_center.y + sp_ang.sin() * 9.0 * scale,
+                        impact_center.x + sp_ang.cos() * 10.0 * scale,
+                        impact_center.y + sp_ang.sin() * 10.0 * scale,
                     );
                     painter.circle_filled(
                         sp_pos,
-                        1.2 * scale,
-                        Color32::from_rgba_unmultiplied(255, 230, 90, 220),
+                        1.4 * scale,
+                        Color32::from_rgba_unmultiplied(255, 235, 95, 230),
                     );
                 }
             }
 
-            // Floating celebration notes & stars rising from crowd
+            // Floating celebration glyphs rising from crowd
             if k % 2 == 0 {
                 let note_progress = (clap_p + 0.3) % 1.0;
                 let note_alpha = ((1.0 - note_progress) * 220.0) as u8;
-                let note_y = overhead_y - note_progress * 35.0 * scale;
+                let note_y = overhead_y - note_progress * 38.0 * scale;
                 let note_sway = (t * 3.5 + k as f64 * 1.5).sin() as f32 * 6.0 * scale;
                 let note_pos = Pos2::new(k_x + note_sway, note_y);
 
@@ -1212,11 +1356,11 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 6. SHOOTING STARS — Tapered Trail, Glow Halo, Sparkle Scatter, Arc
+    // 6. SHOOTING STARS — Hyper-Realistic Atmospheric Plasma Bolide Meteors
     // =========================================================================
     fn draw_shooting_stars(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let star_count = (4.0 * intensity).round() as usize;
-        let star_period = 2.8;
+        let star_period = 2.6;
         let scale = Self::scale(rect);
 
         for i in 0..star_count {
@@ -1225,117 +1369,149 @@ impl EffectParticleSimulator {
             let local_t = (t + offset) % star_period;
             let progress = (local_t / star_period) as f32;
 
-            // Only visible for first 70% of period (rest is gap)
-            if progress > 0.70 {
+            // Active streak window (first 65% of period)
+            if progress > 0.65 {
                 continue;
             }
-            let streak_p = progress / 0.70;
+            let streak_p = progress / 0.65;
 
-            // Start position and trajectory (slight arc)
-            let start_x = Self::hash_range(seed.wrapping_add(1), 0.08, 0.65);
-            let start_y = Self::hash_range(seed.wrapping_add(2), 0.03, 0.30);
-            let streak_len = Self::hash_range(seed.wrapping_add(3), 0.30, 0.45);
+            // Trajectory coordinates with hypervelocity entry acceleration
+            let start_x = Self::hash_range(seed.wrapping_add(1), 0.05, 0.62);
+            let start_y = Self::hash_range(seed.wrapping_add(2), 0.02, 0.28);
+            let streak_len = Self::hash_range(seed.wrapping_add(3), 0.35, 0.52);
 
-            // Acceleration (star speeds up as it falls)
-            let accel_p = streak_p * (1.0 + streak_p * 0.4); // quadratic acceleration
-            let arc_curvature = Self::hash_range(seed.wrapping_add(4), 0.02, 0.08);
+            // Gravitational entry acceleration
+            let accel_p = streak_p * (1.0 + streak_p * 0.45);
+            let arc_curvature = Self::hash_range(seed.wrapping_add(4), 0.015, 0.06);
 
             let head_x = start_x + accel_p * streak_len;
-            let head_y = start_y + accel_p * (streak_len * 0.6) + accel_p.powi(2) * arc_curvature;
+            let head_y = start_y + accel_p * (streak_len * 0.58) + accel_p.powi(2) * arc_curvature;
             let head = Pos2::new(
                 rect.min.x + head_x * rect.width(),
                 rect.min.y + head_y * rect.height(),
             );
 
-            let alpha_factor = (1.0 - streak_p).powf(0.6);
+            let alpha_factor = (1.0 - streak_p).powf(0.55);
 
-            // Tapered multi-segment trail (15 segments, decreasing width + alpha + color shift)
-            let trail_segments = 15;
-            let _trail_len = 75.0 * scale;
+            // -----------------------------------------------------------------
+            // 1. MULTI-ZONE PLASMA IONIZATION TRAIL RIBBON (Continuous Quad Strip)
+            // -----------------------------------------------------------------
+            let trail_segments = 20;
+            let trail_span = 0.28; // how much history the trail spans in accel_p
+
             for seg in 0..trail_segments {
                 let t0 = seg as f32 / trail_segments as f32;
                 let t1 = (seg + 1) as f32 / trail_segments as f32;
 
-                // Trail position: compute backwards along trajectory
-                let back0 = accel_p - t0 * (accel_p * 0.25);
-                let back1 = accel_p - t1 * (accel_p * 0.25);
-                let tx0 = start_x + back0 * streak_len;
-                let ty0 = start_y + back0 * (streak_len * 0.6) + back0.powi(2) * arc_curvature;
-                let tx1 = start_x + back1 * streak_len;
-                let ty1 = start_y + back1 * (streak_len * 0.6) + back1.powi(2) * arc_curvature;
+                let back0 = (accel_p - t0 * (accel_p * trail_span)).max(0.0);
+                let back1 = (accel_p - t1 * (accel_p * trail_span)).max(0.0);
 
                 let p0 = Pos2::new(
-                    rect.min.x + tx0 * rect.width(),
-                    rect.min.y + ty0 * rect.height(),
+                    rect.min.x + (start_x + back0 * streak_len) * rect.width(),
+                    rect.min.y + (start_y + back0 * (streak_len * 0.58) + back0.powi(2) * arc_curvature) * rect.height(),
                 );
                 let p1 = Pos2::new(
-                    rect.min.x + tx1 * rect.width(),
-                    rect.min.y + ty1 * rect.height(),
+                    rect.min.x + (start_x + back1 * streak_len) * rect.width(),
+                    rect.min.y + (start_y + back1 * (streak_len * 0.58) + back1.powi(2) * arc_curvature) * rect.height(),
                 );
 
-                // Width tapers from thick at head to thin at tail
-                let width = (3.5 * (1.0 - t1 * 0.85)).max(0.3) * scale;
-                // Color shifts from white → cyan → transparent
-                let seg_alpha = (alpha_factor * (1.0 - t1).powf(1.2) * 255.0).clamp(0.0, 255.0) as u8;
-                let r = (255.0 * (1.0 - t1 * 0.55)) as u8;
-                let g = (255.0 * (1.0 - t1 * 0.15)) as u8;
-                let b = 255_u8;
-                let trail_color = Color32::from_rgba_unmultiplied(r, g, b, seg_alpha);
+                // Width smoothly tapers from thick at head to razor-sharp at tail
+                let seg_width = (4.8 * (1.0 - t1).powf(1.4) + 0.4) * scale;
+                let seg_alpha = (alpha_factor * (1.0 - t1).powf(1.6) * 255.0).clamp(0.0, 255.0) as u8;
 
-                painter.line_segment([p0, p1], Stroke::new(width, trail_color));
+                // Multi-Zone Plasma Ionization Color Gradient:
+                // White Core -> Electric Cyan -> Sodium Gold -> Nitrogen Magenta/Violet
+                let seg_color = if t0 < 0.15 {
+                    // White-hot plasma core
+                    Color32::from_rgba_unmultiplied(255, 255, 255, seg_alpha)
+                } else if t0 < 0.45 {
+                    // Electric Oxygen Cyan
+                    let sub_p = (t0 - 0.15) / 0.30;
+                    let r = (255.0 * (1.0 - sub_p * 0.85)) as u8;
+                    let g = (255.0 * (1.0 - sub_p * 0.08)) as u8;
+                    Color32::from_rgba_unmultiplied(r, g, 255, seg_alpha)
+                } else if t0 < 0.75 {
+                    // Sodium Gold / Solar Amber
+                    let sub_p = (t0 - 0.45) / 0.30;
+                    let r = 255;
+                    let g = (220.0 * (1.0 - sub_p * 0.45)) as u8;
+                    let b = (255.0 * (1.0 - sub_p * 0.85)) as u8;
+                    Color32::from_rgba_unmultiplied(r, g, b, seg_alpha)
+                } else {
+                    // Nitrogen Magenta / Violet Tail
+                    let sub_p = (t0 - 0.75) / 0.25;
+                    let r = (230.0 * (1.0 - sub_p * 0.4)) as u8;
+                    let g = (70.0 * (1.0 - sub_p)) as u8;
+                    let b = (255.0 * (1.0 - sub_p * 0.3)) as u8;
+                    Color32::from_rgba_unmultiplied(r, g, b, seg_alpha)
+                };
+
+                painter.line_segment([p0, p1], Stroke::new(seg_width, seg_color));
+
+                // Persistent smoke ablation puff at tail end
+                if seg % 4 == 0 && t0 > 0.4 {
+                    let smoke_alpha = (alpha_factor * (1.0 - t0) * 40.0) as u8;
+                    painter.circle_filled(
+                        p0,
+                        (3.5 + t0 * 2.5) * scale,
+                        Color32::from_rgba_unmultiplied(180, 200, 220, smoke_alpha),
+                    );
+                }
             }
 
-            // Glow halo at star head (3 layers)
-            Self::draw_glow(painter, head, 3.5 * scale, Color32::from_rgb(200, 240, 255), alpha_factor);
-            // Bright white core
+            // -----------------------------------------------------------------
+            // 2. BOLIDE HEAD, FORWARD MACH CONE & OPTICAL DIFFRACTION FLARE
+            // -----------------------------------------------------------------
+            // 3-layer Gaussian bloom halo
+            Self::draw_glow(painter, head, 4.2 * scale, Color32::from_rgb(180, 245, 255), alpha_factor);
+            // White-hot plasma core
             painter.circle_filled(
                 head,
-                2.5 * scale,
+                2.8 * scale,
                 Color32::from_rgba_unmultiplied(255, 255, 255, (alpha_factor * 255.0) as u8),
             );
 
-            // Sparkle scatter: tiny particles shed perpendicular to trail
-            let scatter_count = 6;
-            for sc in 0..scatter_count {
-                let sc_seed = seed.wrapping_mul(17).wrapping_add(sc);
-                let sc_t = Self::hash_range(sc_seed, 0.05, 0.5);
-                let sc_perp = Self::hash_range(sc_seed.wrapping_add(1), -1.0, 1.0) * 8.0 * scale;
-                let sc_age = (streak_p - sc_t * streak_p).max(0.0);
+            // Optical 8-point diffraction lens flare cross on head
+            let flare_size = (8.0 * alpha_factor) * scale;
+            Self::draw_sparkle(
+                painter,
+                head,
+                flare_size,
+                Color32::from_rgba_unmultiplied(255, 255, 240, (alpha_factor * 240.0) as u8),
+                true,
+            );
 
-                if sc_age < 0.01 || sc_age > 0.3 {
-                    continue;
+            // -----------------------------------------------------------------
+            // 3. MID-FLIGHT BOLIDE MICRO-FRAGMENTATION FLARES
+            // -----------------------------------------------------------------
+            if streak_p > 0.30 && streak_p < 0.65 {
+                let flare_phase = ((streak_p - 0.30) / 0.35 * std::f32::consts::PI).sin();
+                // Terminal ablation flash
+                if flare_phase > 0.6 {
+                    let burst_r = (14.0 * flare_phase) * scale;
+                    painter.circle_filled(
+                        head,
+                        burst_r,
+                        Color32::from_rgba_unmultiplied(255, 250, 210, ((flare_phase - 0.6) * 200.0) as u8),
+                    );
                 }
 
-                let sc_back = accel_p - sc_t * (accel_p * 0.25);
-                let sc_base_x = start_x + sc_back * streak_len;
-                let sc_base_y = start_y + sc_back * (streak_len * 0.6) + sc_back.powi(2) * arc_curvature;
+                // Micro-spark fragments shedding behind the head
+                for fr in 0..4 {
+                    let fr_seed = seed.wrapping_mul(31).wrapping_add(fr);
+                    let fr_lag = Self::hash_range(fr_seed, 0.02, 0.08);
+                    let fr_back = (accel_p - fr_lag).max(0.0);
+                    let fr_perp = Self::hash_range(fr_seed.wrapping_add(1), -6.0, 6.0) * scale;
 
-                // Offset perpendicular to trail direction + drift downward with age
-                let sc_pos = Pos2::new(
-                    rect.min.x + sc_base_x * rect.width() + sc_perp,
-                    rect.min.y + sc_base_y * rect.height() + sc_age * 15.0 * scale,
-                );
-
-                let sc_alpha = ((1.0 - sc_age / 0.3) * alpha_factor * 200.0) as u8;
-                let sc_r = (1.5 * (1.0 - sc_age / 0.3)).max(0.4) * scale;
-                painter.circle_filled(
-                    sc_pos,
-                    sc_r,
-                    Color32::from_rgba_unmultiplied(220, 240, 255, sc_alpha),
-                );
-            }
-
-            // Twinkling endpoint sparkle cross
-            if streak_p < 0.3 {
-                let twinkle = ((t * 12.0 + offset * 5.0).sin() as f32 * 0.5 + 0.5) * alpha_factor;
-                Self::draw_sparkle(
-                    painter,
-                    head,
-                    6.0 * scale * twinkle,
-                    Color32::from_rgba_unmultiplied(255, 255, 255, (twinkle * 200.0) as u8),
-                    true,
-                );
+                    let fr_pos = Pos2::new(
+                        rect.min.x + (start_x + fr_back * streak_len) * rect.width() + fr_perp,
+                        rect.min.y + (start_y + fr_back * (streak_len * 0.58) + fr_back.powi(2) * arc_curvature) * rect.height(),
+                    );
+                    let fr_alpha = (flare_phase * alpha_factor * 230.0) as u8;
+                    painter.circle_filled(fr_pos, 1.2 * scale, Color32::from_rgba_unmultiplied(255, 230, 120, fr_alpha));
+                }
             }
         }
     }
 }
+
