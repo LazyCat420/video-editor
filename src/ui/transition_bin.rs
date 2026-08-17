@@ -223,7 +223,13 @@ impl TransitionBinView {
             ui.separator();
             ui.add_space(6.0);
 
-            // Catalog of 18 Transition Presets grouped by category
+            // Catalog of 18 Transition Presets grouped by category.
+            //
+            // `row_w` is captured before the ScrollArea, while `available_width()` still
+            // reflects the sidebar's real content width. Inside the scroll body that value
+            // drifts, and a row sized from it can overflow — which widens the SidePanel and
+            // opens a dead gap next to it.
+            let row_w = ui.available_width();
             ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 let categories = [
                     (
@@ -345,6 +351,7 @@ impl TransitionBinView {
                             kind.label(),
                             desc,
                             is_active,
+                            row_w,
                         ) {
                             if let Some(clip) = &selected_clip {
                                 let current_dur = match selected_slot {

@@ -126,6 +126,40 @@ impl SlideBinView {
         action
     }
 
+    /// One holiday row: a checkbox label with the colour swatch pinned to the right edge.
+    ///
+    /// Laid out right-to-left so the swatch is placed first and the label is confined to the
+    /// space left over. A long name ("Columbus / Indigenous Peoples Day") then stays inside
+    /// the row instead of growing it; an overflowing row widens the whole SidePanel, which
+    /// paints as a dead gap between the sidebar and the preview.
+    fn holiday_row(ui: &mut Ui, name: &str, enabled: &mut bool, color: &mut Color32) -> bool {
+        let mut changed = false;
+        // Allocate one row's worth of height explicitly: a bare right-to-left layout would
+        // claim all the height still available in the panel, leaving one holiday per screen.
+        let row_h = ui.spacing().interact_size.y.max(18.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), row_h),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                if ui.color_edit_button_srgba(color).changed() {
+                    changed = true;
+                }
+                ui.add_space(4.0);
+                // Draw the checkbox left-aligned in whatever the swatch left behind, so the
+                // names still form a straight left edge under the section header.
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if ui
+                        .checkbox(enabled, RichText::new(name).size(11.5))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+            },
+        );
+        changed
+    }
+
     /// Comprehensive Calendar and Holiday Configuration Panel
     pub fn render_calendar_config_panel(
         ui: &mut Ui,
@@ -306,18 +340,13 @@ impl SlideBinView {
                     .show(ui, |ui| {
                         for h in &mut app.calendar_holidays {
                             if h.category == HolidayCategory::American {
-                                ui.horizontal(|ui| {
-                                    if ui.checkbox(&mut h.enabled, &h.name).changed() && in_element_inspector {
+                                let mut col = h.color32();
+                                if Self::holiday_row(ui, &h.name, &mut h.enabled, &mut col) {
+                                    h.set_color32(col);
+                                    if in_element_inspector {
                                         *action = SlideBinAction::UpdateActiveCalendarSlide;
                                     }
-                                    let mut col = h.color32();
-                                    if ui.color_edit_button_srgba(&mut col).changed() {
-                                        h.set_color32(col);
-                                        if in_element_inspector {
-                                            *action = SlideBinAction::UpdateActiveCalendarSlide;
-                                        }
-                                    }
-                                });
+                                }
                             }
                         }
                     });
@@ -328,18 +357,13 @@ impl SlideBinView {
                     .show(ui, |ui| {
                         for h in &mut app.calendar_holidays {
                             if h.category == HolidayCategory::Chinese {
-                                ui.horizontal(|ui| {
-                                    if ui.checkbox(&mut h.enabled, &h.name).changed() && in_element_inspector {
+                                let mut col = h.color32();
+                                if Self::holiday_row(ui, &h.name, &mut h.enabled, &mut col) {
+                                    h.set_color32(col);
+                                    if in_element_inspector {
                                         *action = SlideBinAction::UpdateActiveCalendarSlide;
                                     }
-                                    let mut col = h.color32();
-                                    if ui.color_edit_button_srgba(&mut col).changed() {
-                                        h.set_color32(col);
-                                        if in_element_inspector {
-                                            *action = SlideBinAction::UpdateActiveCalendarSlide;
-                                        }
-                                    }
-                                });
+                                }
                             }
                         }
                     });
