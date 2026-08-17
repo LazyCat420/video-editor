@@ -545,6 +545,11 @@ impl eframe::App for VideoEditorApp {
         // ==========================================
         // 3. Render Left Sidebar Panel (Independent adaptive width per tab)
         // ==========================================
+        // Horizontal inner margin of the sidebar frame, subtracted from the panel width to
+        // get the body's usable content width. Kept as a constant so the frame margin and
+        // the content clamp below can never drift apart.
+        const SIDEBAR_INNER_MARGIN_X: f32 = 8.0;
+
         let sidebar_width = match self.sidebar_tab {
             crate::ui::SidebarTab::Formatting => 280.0,
             crate::ui::SidebarTab::Transitions => 280.0,
@@ -558,9 +563,26 @@ impl eframe::App for VideoEditorApp {
                 egui::Frame::none()
                     .fill(AppTheme::bg_panel())
                     .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(45, 52, 68)))
-                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                    .inner_margin(egui::Margin::symmetric(SIDEBAR_INNER_MARGIN_X, 6.0))
             )
             .show(ctx, |ui| {
+                // Pin the body to the panel's exact content width.
+                //
+                // `exact_width` does NOT cap a SidePanel: egui lays the panel out at that
+                // width but then advances the cursor for the next panel using the frame's
+                // returned *content* rect (`cursor.min.x = rect.max.x` in SidePanel), so any
+                // child that overflows pushes the central panel to the right — the dead black
+                // gap that used to sit between this sidebar and the preview. The overflow also
+                // compounds: widgets size themselves from `ui.available_width()`, so one wide
+                // row raises the value its siblings read and the list ratchets wider.
+                //
+                // Content must therefore stay inside the width on its own; this clamp keeps
+                // `available_width()` constant for every child so it can.
+                let content_w = sidebar_width - 2.0 * SIDEBAR_INNER_MARGIN_X;
+                let mut body = ui.max_rect();
+                body.max.x = body.min.x + content_w;
+                ui.set_clip_rect(ui.clip_rect().intersect(body));
+                ui.set_max_width(content_w);
                 if self.main_view_mode == crate::ui::MainViewMode::Slideshow {
                     if self.sidebar_tab == crate::ui::SidebarTab::Slides {
                         self.sidebar_tab = crate::ui::SidebarTab::Formatting;
