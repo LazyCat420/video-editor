@@ -451,7 +451,11 @@ impl PreviewPlayerView {
             // 2.5. Draw Celebration & Screen Effects (Fireworks, Confetti, Balloons, Birds, Clapping, Shooting Stars)
             if let Some(clip) = timeline.get_selected_clip() {
                 if !clip.effects.is_empty() {
-                    let cur_t = timeline.playhead.as_secs_f64();
+                    let cur_t = if timeline.is_playing {
+                        timeline.playhead.as_secs_f64()
+                    } else {
+                        ui.input(|i| i.time)
+                    };
                     crate::core::effects::EffectParticleSimulator::render_preview(&painter, rect, cur_t, &clip.effects);
                     ui.ctx().request_repaint(); // Smooth 60fps real-time particle animation
                 }

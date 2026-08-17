@@ -262,20 +262,28 @@ impl EffectParticleSimulator {
         ]
     }
 
-    /// Compute a firework spark position along its ballistic trajectory.
-    /// Integrates velocity with exponential drag and constant gravity.
-    fn spark_pos(center: Pos2, angle: f32, speed: f32, t: f32, gravity: f32, drag: f32) -> Pos2 {
-        // Position = integral of v0 * e^(-drag*t) for each axis, plus gravity on Y
+    /// Compute a 3D firework spark position projected to 2D with depth scaling.
+    /// `vx`, `vy`, `vz` are 3D velocities in pixels/sec.
+    /// Returns `(screen_pos, depth_scale)`.
+    fn volumetric_spark_pos(
+        center: Pos2,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+        t: f32,
+        gravity: f32,
+        drag: f32,
+    ) -> (Pos2, f32) {
         let pos_factor = if drag > 0.01 {
             (1.0 - (-drag * t).exp()) / drag
         } else {
             t
         };
-        // Gravity integral: ∫g*t dt = 0.5*g*t²
-        Pos2::new(
-            center.x + angle.cos() * speed * pos_factor,
-            center.y + angle.sin() * speed * pos_factor + 0.5 * gravity * t * t,
-        )
+        let x = center.x + vx * pos_factor;
+        let y = center.y + vy * pos_factor + 0.5 * gravity * t * t;
+        let z = vz * pos_factor;
+        let depth_scale = (260.0 / (260.0 + z)).clamp(0.45, 1.75);
+        (Pos2::new(x, y), depth_scale)
     }
 
     /// Slightly vary a color's RGB channels by a deterministic offset for organic variation.
@@ -308,185 +316,287 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 1. FIREWORKS — Ballistic Trails, Multi-Layer Glow, Core Flash, Crackle
+    // 1. PROCEDURAL FIREWORKS — 3D Volumetric Shells, Streamer Trails, Strobe
     // =========================================================================
     fn draw_fireworks(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
-        let burst_period = 1.8;
+        let burst_period = 2.0;
         let burst_count = (5.0 * intensity).round() as usize;
         let scale = Self::scale(rect);
 
-        let colors = [
-            Color32::from_rgb(255, 60, 60),   // Crimson
-            Color32::from_rgb(255, 210, 40),  // Gold
-            Color32::from_rgb(50, 220, 255),  // Cyan
-            Color32::from_rgb(180, 70, 255),  // Purple
-            Color32::from_rgb(70, 255, 120),  // Green
-            Color32::from_rgb(255, 130, 220), // Pink
-            Color32::from_rgb(255, 165, 50),  // Orange
+        // Core pyrotechnic chemical color palettes
+        let color_palettes = [
+            // Palette 0: Crimson Strontium + Electric Gold
+            (Color32::from_rgb(255, 45, 65), Color32::from_rgb(255, 215, 35)),
+            // Palette 1: Azure Copper Cyan + Bright Silver
+            (Color32::from_rgb(30, 220, 255), Color32::from_rgb(240, 250, 255)),
+            // Palette 2: Emerald Barium + Neon Lime
+            (Color32::from_rgb(45, 255, 115), Color32::from_rgb(180, 255, 80)),
+            // Palette 3: Royal Purple + Flamingo Pink
+            (Color32::from_rgb(195, 60, 255), Color32::from_rgb(255, 110, 200)),
+            // Palette 4: Golden Willow / Kamuro (Deep Amber + Bright Gold)
+            (Color32::from_rgb(255, 175, 40), Color32::from_rgb(255, 235, 120)),
         ];
 
         for i in 0..burst_count {
-            let seed_base = (i as u32).wrapping_mul(7919).wrapping_add(31);
+            let seed_base = (i as u32).wrapping_mul(7919).wrapping_add(47);
             let offset = Self::hash_range(seed_base, 0.0, burst_period as f32) as f64;
             let local_t = (t + offset) % burst_period;
             let progress = (local_t / burst_period) as f32;
 
-            // Burst center (deterministic from seed)
-            let cx_norm = Self::hash_range(seed_base.wrapping_add(100), 0.15, 0.85);
-            let cy_norm = Self::hash_range(seed_base.wrapping_add(200), 0.20, 0.65);
+            // Burst center apex in upper 65% of screen
+            let cx_norm = Self::hash_range(seed_base.wrapping_add(100), 0.12, 0.88);
+            let cy_norm = Self::hash_range(seed_base.wrapping_add(200), 0.15, 0.58);
             let center = Pos2::new(
                 rect.min.x + cx_norm * rect.width(),
                 rect.min.y + cy_norm * rect.height(),
             );
 
-            let color_base = colors[i % colors.len()];
-            let rocket_phase = 0.22;
+            let (primary_color, secondary_color) = color_palettes[i % color_palettes.len()];
+            let shell_style = (i % 4) as u8;
+            let rocket_phase = 0.24;
 
             if progress < rocket_phase {
-                // ---- ROCKET RISING PHASE ----
+                // =============================================================
+                // PHASE 1: ROCKET LAUNCH ASCENT (Smooth Quadratic Deceleration)
+                // =============================================================
                 let rp = progress / rocket_phase;
-                let rocket_y = rect.max.y - (rect.max.y - center.y) * rp;
-                let wobble = (t * 18.0 + offset * 3.0).sin() as f32 * 2.0;
-                let r_pos = Pos2::new(center.x + wobble, rocket_y);
+                // Ease-out launch trajectory
+                let launch_y = rect.max.y + 10.0;
+                let rocket_y = launch_y - (launch_y - center.y) * (1.0 - (1.0 - rp).powi(2));
+                let sway = (t * 16.0 + offset * 5.0).sin() as f32 * 2.5 * scale;
+                let r_pos = Pos2::new(center.x + sway, rocket_y);
 
-                // Rocket trail (ghost positions going downward)
-                for trail_i in 1..8 {
-                    let tt = (rp - trail_i as f32 * 0.035).max(0.0);
-                    let ty = rect.max.y - (rect.max.y - center.y) * tt;
-                    let tw = (t * 18.0 + offset * 3.0 - trail_i as f64 * 0.05).sin() as f32 * 2.0;
-                    let tp = Pos2::new(center.x + tw, ty);
-                    let ta = (1.0 - trail_i as f32 / 8.0).powf(1.5);
+                // Streaming smoke and glowing spark tail
+                let smoke_steps = 10;
+                for st in 1..=smoke_steps {
+                    let back_p = (rp - st as f32 * 0.025).max(0.0);
+                    let back_y = launch_y - (launch_y - center.y) * (1.0 - (1.0 - back_p).powi(2));
+                    let back_sway = (t * 16.0 + offset * 5.0 - st as f64 * 0.1).sin() as f32 * 2.5 * scale;
+                    let back_pos = Pos2::new(center.x + back_sway, back_y);
+                    let tail_alpha = (1.0 - st as f32 / smoke_steps as f32).powf(1.6);
+
+                    // Glowing golden sparks
                     painter.circle_filled(
-                        tp,
-                        (2.5 - trail_i as f32 * 0.2).max(0.8) * scale,
-                        Color32::from_rgba_unmultiplied(255, 200, 80, (ta * 180.0) as u8),
+                        back_pos,
+                        (2.6 - st as f32 * 0.2).max(0.6) * scale,
+                        Color32::from_rgba_unmultiplied(255, 190, 60, (tail_alpha * 200.0) as u8),
                     );
+
+                    // Smoke puff
+                    if st % 2 == 0 {
+                        painter.circle_filled(
+                            back_pos,
+                            (3.5 + st as f32 * 0.4) * scale,
+                            Color32::from_rgba_unmultiplied(200, 180, 160, (tail_alpha * 45.0) as u8),
+                        );
+                    }
                 }
 
-                // Rocket head with glow
-                Self::draw_glow(painter, r_pos, 2.5 * scale, Color32::from_rgb(255, 240, 180), 1.0);
+                // Rocket head with intense white-hot bloom
+                Self::draw_glow(painter, r_pos, 3.0 * scale, Color32::from_rgb(255, 245, 200), 1.0);
+                painter.circle_filled(r_pos, 1.8 * scale, Color32::WHITE);
             } else {
-                // ---- EXPLOSION PHASE ----
+                // =============================================================
+                // PHASE 2 & 3: VOLUMETRIC DETONATION & 3D PARTICLE DISPERSION
+                // =============================================================
                 let burst_p = (progress - rocket_phase) / (1.0 - rocket_phase);
-                let alpha_factor = (1.0 - burst_p).powf(0.8);
+                let alpha_factor = (1.0 - burst_p).powf(0.75);
 
-                // Core flash — bright white circle that fades quickly
-                if burst_p < 0.15 {
-                    let flash_a = (1.0 - burst_p / 0.15).powf(2.0);
-                    let flash_r = 25.0 * scale * (burst_p / 0.15).sqrt();
+                // --- 1. DETONATION FLASH & EXPANDING BLAST SHOCKWAVE ---
+                if burst_p < 0.20 {
+                    let flash_p = burst_p / 0.20;
+                    let flash_alpha = (1.0 - flash_p).powf(2.0);
+                    let flash_radius = (35.0 * scale) * flash_p.sqrt();
+
+                    // White-hot core bloom
                     painter.circle_filled(
                         center,
-                        flash_r,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (flash_a * 180.0) as u8),
+                        flash_radius,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (flash_alpha * 220.0) as u8),
                     );
                     painter.circle_filled(
                         center,
-                        flash_r * 0.5,
-                        Color32::from_rgba_unmultiplied(255, 255, 200, (flash_a * 255.0) as u8),
+                        flash_radius * 0.45,
+                        Color32::from_rgba_unmultiplied(255, 250, 190, (flash_alpha * 255.0) as u8),
+                    );
+
+                    // Expanding shockwave ring
+                    let shockwave_r = 50.0 * scale * flash_p;
+                    painter.circle_stroke(
+                        center,
+                        shockwave_r,
+                        Stroke::new(
+                            (2.0 * (1.0 - flash_p)).max(0.5) * scale,
+                            Color32::from_rgba_unmultiplied(255, 230, 140, (flash_alpha * 160.0) as u8),
+                        ),
                     );
                 }
 
-                // Spark parameters
-                let num_sparks = 28;
-                let max_radius = 65.0 * scale;
-                let gravity = 45.0 * scale;
-                let drag = 1.8_f32;
+                // --- 2. 3D VOLUMETRIC PARTICLE SHELLS ---
+                // Configure shell properties based on pyrotechnic archetype
+                let (num_sparks, base_speed, gravity, drag, trail_len, has_pistil, is_strobe) = match shell_style {
+                    // Kamuro / Willow: Heavy weeping golden trails, low drag, high gravity
+                    0 => (75, 78.0 * scale, 58.0 * scale, 1.2_f32, 8, false, false),
+                    // Chrysanthemum with Pistil: Dense outer color sphere + inner white-hot core
+                    1 => (65, 85.0 * scale, 42.0 * scale, 1.7_f32, 6, true, false),
+                    // Strobe / Glitter: Flickering stars with fast random twinkling
+                    2 => (80, 80.0 * scale, 38.0 * scale, 1.8_f32, 5, false, true),
+                    // Peony: High-speed vivid spherical burst
+                    _ => (70, 92.0 * scale, 44.0 * scale, 1.9_f32, 6, false, false),
+                };
 
-                // Two burst shells: inner (fast, smaller) and outer (slower, larger)
-                for shell in 0..2 {
-                    let shell_sparks = if shell == 0 { num_sparks } else { num_sparks / 2 };
-                    let shell_speed = if shell == 0 { max_radius * 1.2 } else { max_radius * 0.6 };
-                    let shell_gravity = if shell == 0 { gravity } else { gravity * 0.7 };
-                    let angle_offset = if shell == 1 { 0.15 } else { 0.0 };
+                let spark_t = burst_p * 1.35; // trajectory elapsed time
 
-                    for s in 0..shell_sparks {
-                        let spark_seed = seed_base
-                            .wrapping_mul(257)
-                            .wrapping_add(s as u32)
-                            .wrapping_add(shell as u32 * 1000);
+                for s in 0..num_sparks {
+                    let spark_seed = seed_base
+                        .wrapping_mul(313)
+                        .wrapping_add(s as u32)
+                        .wrapping_add(100);
 
-                        let angle = (s as f32) * (std::f32::consts::TAU / shell_sparks as f32)
-                            + angle_offset
-                            + Self::hash_range(spark_seed, -0.12, 0.12);
-                        let speed_var = shell_speed * Self::hash_range(spark_seed.wrapping_add(50), 0.8, 1.2);
+                    // Generate uniform 3D spherical direction vector (Fibonacci/Spherical coordinates)
+                    let u = Self::hash_range(spark_seed, -1.0, 1.0);
+                    let theta = (s as f32) * 2.3999632 // Golden ratio angle
+                        + Self::hash_range(spark_seed.wrapping_add(1), -0.15, 0.15);
+                    let radius_3d = (1.0 - u * u).max(0.0).sqrt();
 
-                        // Current spark position (analytical ballistic trajectory)
-                        let spark_t = burst_p * 1.2; // scale time for trajectory
-                        let spark_pos = Self::spark_pos(center, angle, speed_var, spark_t, shell_gravity, drag);
+                    let dir_x = radius_3d * theta.cos();
+                    let dir_y = u;
+                    let dir_z = radius_3d * theta.sin();
 
-                        // Skip if outside visible area (with margin)
-                        if spark_pos.x < rect.min.x - 30.0
-                            || spark_pos.x > rect.max.x + 30.0
-                            || spark_pos.y < rect.min.y - 30.0
-                            || spark_pos.y > rect.max.y + 30.0
-                        {
-                            continue;
-                        }
+                    let speed_variation = Self::hash_range(spark_seed.wrapping_add(2), 0.65, 1.25);
+                    let vx = dir_x * base_speed * speed_variation;
+                    let vy = dir_y * base_speed * speed_variation;
+                    let vz = dir_z * base_speed * speed_variation;
 
-                        let spark_color = Self::vary_color(color_base, spark_seed, 25);
-                        let spark_alpha = alpha_factor * Self::hash_range(spark_seed.wrapping_add(99), 0.7, 1.0);
-                        let spark_size = (2.8 * (1.0 - burst_p * 0.5)).max(0.8) * scale;
+                    // Compute head position and depth
+                    let (head_pos, depth_scale) =
+                        Self::volumetric_spark_pos(center, vx, vy, vz, spark_t, gravity, drag);
 
-                        // Ghost trail — 5 previous positions computed analytically
-                        let trail_steps = 5;
-                        let trail_dt = 0.025;
-                        for ti in (1..=trail_steps).rev() {
-                            let tt = (spark_t - ti as f32 * trail_dt).max(0.0);
-                            let trail_pos = Self::spark_pos(center, angle, speed_var, tt, shell_gravity, drag);
-                            let trail_a = spark_alpha * (1.0 - ti as f32 / (trail_steps + 1) as f32).powf(1.5);
-                            let trail_r = spark_size * (1.0 - ti as f32 * 0.12);
-                            painter.circle_filled(
-                                trail_pos,
-                                trail_r.max(0.5),
-                                Color32::from_rgba_unmultiplied(
-                                    spark_color.r(),
-                                    spark_color.g(),
-                                    spark_color.b(),
-                                    (trail_a * 255.0).clamp(0.0, 255.0) as u8,
-                                ),
-                            );
-                        }
+                    // Culling if out of bounds
+                    if head_pos.x < rect.min.x - 40.0
+                        || head_pos.x > rect.max.x + 40.0
+                        || head_pos.y < rect.min.y - 40.0
+                        || head_pos.y > rect.max.y + 40.0
+                    {
+                        continue;
+                    }
 
-                        // Spark with glow
-                        Self::draw_glow(painter, spark_pos, spark_size, spark_color, spark_alpha);
+                    // Strobe flickering calculation
+                    let strobe_alpha = if is_strobe && burst_p > 0.25 {
+                        let freq = 36.0 + Self::hash_range(spark_seed.wrapping_add(3), 0.0, 15.0);
+                        let strobe_phase = (spark_t * freq as f32 + s as f32 * 1.2).sin();
+                        if strobe_phase > 0.1 { 1.0 } else { 0.15 }
+                    } else {
+                        1.0
+                    };
 
-                        // Occasional sparkle cross on every 4th spark
-                        if s % 4 == 0 && burst_p < 0.6 {
-                            let sparkle_a = spark_alpha * (1.0 - burst_p / 0.6);
-                            Self::draw_sparkle(
-                                painter,
-                                spark_pos,
-                                spark_size * 2.5,
-                                Color32::from_rgba_unmultiplied(
-                                    255, 255, 220,
-                                    (sparkle_a * 200.0) as u8,
-                                ),
-                                true,
-                            );
-                        }
+                    let spark_alpha = (alpha_factor * strobe_alpha).clamp(0.0, 1.0);
+                    let spark_color = Self::vary_color(primary_color, spark_seed, 20);
+                    let spark_size = (3.0 * (1.0 - burst_p * 0.45) * depth_scale).max(0.8) * scale;
 
-                        // Secondary crackle: every 6th spark spawns 3 mini-particles
-                        if s % 6 == 0 && burst_p > 0.3 && burst_p < 0.85 {
-                            let crackle_p = (burst_p - 0.3) / 0.55;
-                            for c in 0..3 {
-                                let c_seed = spark_seed.wrapping_mul(13).wrapping_add(c);
-                                let c_angle = Self::hash_range(c_seed, 0.0, std::f32::consts::TAU);
-                                let c_dist = crackle_p * 12.0 * scale * Self::hash_range(c_seed.wrapping_add(7), 0.5, 1.5);
-                                let c_pos = Pos2::new(
-                                    spark_pos.x + c_angle.cos() * c_dist,
-                                    spark_pos.y + c_angle.sin() * c_dist + crackle_p.powi(2) * 5.0 * scale,
-                                );
-                                let c_alpha = (1.0 - crackle_p).powf(2.0) * spark_alpha;
-                                painter.circle_filled(
-                                    c_pos,
-                                    (1.2 * (1.0 - crackle_p)).max(0.4) * scale,
-                                    Color32::from_rgba_unmultiplied(
-                                        255, 255, 200,
-                                        (c_alpha * 255.0).clamp(0.0, 255.0) as u8,
-                                    ),
-                                );
-                            }
-                        }
+                    // --- DRAW CONNECTED GRADIENT STREAMER TRAILS ---
+                    let dt = 0.024;
+                    for seg in 0..trail_len {
+                        let t_a = (spark_t - seg as f32 * dt).max(0.0);
+                        let t_b = (spark_t - (seg + 1) as f32 * dt).max(0.0);
+
+                        let (p_a, depth_a) =
+                            Self::volumetric_spark_pos(center, vx, vy, vz, t_a, gravity, drag);
+                        let (p_b, _) =
+                            Self::volumetric_spark_pos(center, vx, vy, vz, t_b, gravity, drag);
+
+                        let seg_p = seg as f32 / trail_len as f32;
+                        let seg_alpha = spark_alpha * (1.0 - seg_p).powf(1.4);
+                        let seg_width = (spark_size * (1.0 - seg_p * 0.65) * depth_a).max(0.5);
+
+                        let seg_color = if seg == 0 {
+                            Color32::from_rgba_unmultiplied(255, 255, 240, (seg_alpha * 255.0) as u8)
+                        } else if seg < 3 {
+                            Color32::from_rgba_unmultiplied(
+                                spark_color.r(),
+                                spark_color.g(),
+                                spark_color.b(),
+                                (seg_alpha * 255.0) as u8,
+                            )
+                        } else {
+                            // Warm golden amber ember trail
+                            Color32::from_rgba_unmultiplied(
+                                255,
+                                175,
+                                45,
+                                (seg_alpha * 190.0) as u8,
+                            )
+                        };
+
+                        painter.line_segment([p_a, p_b], Stroke::new(seg_width, seg_color));
+                    }
+
+                    // --- DRAW SPARK HEAD & GLOW ---
+                    Self::draw_glow(painter, head_pos, spark_size, spark_color, spark_alpha);
+                    painter.circle_filled(
+                        head_pos,
+                        (spark_size * 0.6).max(0.5),
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (spark_alpha * 255.0) as u8),
+                    );
+
+                    // Occasional 8-point sparkle cross on bright leading sparks
+                    if s % 5 == 0 && burst_p < 0.65 {
+                        let sparkle_a = spark_alpha * (1.0 - burst_p / 0.65);
+                        Self::draw_sparkle(
+                            painter,
+                            head_pos,
+                            spark_size * 2.6,
+                            Color32::from_rgba_unmultiplied(255, 255, 220, (sparkle_a * 220.0) as u8),
+                            true,
+                        );
+                    }
+                }
+
+                // --- 3. INNER PISTIL CORE SHELL (For Chrysanthemum Style) ---
+                if has_pistil && burst_p < 0.70 {
+                    let pistil_p = burst_p / 0.70;
+                    let pistil_alpha = (1.0 - pistil_p).powf(1.2);
+                    let pistil_sparks = 30;
+                    let pistil_speed = base_speed * 0.52;
+
+                    for ps in 0..pistil_sparks {
+                        let p_seed = seed_base.wrapping_mul(541).wrapping_add(ps as u32);
+                        let u = Self::hash_range(p_seed, -1.0, 1.0);
+                        let theta = (ps as f32) * 2.3999632;
+                        let r3d = (1.0 - u * u).max(0.0).sqrt();
+
+                        let p_vx = r3d * theta.cos() * pistil_speed;
+                        let p_vy = u * pistil_speed;
+                        let p_vz = r3d * theta.sin() * pistil_speed;
+
+                        let (p_pos, p_depth) = Self::volumetric_spark_pos(
+                            center,
+                            p_vx,
+                            p_vy,
+                            p_vz,
+                            spark_t,
+                            gravity * 0.8,
+                            drag * 1.3,
+                        );
+
+                        let p_col = secondary_color;
+                        let p_size = (2.2 * (1.0 - pistil_p * 0.5) * p_depth).max(0.6) * scale;
+
+                        painter.circle_filled(
+                            p_pos,
+                            p_size,
+                            Color32::from_rgba_unmultiplied(
+                                p_col.r(),
+                                p_col.g(),
+                                p_col.b(),
+                                (pistil_alpha * 240.0) as u8,
+                            ),
+                        );
+                        painter.circle_filled(
+                            p_pos,
+                            p_size * 0.5,
+                            Color32::from_rgba_unmultiplied(255, 255, 255, (pistil_alpha * 255.0) as u8),
+                        );
                     }
                 }
             }
