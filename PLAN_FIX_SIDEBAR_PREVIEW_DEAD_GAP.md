@@ -129,3 +129,70 @@ capture that binary instead.
   `ui.available_width()` mid-row can reopen this gap. The durable rule is the one applied to
   `ActionRowCard`: the container decides the width and passes it in.
 - Pre-existing unrelated warning: unused `RichText` import in `examples/slider_shot.rs`.
+
+---
+
+# RECURRENCE + FINAL FIX (2026-08-16): the clamp never worked — the cap does
+
+The gap came back (~145px, user screenshot, Formatting tab with a picture
+element selected). The original fix was built on a wrong premise; this chapter
+records the verified mechanism so it does not recur a third time.
+
+## Why the a8c0f66 clamp could not work — egui 0.29.1 source, verified
+
+- `exact_width(280)` clamps only the panel's INPUT width (`panel.rs:236-246`).
+- The panel's REPORTED rect is `content min_rect + margins` (`panel.rs:286`,
+  `frame.rs:313`) with **no post-clamp**; `cursor.min.x = rect.max.x`
+  (`panel.rs:293`) and `allocate_left_panel` (`panel.rs:391`) hand that grown
+  rect to the CentralPanel. gap = widest child + 16 − 280.
+- `ui.set_max_width()` is advisory: an oversized allocation is unioned back
+  into min_rect AND max_rect (`ui.rs:1268` → `layout.rs:49-52`). The clip only
+  made overflow invisible.
+- Amplifier: `ScrollArea::vertical().auto_shrink([false,false])` hits the
+  `(false,false) => inner_size.x.max(content_size.x)` arm
+  (`scroll_area.rs:902-913`) — it propagates the widest row out to the panel,
+  even rows scrolled offscreen.
+
+Measured with real font metrics (headless `egui::Context::run`): element list
+with a long filename = **634px**, picture inspector = **546px**, vs the 264px
+budget. The overflow was filename-driven (`ui.button(format!("… {}", file))`
+in a non-wrapping horizontal row), which is why the gap size varied between
+sessions.
+
+## The fix — two layers
+
+1. **Structural cap** — `show_width_capped` in `src/ui/components/mod.rs`:
+   `new_child(UiBuilder::max_rect)` (allocates nothing in the parent,
+   `ui.rs:242-246`) + `advance_cursor_after_rect(exact rect)`. The parent
+   advances by exactly the cap no matter what children allocate. Wired at the
+   sidebar root in `src/app/mod.rs`. NOT `allocate_ui_with_layout` — that
+   re-allocates the grown child rect (`ui.rs:1400-1413`).
+2. **Rows resized to actually fit** (a capped-but-overflowing row would be
+   clipped into dead, unclickable buttons): filename/text snippets truncated
+   (`file_label` caps at 22 chars), media inspector headers moved the filename
+   to its own wrapping line, the ~410px picture action row split in two,
+   background-style/move-delete/size-preset/months/year-start rows shortened
+   or tightened, ComboBox/TextEdit widths corrected for their own padding.
+   All in `src/ui/slide_bin.rs`.
+
+## Proof
+
+`tests/sidebar_width_tests.rs` (new):
+- Red-first: both budget tests FAILED on the old rows (634px / 546px).
+- `formatting_tab_element_list_fits_the_budget` + 
+  `every_element_inspector_fits_the_budget` (all 5 element types, worst-case
+  74-char filename): green after the row fixes.
+- `width_cap_survives_a_pathological_child`: sabotage control — a deliberate
+  400px button (positive control asserts it really measures ≥399px) must not
+  grow the capped parent past 265. Green. This is the guard that keeps any
+  future over-wide row from reopening the gap.
+
+Full suite: **100 tests, 0 failures**, build clean.
+
+## Open items
+
+- On-screen confirmation is the user's (Win exe / Xvfb limit): sidebar flush
+  against the preview; picture-inspector buttons all visible AND clickable;
+  a long-named import opens no gap.
+- The row-level budget test only covers the Formatting tab; Transitions/Slides
+  tabs are protected by the structural cap but their rows are not measured.

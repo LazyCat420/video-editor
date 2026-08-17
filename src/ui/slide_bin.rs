@@ -403,7 +403,14 @@ impl SlideBinView {
                             ui.add(egui::DragValue::new(&mut app.new_custom_event_day).range(1..=31));
                         });
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut app.new_custom_event_label).hint_text("Grandma's Birthday"));
+                            // Leave room for the colour swatch + gap: a
+                            // full-available-width TextEdit pushed the swatch
+                            // past the width budget (dead-gap overflow).
+                            ui.add(
+                                egui::TextEdit::singleline(&mut app.new_custom_event_label)
+                                    .hint_text("Grandma's Birthday")
+                                    .desired_width(ui.available_width() - 44.0),
+                            );
                             let mut c = Color32::from_rgba_premultiplied(app.new_custom_event_color[0], app.new_custom_event_color[1], app.new_custom_event_color[2], app.new_custom_event_color[3]);
                             if ui.color_edit_button_srgba(&mut c).changed() {
                                 app.new_custom_event_color = [c.r(), c.g(), c.b(), c.a()];
@@ -509,20 +516,46 @@ impl SlideBinView {
         } else {
             for (idx, el) in clip.elements.iter().enumerate() {
                 ui.horizontal(|ui| {
+                    // Snippets are truncated and the button text sized down:
+                    // these rows sit in a non-wrapping horizontal layout, so an
+                    // unbounded label (long filename, long text line) is exactly
+                    // what used to widen the panel and open the dead gap.
                     let desc = match el {
-                        SlideElement::Text(t) => format!("🔤 Text: \"{}\"", t.text.lines().next().unwrap_or("")),
+                        SlideElement::Text(t) => format!("🔤 Text: \"{}\"", truncate_chars(t.text.lines().next().unwrap_or(""), 18)),
                         SlideElement::Calendar(c) => format!("📅 Calendar: {} {}", CalendarMonth::name_for_month(c.start_month), c.year),
                         SlideElement::Picture { path, .. } => format!("🖼 Picture: {}", file_label(path)),
                         SlideElement::Video { path, .. } => format!("🎬 Video: {}", file_label(path)),
                         SlideElement::Audio { path, .. } => format!("🎵 Audio: {}", file_label(path)),
                         SlideElement::Placeholder { slot_id, label, .. } => format!("➕ Slot #{}: {}", slot_id, label),
                     };
-                    if ui.button(desc).clicked() {
+                    if ui.button(RichText::new(desc).size(12.0)).clicked() {
                         *action = SlideBinAction::SelectElement(Some(idx));
                     }
                 });
             }
         }
+    }
+
+    /// Inspector header: fixed title + Deselect on one row, then the filename
+    /// on its own line, where the vertical layout wraps it instead of letting
+    /// it extend the panel (a filename inside the header row was one of the
+    /// dead-gap causes).
+    fn inspector_media_header(
+        ui: &mut Ui,
+        title: &str,
+        color: Color32,
+        path: &Path,
+        action: &mut SlideBinAction,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(title).size(13.0).strong().color(color));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("✖ Deselect").clicked() {
+                    *action = SlideBinAction::SelectElement(None);
+                }
+            });
+        });
+        ui.label(RichText::new(file_label(path)).size(10.5).color(AppTheme::text_muted()));
     }
 
     fn render_selected_element_inspector(
@@ -552,23 +585,29 @@ impl SlideBinView {
                 });
                 ui.add_space(4.0);
 
-                // Months in Slide: 1, 2, 3
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Months:").size(11.5).strong().color(AppTheme::text_secondary()));
-                    for count in [1, 2, 3] {
-                        let label = format!("{} Month{}", count, if count > 1 { "s" } else { "" });
-                        let is_active = updated.month_count == count;
-                        let btn = Button::new(RichText::new(label).size(10.5).strong())
-                            .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() });
-                        if ui.add(btn).clicked() {
-                            updated.month_count = count;
-                            changed = true;
+                // Months in Slide: 1, 2, 3 — tight padding, the default-padded
+                // row measured over the 254px budget (dead-gap overflow).
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding.x = 6.0;
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Months:").size(11.5).strong().color(AppTheme::text_secondary()));
+                        for count in [1, 2, 3] {
+                            let label = format!("{} Month{}", count, if count > 1 { "s" } else { "" });
+                            let is_active = updated.month_count == count;
+                            let btn = Button::new(RichText::new(label).size(10.5).strong())
+                                .fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() });
+                            if ui.add(btn).clicked() {
+                                updated.month_count = count;
+                                changed = true;
+                            }
                         }
-                    }
+                    });
                 });
                 ui.add_space(2.0);
 
-                // Year & Starting Month
+                // Year and Starting Month on separate rows: combined they
+                // measured ~345px against the 254px budget (dead gap).
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Year:").size(11.5).color(AppTheme::text_secondary()));
                     if ui.button("◀").clicked() {
@@ -582,11 +621,12 @@ impl SlideBinView {
                         updated.holidays = CalendarMonth::default_holidays_for_year(updated.year);
                         changed = true;
                     }
-
-                    ui.add_space(8.0);
+                });
+                ui.horizontal(|ui| {
                     ui.label(RichText::new("Start:").size(11.5).color(AppTheme::text_secondary()));
                     egui::ComboBox::from_id_salt("cal_insp_month_combo")
                         .selected_text(CalendarMonth::name_for_month(updated.start_month))
+                        .width(160.0)
                         .show_ui(ui, |ui| {
                             for m in 1..=12 {
                                 let is_sel = updated.start_month == m;
@@ -653,16 +693,22 @@ impl SlideBinView {
                 });
                 ui.add_space(4.0);
 
-                // Quick Sizing Presets & Slider
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Size:").size(11.5).strong().color(AppTheme::text_secondary()));
-                    for (label, sz) in [("S (14)", 14.0), ("M (18)", 18.0), ("L (24)", 24.0), ("XL (32)", 32.0)] {
-                        let is_active = (updated.font_size - sz).abs() < 1.0;
-                        if ui.add(Button::new(RichText::new(label).size(10.5)).fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
-                            updated.font_size = sz;
-                            changed = true;
+                // Quick Sizing Presets & Slider — tightened padding: at the
+                // theme's default button padding this row measured ~303px
+                // against the 254px budget (dead-gap overflow).
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding.x = 6.0;
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Size:").size(11.5).strong().color(AppTheme::text_secondary()));
+                        for (label, sz) in [("S (14)", 14.0), ("M (18)", 18.0), ("L (24)", 24.0), ("XL (32)", 32.0)] {
+                            let is_active = (updated.font_size - sz).abs() < 1.0;
+                            if ui.add(Button::new(RichText::new(label).size(10.5)).fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
+                                updated.font_size = sz;
+                                changed = true;
+                            }
                         }
-                    }
+                    });
                 });
 
                 ui.horizontal(|ui| {
@@ -677,7 +723,9 @@ impl SlideBinView {
                 ui.add_space(4.0);
                 ui.label(RichText::new("Text Words / Grid:").size(11.5).color(AppTheme::text_secondary()));
                 let text_resp = ui.add_sized(
-                    [ui.available_width(), 60.0],
+                    // −8: TextEdit adds its own 2×4px margin on top of the
+                    // given size, which nudged this over the width budget.
+                    [ui.available_width() - 8.0, 60.0],
                     egui::TextEdit::multiline(&mut updated.text).hint_text("Type words..."),
                 );
                 if text_resp.changed() {
@@ -698,7 +746,9 @@ impl SlideBinView {
                 ui.add_space(4.0);
                 egui::ComboBox::from_id_salt("sel_slide_text_font")
                     .selected_text(RichText::new(format!("🔤 {}", updated.font_family.label())).size(12.0))
-                    .width(ui.available_width() - 8.0)
+                    // ComboBox::width sets the INNER width; the button frame
+                    // adds 2× button_padding (28px) on top, so leave room.
+                    .width(ui.available_width() - 36.0)
                     .show_ui(ui, |ui| {
                         for f in crate::core::text_overlay::FontFamilyPreset::all() {
                             let is_sel = updated.font_family == *f;
@@ -729,12 +779,20 @@ impl SlideBinView {
                     ui.color_edit_button_srgba(&mut updated.text_color);
                 });
 
+                // Label on its own line + short button labels: the one-line
+                // form measured ~364px against the 254px budget (dead gap).
+                ui.label(RichText::new("Background:").size(11.5).color(AppTheme::text_secondary()));
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Background:").size(11.5).color(AppTheme::text_secondary()));
                     for style in TextBoxStyle::all() {
                         let is_sel = updated.box_style == *style;
+                        let short = match style {
+                            TextBoxStyle::None => "None",
+                            TextBoxStyle::TranslucentBox => "Tight Box",
+                            TextBoxStyle::SolidBanner => "Banner",
+                        };
                         if ui
-                            .add(Button::new(RichText::new(style.label()).size(11.0)).fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .add(Button::new(RichText::new(short).size(11.0)).fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .on_hover_text(style.label())
                             .clicked()
                         {
                             updated.box_style = *style;
@@ -744,14 +802,16 @@ impl SlideBinView {
                 });
 
                 ui.add_space(6.0);
+                // Short labels at 11.5: the 15px "Move Up / Move Down /
+                // Delete Text" row measured ~359px against the 254px budget.
                 ui.horizontal(|ui| {
-                    if ui.button("⬆ Move Up").clicked() {
+                    if ui.add(Button::new(RichText::new("⬆ Up").size(11.5))).on_hover_text("Move this text earlier in the layer order").clicked() {
                         *action = SlideBinAction::ReorderElement { idx, dir: -1 };
                     }
-                    if ui.button("⬇ Move Down").clicked() {
+                    if ui.add(Button::new(RichText::new("⬇ Down").size(11.5))).on_hover_text("Move this text later in the layer order").clicked() {
                         *action = SlideBinAction::ReorderElement { idx, dir: 1 };
                     }
-                    if ui.button("🗑 Delete Text").clicked() {
+                    if ui.add(Button::new(RichText::new("🗑 Delete").size(11.5))).on_hover_text("Delete this text element").clicked() {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
@@ -764,24 +824,14 @@ impl SlideBinView {
                 }
             }
             SlideElement::Picture { path, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("🖼 Picture: {}", file_label(path)))
-                            .size(13.0)
-                            .strong()
-                            .color(AppTheme::accent_cyan()),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✖ Deselect").clicked() {
-                            *action = SlideBinAction::SelectElement(None);
-                        }
-                    });
-                });
+                Self::inspector_media_header(ui, "🖼 Picture", AppTheme::accent_cyan(), path, action);
                 ui.add_space(4.0);
                 let is_full = match element {
                     SlideElement::Picture { x, y, w, h, .. } => *x == 0.0 && *y == 0.0 && *w == 1.0 && *h == 1.0,
                     _ => false,
                 };
+                // Two rows: three 15px buttons on one line measured ~410px
+                // against the 254px budget — the single widest dead-gap row.
                 ui.horizontal(|ui| {
                     let full_lbl = if is_full { "🗗 Centered Box" } else { "⛶ Full Slide" };
                     let full_btn = Button::new(RichText::new(full_lbl).size(12.0).strong().color(Color32::WHITE))
@@ -789,28 +839,21 @@ impl SlideBinView {
                     if ui.add(full_btn).on_hover_text("Toggle between 100% full slide and centered collage box").clicked() {
                         *action = SlideBinAction::FullSlide(idx);
                     }
-                    if ui.button("🖼 Set as Background").clicked() {
+                    if ui.add(Button::new(RichText::new("🖼 Background").size(11.5)))
+                        .on_hover_text("Use this picture as the slide background")
+                        .clicked()
+                    {
                         *action = SlideBinAction::SetElementAsBackground(idx);
                     }
-                    if ui.button("🗑 Delete").clicked() {
+                });
+                ui.horizontal(|ui| {
+                    if ui.add(Button::new(RichText::new("🗑 Delete").size(11.5))).clicked() {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
             }
             SlideElement::Video { path, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("🎬 Video: {}", file_label(path)))
-                            .size(13.0)
-                            .strong()
-                            .color(AppTheme::accent_cyan()),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✖ Deselect").clicked() {
-                            *action = SlideBinAction::SelectElement(None);
-                        }
-                    });
-                });
+                Self::inspector_media_header(ui, "🎬 Video", AppTheme::accent_cyan(), path, action);
                 ui.add_space(4.0);
                 let is_full = match element {
                     SlideElement::Video { x, y, w, h, .. } => *x == 0.0 && *y == 0.0 && *w == 1.0 && *h == 1.0,
@@ -823,26 +866,14 @@ impl SlideBinView {
                     if ui.add(full_btn).on_hover_text("Toggle between 100% full slide and centered collage box").clicked() {
                         *action = SlideBinAction::FullSlide(idx);
                     }
-                    if ui.button("🗑 Delete").clicked() {
+                    if ui.add(Button::new(RichText::new("🗑 Delete").size(11.5))).clicked() {
                         *action = SlideBinAction::RemoveElement(idx);
                     }
                 });
             }
             SlideElement::Audio { path, volume } => {
                 let mut vol = *volume;
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("🎵 Audio: {}", file_label(path)))
-                            .size(13.0)
-                            .strong()
-                            .color(AppTheme::accent_cyan()),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✖ Deselect").clicked() {
-                            *action = SlideBinAction::SelectElement(None);
-                        }
-                    });
-                });
+                Self::inspector_media_header(ui, "🎵 Audio", AppTheme::accent_cyan(), path, action);
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Volume:").size(11.5).color(AppTheme::text_secondary()));
@@ -881,8 +912,23 @@ impl SlideBinView {
     }
 }
 
+/// Filename for sidebar rows, capped so a long name can never widen the panel
+/// (labels in non-wrapping horizontal rows extend instead of wrapping, and the
+/// sidebar budget is 264px — the dead-gap bug was filename-driven).
 fn file_label(p: &Path) -> String {
-    p.file_name()
+    let name = p
+        .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.to_string_lossy().to_string());
+    truncate_chars(&name, 22)
+}
+
+/// Truncate to `max` characters with a trailing ellipsis.
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{cut}…")
+    }
 }

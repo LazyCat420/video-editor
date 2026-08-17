@@ -569,23 +569,19 @@ impl eframe::App for VideoEditorApp {
                     .inner_margin(egui::Margin::symmetric(SIDEBAR_INNER_MARGIN_X, 6.0))
             )
             .show(ctx, |ui| {
-                // Pin the body to the panel's exact content width.
+                // Hard-cap the body at the panel's exact content width.
                 //
-                // `exact_width` does NOT cap a SidePanel: egui lays the panel out at that
-                // width but then advances the cursor for the next panel using the frame's
-                // returned *content* rect (`cursor.min.x = rect.max.x` in SidePanel), so any
-                // child that overflows pushes the central panel to the right — the dead black
-                // gap that used to sit between this sidebar and the preview. The overflow also
-                // compounds: widgets size themselves from `ui.available_width()`, so one wide
-                // row raises the value its siblings read and the list ratchets wider.
-                //
-                // Content must therefore stay inside the width on its own; this clamp keeps
-                // `available_width()` constant for every child so it can.
+                // `exact_width` does NOT cap a SidePanel: egui reports the panel's rect
+                // as `content min_rect + margins` with no post-clamp (egui-0.29.1
+                // panel.rs:286) and hands that grown rect to the CentralPanel
+                // (panel.rs:293, :391) — so any over-wide child opens a dead black gap
+                // between sidebar and preview. The previous fix here (`set_max_width` +
+                // clip) only made the overflow INVISIBLE: set_max_width is advisory and
+                // an oversized allocation is unioned straight back into min_rect
+                // (egui layout.rs:49-52). show_width_capped makes it IMPOSSIBLE — the
+                // parent advances by exactly content_w regardless of the children.
                 let content_w = sidebar_width - 2.0 * SIDEBAR_INNER_MARGIN_X;
-                let mut body = ui.max_rect();
-                body.max.x = body.min.x + content_w;
-                ui.set_clip_rect(ui.clip_rect().intersect(body));
-                ui.set_max_width(content_w);
+                crate::ui::components::show_width_capped(ui, content_w, |ui| {
                 if self.main_view_mode == crate::ui::MainViewMode::Slideshow {
                     if self.sidebar_tab == crate::ui::SidebarTab::Slides {
                         self.sidebar_tab = crate::ui::SidebarTab::Formatting;
@@ -822,6 +818,7 @@ impl eframe::App for VideoEditorApp {
                         }
                     }
                 }
+                }); // end show_width_capped body
             });
 
         // ==========================================
