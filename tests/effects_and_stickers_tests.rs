@@ -39,6 +39,32 @@ fn test_powerpoint_effects_catalog_and_toggles() {
 }
 
 #[test]
+fn test_effect_particle_simulator_render_all_effects() {
+    use video_editor::core::effects::EffectParticleSimulator;
+    use egui::{Pos2, Rect, Vec2};
+
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let all_kinds = SlideEffectKind::all();
+        for kind in all_kinds {
+            let effect = SlideEffect::new(*kind);
+            let effects_list = vec![effect];
+
+            // Render at various time steps across cycle
+            for t in [0.0, 0.25, 0.5, 1.2, 2.5, 5.0] {
+                EffectParticleSimulator::render_preview(
+                    &painter,
+                    Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 450.0)),
+                    t,
+                    &effects_list,
+                );
+            }
+        }
+    });
+}
+
+#[test]
 fn test_holiday_stickers_catalog_and_asset_generation() {
     let temp_dir = std::env::temp_dir().join("ve_sticker_test_assets");
     let _ = std::fs::create_dir_all(&temp_dir);
