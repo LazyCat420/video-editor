@@ -1088,7 +1088,7 @@ impl EffectParticleSimulator {
         ];
 
         for k in 0..front_count {
-            let k_seed = (k as u32).wrapping_mul(239).wrapping_add(71);
+            let _k_seed = (k as u32).wrapping_mul(239).wrapping_add(71);
             let k_x_norm = 0.08 + (k as f32 / (front_count - 1) as f32) * 0.84;
             let k_x = rect.min.x + k_x_norm * width;
 
