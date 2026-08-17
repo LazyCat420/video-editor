@@ -86,11 +86,12 @@ impl ActionRowCard {
                     // the row lands at or just under budget rather than 1px over it.
                     let text_w = (inner_w - badge_w - btn_w - 2.0 - 2.0 * gap - 2.0).max(40.0);
                     ui.allocate_ui_with_layout(
-                        Vec2::new(text_w, 30.0),
+                        Vec2::new(text_w, 34.0),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.set_max_width(text_w);
                             ui.set_clip_rect(ui.max_rect());
+                            ui.spacing_mut().item_spacing.y = 1.0;
                             ui.horizontal(|ui| {
                                 ui.add(
                                     egui::Label::new(
@@ -146,7 +147,12 @@ impl ActionRowCard {
                 });
             });
 
-        if resp.response.interact(Sense::click()).clicked() {
+        if resp
+            .response
+            .on_hover_text(desc)
+            .interact(Sense::click())
+            .clicked()
+        {
             clicked = true;
         }
 
