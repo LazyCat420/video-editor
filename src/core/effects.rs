@@ -926,263 +926,254 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 4. FLYING BIRDS — Multi-Segment Curved Wings, Body, Depth Variation
-    // ========================================    // =========================================================================
-    // 4. FLYING BIRDS — Realistic Avian Aerodynamics, Bézier Silhouettes & Kinematics
+    // 4. FLYING BIRDS — Starling Murmuration (100-Bird Topological Fluid Mesh)
     // =========================================================================
     fn draw_birds(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let scale = Self::scale(rect);
 
-        // 2 Coordinated Avian Flocks:
-        // Flock 0: Primary foreground V-formation (7–9 swift birds, crisp & prominent)
-        // Flock 1: Distant background secondary V-formation (5 birds, atmospheric haze tint & higher in sky)
-        let flock_configs = [
-            // (flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, color, highlight_color)
-            (
-                0_u32,
-                (7.0 * intensity).round().clamp(5.0, 9.0) as usize,
-                7.4_f64,
-                0.0_f64,
-                0.24_f32,
-                1.0_f32,
-                Color32::from_rgba_unmultiplied(22, 28, 42, 245),
-                Color32::from_rgba_unmultiplied(110, 145, 195, 120),
-            ),
-            (
-                1_u32,
-                (5.0 * intensity).round().clamp(3.0, 5.0) as usize,
-                9.6_f64,
-                3.8_f64,
-                0.13_f32,
-                0.55_f32,
-                Color32::from_rgba_unmultiplied(65, 82, 115, 160),
-                Color32::from_rgba_unmultiplied(130, 155, 190, 70),
-            ),
-        ];
+        // --- 1. POPULATION & 3D CHOREOGRAPHY ---
+        // 80–120 birds moving in a cohesive, undulating topological fluid mesh
+        let total_birds = (95.0 * intensity).round().clamp(60.0, 130.0) as usize;
+        let loop_period = 16.0_f64; // Grand 3D sweeping loop cycle across the sky
 
-        for &(flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, bird_color, highlight_color) in &flock_configs {
-            let flock_seed = (flock_idx + 1).wrapping_mul(317);
-            let local_t = (t + phase_offset) % loop_period;
-            let progress = (local_t / loop_period) as f32;
+        // Trajectory evaluation helper for flock center-of-mass at time tau
+        let eval_corridor = |tau: f64| -> (Pos2, f32, f32, f32) {
+            let u = (tau % loop_period) / loop_period * (2.0 * std::f64::consts::PI);
+            let sin_u = u.sin();
+            let cos_u = u.cos();
+            let sin_2u = (2.0 * u).sin();
+            let cos_2u = (2.0 * u).cos();
+            let sin_3u = (3.0 * u).sin();
 
-            // Collective flock flight corridor (smooth swooping undulation across the sky)
-            let undulate_y = ((t * 0.95 + flock_idx as f64 * 1.4).sin() as f32 * 14.0
-                + (t * 0.40).cos() as f32 * 9.0)
-                * scale
-                * depth_scale;
+            // 3D center-of-mass coordinates
+            let cx = rect.min.x + rect.width() * (0.50 + 0.42 * sin_u as f32 + 0.14 * sin_2u as f32);
+            let cy = rect.min.y + rect.height() * (0.38 + 0.22 * cos_u as f32 + 0.10 * sin_3u as f32);
+            let cz = 0.60 + 0.30 * ((u + 0.85).sin() as f32) + 0.12 * cos_2u as f32;
 
-            // Apex Leader Position (spans smoothly across the screen with margin)
-            let leader_x = rect.min.x - 150.0 * scale * depth_scale
-                + progress * (rect.width() + 300.0 * scale * depth_scale);
-            let leader_y = rect.min.y + y_base * rect.height() + undulate_y;
+            // Velocity derivatives for 2D heading and 3D banking
+            let dx = 0.42 * cos_u as f32 + 0.28 * cos_2u as f32;
+            let dy = -0.22 * sin_u as f32 + 0.30 * (3.0 * u).cos() as f32;
+            let heading = dy.atan2(dx);
 
-            // Natural Flap-Glide Duty Cycle:
-            // 2.7s total cycle: 1.35s active burst flapping (4 wingbeats), 1.35s flat-winged soaring glide
-            let glide_period = 2.7_f64;
-            let flap_freq = 20.2_f64; // ~3.2 flaps/sec
-            let phase_lag_step = 0.38_f64; // phase lag per echelon step down the V
+            // Curvature / Bank angle
+            let d2x = -0.42 * sin_u as f32 - 0.56 * sin_2u as f32;
+            let d2y = -0.22 * cos_u as f32 - 0.90 * sin_3u as f32;
+            let speed_sq = (dx * dx + dy * dy).max(0.01);
+            let curvature = (dx * d2y - dy * d2x) / (speed_sq * speed_sq.sqrt());
+            let bank = (curvature * 14.0).clamp(-0.85, 0.85);
 
-            for k in 0..bird_count {
-                let k_seed = flock_seed.wrapping_mul(79).wrapping_add(k as u32);
+            (Pos2::new(cx, cy), cz, heading, bank)
+        };
 
-                // --- 1. AERODYNAMIC V-FORMATION (ECHELON DRAFTING GEOMETRY) ---
-                // Leader is k=0 at apex.
-                // k=1,3,5 are left echelon arm; k=2,4,6 are right echelon arm.
-                let (echelon_step, arm_side) = if k == 0 {
-                    (0_f32, 0.0_f32)
-                } else if k % 2 == 1 {
-                    (((k + 1) / 2) as f32, -1.0_f32) // Left arm
-                } else {
-                    ((k / 2) as f32, 1.0_f32) // Right arm
-                };
+        // --- 2. GENERATE AND COLLECT ALL STARLINGS IN TOPOLOGICAL 3D MESH ---
+        struct StarlingData {
+            pos: Pos2,
+            depth_scale: f32,
+            z_sort: f32,
+            heading: f32,
+            bank: f32,
+            flap_morph: f32,
+            color: Color32,
+            highlight: Color32,
+        }
 
-                // Aerodynamic spacing: 28px back, 15px out per echelon step
-                let dx_spacing = 28.0 * scale * depth_scale;
-                let dy_spacing = 15.0 * scale * depth_scale;
+        let mut starlings = Vec::with_capacity(total_birds);
 
-                // Micro-turbulence drafting adjustments
-                let turb_x = Self::hash_range(k_seed.wrapping_add(1), -2.2, 2.2) * scale * depth_scale;
-                let turb_y = Self::hash_range(k_seed.wrapping_add(2), -1.6, 1.6) * scale * depth_scale;
+        // Dynamic 3D Mesh Envelope dimensions
+        let env_len = (72.0 + 18.0 * (t * 1.25).sin() as f32) * scale;
+        let env_width = (44.0 + 12.0 * (t * 1.6).cos() as f32) * scale;
+        let env_depth = (36.0 + 10.0 * (t * 0.95 + 1.2).sin() as f32) * scale;
 
-                let base_bird_x = leader_x - echelon_step * dx_spacing + turb_x;
-                let base_bird_y = leader_y + arm_side * echelon_step * dy_spacing + turb_y;
+        for i in 0..total_birds {
+            // Topological spherical/ellipsoidal coordinates (Fibonacci golden-spiral distribution)
+            let w_norm = 1.0 - (2.0 * i as f32 + 1.0) / (total_birds as f32); // -1.0 to 1.0 (longitudinal axis)
+            let rho = (1.0 - w_norm * w_norm).max(0.0).sqrt();
+            let theta = (i as f32) * 2.39996323; // Golden angle in radians
+            let u_norm = rho * theta.cos();       // Lateral axis
+            let v_norm = rho * theta.sin();       // Vertical axis
 
-                // Skip drawing if completely off-screen
-                if base_bird_x < rect.min.x - 50.0 * scale || base_bird_x > rect.max.x + 50.0 * scale {
-                    continue;
+            // Scale-free heading propagation: lead birds turn first, tail birds follow with phase lag
+            let t_lag = w_norm * 0.18;
+            let bird_t = t - t_lag as f64;
+            let (flock_center, flock_z, heading, bank) = eval_corridor(bird_t);
+
+            // Traveling Hydrodynamic Density Waves (density ripples through the flock)
+            let wave_phase = (w_norm * 3.4 - (t * 4.4) as f32) as f32;
+            let wave_dx = wave_phase.sin() * 7.5 * scale;
+            let wave_dy = wave_phase.cos() * 4.5 * scale;
+            let wave_dz = (wave_phase * 1.3).sin() * 5.0 * scale;
+
+            // Micro-turbulence & individual bird breathing jitter
+            let i_seed = (i as u32).wrapping_mul(157).wrapping_add(23);
+            let turb_x = ((t * 6.2 + i as f64 * 1.7).sin() as f32) * 2.4 * scale
+                + Self::hash_range(i_seed.wrapping_add(1), -1.2, 1.2) * scale;
+            let turb_y = ((t * 5.4 + i as f64 * 2.3).cos() as f32) * 1.8 * scale
+                + Self::hash_range(i_seed.wrapping_add(2), -1.0, 1.0) * scale;
+
+            // Rotate relative lattice position into flight frame (tangent & normal)
+            let cos_h = heading.cos();
+            let sin_h = heading.sin();
+
+            // Local 3D offset relative to flock center
+            let local_forward = w_norm * env_len + wave_dx;
+            let local_lateral = u_norm * env_width + wave_dy;
+            let local_vertical = v_norm * env_depth + wave_dz;
+
+            let bird_x = flock_center.x + local_forward * cos_h - local_lateral * sin_h + turb_x;
+            let bird_y = flock_center.y + local_forward * sin_h + local_lateral * cos_h + turb_y;
+            let bird_z = (flock_z + local_vertical * 0.005 + v_norm * 0.15).clamp(0.20, 1.80);
+
+            // Skip if far off screen
+            if bird_x < rect.min.x - 60.0 * scale || bird_x > rect.max.x + 60.0 * scale
+                || bird_y < rect.min.y - 60.0 * scale || bird_y > rect.max.y + 60.0 * scale
+            {
+                continue;
+            }
+
+            // Depth Scale
+            let depth_scale = (0.50 + bird_z * 0.50).clamp(0.42, 1.18);
+
+            // High-Agility Starling Wingbeat Kinematics (~12.5 Hz wingbeats)
+            let flap_freq = 25.0 * std::f64::consts::PI; // ~12.5 flaps/sec
+            let bird_phase = (t * flap_freq + (i as f64) * 0.45) as f32;
+            let raw_flap = bird_phase.sin();
+
+            // During high bank turns, starlings lock into tight aerofoil glides
+            let is_banking_tight = bank.abs() > 0.35;
+            let flap_morph = if is_banking_tight {
+                0.15 * raw_flap // Shallow flutter
+            } else {
+                raw_flap // Full wingbeat
+            };
+
+            // Color with atmospheric perspective
+            let alpha_norm = ((bird_z - 0.20) / 1.60).clamp(0.0, 1.0);
+            let bird_color = Color32::from_rgba_unmultiplied(
+                (18.0 + (1.0 - alpha_norm) * 38.0) as u8,
+                (22.0 + (1.0 - alpha_norm) * 48.0) as u8,
+                (34.0 + (1.0 - alpha_norm) * 65.0) as u8,
+                (175.0 + alpha_norm * 75.0) as u8,
+            );
+            let highlight_color = Color32::from_rgba_unmultiplied(
+                (95.0 + alpha_norm * 45.0) as u8,
+                (125.0 + alpha_norm * 45.0) as u8,
+                (175.0 + alpha_norm * 45.0) as u8,
+                (70.0 + alpha_norm * 55.0) as u8,
+            );
+
+            starlings.push(StarlingData {
+                pos: Pos2::new(bird_x, bird_y),
+                depth_scale,
+                z_sort: bird_z,
+                heading,
+                bank,
+                flap_morph,
+                color: bird_color,
+                highlight: highlight_color,
+            });
+        }
+
+        // --- 3. SORT BY DEPTH (Back-to-Front Occlusion) ---
+        starlings.sort_by(|a, b| a.z_sort.partial_cmp(&b.z_sort).unwrap_or(std::cmp::Ordering::Equal));
+
+        // --- 4. RENDER STARLING FLIGHT SILHOUETTES ---
+        for b in &starlings {
+            let cos_h = b.heading.cos();
+            let sin_h = b.heading.sin();
+
+            // Transformation from bird local coordinate frame (X = forward, Y = lateral) to screen
+            let rot = |dx: f32, dy: f32| -> Pos2 {
+                Pos2::new(
+                    b.pos.x + dx * cos_h - dy * sin_h,
+                    b.pos.y + dx * sin_h + dy * cos_h,
+                )
+            };
+
+            // 3D Bank Projection: visible wingspan narrows when banked edge-on
+            let bank_cos = b.bank.cos().abs().max(0.28);
+            let s = scale * b.depth_scale;
+
+            // Starling Dimensions (Compact 4-point star silhouette)
+            let body_len = 9.5 * s;
+            let body_w = 2.0 * s;
+            let wing_span = 17.5 * s * bank_cos;
+            let wing_flap_dy = -b.flap_morph * 3.8 * s;
+
+            // 4A. Compact Tapered Torpedo Fuselage & Sharp Pointed Bill
+            let beak_tip = rot(body_len * 0.85, 0.0);
+            let head_top = rot(body_len * 0.45, -body_w * 0.70);
+            let head_bot = rot(body_len * 0.45, body_w * 0.70);
+            let chest_top = rot(body_len * 0.12, -body_w * 1.05);
+            let chest_bot = rot(body_len * 0.12, body_w * 1.05);
+            let tail_base_top = rot(-body_len * 0.45, -body_w * 0.65);
+            let tail_base_bot = rot(-body_len * 0.45, body_w * 0.65);
+
+            let body_pts = vec![
+                beak_tip,
+                head_top,
+                chest_top,
+                tail_base_top,
+                tail_base_bot,
+                chest_bot,
+                head_bot,
+            ];
+            painter.add(Shape::convex_polygon(body_pts, b.color, Stroke::NONE));
+
+            // 4B. Short Compact Wedge Tail (Iconic Starling Profile)
+            let tail_tip_top = rot(-body_len * 0.90, -body_w * 0.90);
+            let tail_tip_center = rot(-body_len * 0.95, 0.0);
+            let tail_tip_bot = rot(-body_len * 0.90, body_w * 0.90);
+            let tail_pts = vec![
+                tail_base_top,
+                tail_tip_top,
+                tail_tip_center,
+                tail_tip_bot,
+                tail_base_bot,
+            ];
+            painter.add(Shape::convex_polygon(tail_pts, b.color, Stroke::NONE));
+
+            // 4C. Triangular Swept Starling Wings (Bézier Cambered Profile)
+            for &side in &[-1.0_f32, 1.0_f32] {
+                let shoulder = rot(body_len * 0.15, side * body_w * 0.85);
+                let wingtip = rot(
+                    -body_len * 0.20,
+                    side * (body_w + wing_span) + wing_flap_dy,
+                );
+                let leading_mid = rot(
+                    body_len * 0.08,
+                    side * (body_w + wing_span * 0.55) + wing_flap_dy * 0.60,
+                );
+                let trailing_mid = rot(
+                    -body_len * 0.35,
+                    side * (body_w + wing_span * 0.50) + wing_flap_dy * 0.50,
+                );
+                let wing_root_trail = rot(-body_len * 0.25, side * body_w * 0.70);
+
+                let mut wing_pts = Vec::with_capacity(12);
+
+                // Leading Edge Spline (Shoulder -> Leading Mid -> Wingtip)
+                let lead_segs = 4;
+                for k in 0..=lead_segs {
+                    let u = k as f32 / lead_segs as f32;
+                    let pt = Self::bezier(shoulder, leading_mid, leading_mid, wingtip, u);
+                    wing_pts.push(pt);
                 }
 
-                // --- 2. INDIVIDUAL FLAP-GLIDE TIMING & ASYMMETRIC FLAP KINEMATICS ---
-                let bird_glide_offset = (echelon_step as f64 * 0.22) + (k_seed % 100) as f64 * 0.003;
-                let bird_glide_t = (t + bird_glide_offset) % glide_period;
+                // Trailing Edge Spline (Wingtip -> Trailing Mid -> Wing Root)
+                let trail_segs = 4;
+                for k in 1..=trail_segs {
+                    let u = k as f32 / trail_segs as f32;
+                    let pt = Self::bezier(wingtip, trailing_mid, trailing_mid, wing_root_trail, u);
+                    wing_pts.push(pt);
+                }
 
-                let (is_flapping, flap_envelope) = if bird_glide_t < 1.35 {
-                    // Active powerstroke flap burst
-                    let p = (bird_glide_t / 1.35) as f32;
-                    let env = if p < 0.15 {
-                        p / 0.15
-                    } else if p > 0.85 {
-                        (1.0 - p) / 0.15
-                    } else {
-                        1.0
-                    };
-                    (true, env)
-                } else {
-                    // Soaring aerodynamic glide with shallow V-dihedral
-                    (false, 0.0_f32)
-                };
+                painter.add(Shape::convex_polygon(wing_pts.clone(), b.color, Stroke::NONE));
 
-                // Flap cycle parameter in [0, 1):
-                let raw_cycle = (t * flap_freq - (echelon_step as f64) * phase_lag_step) / (2.0 * std::f64::consts::PI);
-                let cycle_p = (raw_cycle.fract() + 1.0).fract() as f32;
-
-                // Biological Asymmetry:
-                // Downstroke (power phase, p in 0..0.38): fast, wings fully extended, convex downward bow
-                // Upstroke (recovery phase, p in 0.38..1.0): relaxed, wings fold inward (span contracts 26%), wrist lags
-                let (flap_angle, span_morph, wing_fold_x, body_lift, body_pitch) = if is_flapping {
-                    if cycle_p < 0.38 {
-                        // Downstroke
-                        let dp = cycle_p / 0.38;
-                        let angle = (dp * std::f32::consts::PI).sin() * 0.78 * flap_envelope;
-                        let lift = (dp * std::f32::consts::PI).sin() * 2.8 * scale * depth_scale * flap_envelope;
-                        let pitch = -(dp * std::f32::consts::PI).sin() * 0.06 * flap_envelope;
-                        (angle, 1.0_f32, 0.0_f32, lift, pitch)
-                    } else {
-                        // Upstroke (folded recovery)
-                        let up = (cycle_p - 0.38) / 0.62;
-                        let angle = -(up * std::f32::consts::PI).sin() * 0.62 * flap_envelope;
-                        let span = 1.0 - (up * std::f32::consts::PI).sin() * 0.26 * flap_envelope;
-                        let fold_x = -(up * std::f32::consts::PI).sin() * 2.5 * scale * depth_scale * flap_envelope;
-                        let lift = -(up * std::f32::consts::PI).sin() * 1.2 * scale * depth_scale * flap_envelope;
-                        let pitch = (up * std::f32::consts::PI).sin() * 0.04 * flap_envelope;
-                        (angle, span, fold_x, lift, pitch)
-                    }
-                } else {
-                    // Glide: shallow fixed dihedral angle
-                    let glide_bob = ((t * 1.8 + echelon_step as f64 * 0.4).sin() as f32) * 0.8 * scale * depth_scale;
-                    (0.12_f32, 1.0_f32, 0.0_f32, glide_bob, 0.0_f32)
-                };
-
-                let bird_center = Pos2::new(base_bird_x, base_bird_y - body_lift);
-
-                // --- 3. STREAMLINED AVIAN SILHOUETTE GEOMETRY (SWALLOW / FALCON) ---
-                let wing_span = 24.0 * scale * depth_scale * span_morph;
-                let body_len = 13.0 * scale * depth_scale;
-                let body_half_w = 2.4 * scale * depth_scale;
-
-                // 3A. Sleek Tapered Avian Fuselage (Nose -> Breast -> Tail Root)
-                let cos_p = body_pitch.cos();
-                let sin_p = body_pitch.sin();
-                let rot = |dx: f32, dy: f32| -> Pos2 {
-                    Pos2::new(
-                        bird_center.x + dx * cos_p - dy * sin_p,
-                        bird_center.y + dx * sin_p + dy * cos_p,
-                    )
-                };
-
-                // Streamlined Body Spline Points (Bullet Head, Sleek Breast, Tapered Ventral)
-                let beak_tip = rot(body_len * 0.75, 0.0);
-                let head_top = rot(body_len * 0.45, -body_half_w * 0.75);
-                let head_bot = rot(body_len * 0.45, body_half_w * 0.75);
-                let chest_top = rot(body_len * 0.15, -body_half_w * 1.15);
-                let chest_bot = rot(body_len * 0.15, body_half_w * 1.15);
-                let belly_top = rot(-body_len * 0.25, -body_half_w * 0.85);
-                let belly_bot = rot(-body_len * 0.25, body_half_w * 0.85);
-                let tail_root = rot(-body_len * 0.65, 0.0);
-
-                let body_pts = vec![
-                    beak_tip,
-                    head_top,
-                    chest_top,
-                    belly_top,
-                    tail_root,
-                    belly_bot,
-                    chest_bot,
-                    head_bot,
-                ];
-                painter.add(Shape::convex_polygon(body_pts, bird_color, Stroke::NONE));
-
-                // 3B. Forked Swallow Tail Rudder
-                let tail_fork_l = rot(-body_len * 1.15, -body_half_w * 1.5);
-                let tail_fork_r = rot(-body_len * 1.15, body_half_w * 1.5);
-                let tail_center_notch = rot(-body_len * 0.82, 0.0);
-                let tail_pts = vec![
-                    rot(-body_len * 0.55, -body_half_w * 0.7),
-                    tail_fork_l,
-                    tail_center_notch,
-                    tail_fork_r,
-                    rot(-body_len * 0.55, body_half_w * 0.7),
-                ];
-                painter.add(Shape::convex_polygon(tail_pts, bird_color, Stroke::NONE));
-
-                // 3C. Organic Cambered Curved Wings (Bézier Leading Edge & Feathered Trailing Edge)
-                // Wing Articulation: Shoulder -> Elbow -> Wrist -> Wingtip
-                // Left Wing (Negative Y in local frame)
-                // Right Wing (Positive Y in local frame)
-                for &(side, is_left) in &[( -1.0_f32, true ), ( 1.0_f32, false )] {
-                    // Kinematic Phase Lag across Joint Segments:
-                    let elbow_lag = if is_flapping {
-                        (flap_angle * 0.45 + (if flap_angle > 0.0 { 0.12 } else { -0.06 })) * wing_span * 0.35
-                    } else {
-                        flap_angle * wing_span * 0.25
-                    };
-                    let wrist_lag = flap_angle * wing_span * 0.65;
-                    let tip_lag = flap_angle * wing_span * 1.05;
-
-                    // Joint Positions in Screen Space
-                    let shoulder = rot(body_len * 0.12, side * body_half_w * 0.9);
-                    let elbow = rot(
-                        body_len * 0.02 + wing_fold_x * 0.4,
-                        side * (body_half_w + wing_span * 0.30) - elbow_lag,
-                    );
-                    let wrist = rot(
-                        -body_len * 0.12 + wing_fold_x * 0.8,
-                        side * (body_half_w + wing_span * 0.65) - wrist_lag,
-                    );
-                    let wingtip = rot(
-                        -body_len * 0.32 + wing_fold_x,
-                        side * (body_half_w + wing_span) - tip_lag,
-                    );
-
-                    // Trailing Edge Intermediate Feather Points
-                    let primary_notch = rot(
-                        -body_len * 0.42 + wing_fold_x * 0.85,
-                        side * (body_half_w + wing_span * 0.78) - wrist_lag * 0.85,
-                    );
-                    let secondary_mid = rot(
-                        -body_len * 0.35 + wing_fold_x * 0.45,
-                        side * (body_half_w + wing_span * 0.42) - elbow_lag * 0.75,
-                    );
-                    let wing_root_trail = rot(-body_len * 0.30, side * body_half_w * 0.65);
-
-                    // Build Smooth Organic Wing Polygon by sampling Bézier curves
-                    let mut wing_pts = Vec::with_capacity(18);
-
-                    // Leading Edge Curve: Shoulder -> Elbow -> Wrist -> Wingtip
-                    let lead_segments = 6;
-                    for s in 0..=lead_segments {
-                        let u = s as f32 / lead_segments as f32;
-                        let pt = Self::bezier(shoulder, elbow, wrist, wingtip, u);
-                        wing_pts.push(pt);
-                    }
-
-                    // Trailing Edge Curve: Wingtip -> Primary Notch -> Secondary Mid -> Wing Root
-                    let trail_segments = 6;
-                    for s in 1..=trail_segments {
-                        let u = s as f32 / trail_segments as f32;
-                        let pt = Self::bezier(wingtip, primary_notch, secondary_mid, wing_root_trail, u);
-                        wing_pts.push(pt);
-                    }
-
-                    // Render smooth organic wing aerofoil
-                    painter.add(Shape::convex_polygon(wing_pts.clone(), bird_color, Stroke::NONE));
-
-                    // Ambient Rim Light along Leading Edge for depth & cinematic sky illumination
-                    if is_left {
-                        let rim_stroke = Stroke::new(0.9 * scale * depth_scale, highlight_color);
-                        for s in 0..lead_segments {
-                            painter.line_segment([wing_pts[s], wing_pts[s + 1]], rim_stroke);
-                        }
+                // Dorsal Rim Highlight for depth & 3D plumage separation
+                if side < 0.0 && b.depth_scale > 0.65 {
+                    let rim_stroke = Stroke::new(0.8 * s, b.highlight);
+                    for k in 0..lead_segs {
+                        painter.line_segment([wing_pts[k], wing_pts[k + 1]], rim_stroke);
                     }
                 }
             }
