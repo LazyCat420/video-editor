@@ -168,29 +168,34 @@ impl AppTheme {
         Self::install_custom_fonts(ctx);
     }
 
-    /// Load the bundled preview fonts (assets/fonts/ve_*.ttf) as named egui families so
-    /// on-screen text matches the chosen style. Missing files degrade gracefully.
+    /// Load the bundled preview fonts as named egui families so on-screen text matches the chosen style.
+    /// Uses compile-time embedded font bytes (`include_bytes!`) so the executable is 100% self-contained
+    /// and never fails or panics even when run as a standalone binary outside the project directory.
     pub fn install_custom_fonts(ctx: &egui::Context) {
-        const KEYS: [&str; 10] = [
-            "ve_sans", "ve_serif", "ve_mono", "ve_impact", "ve_hand",
-            "ve_condensed", "ve_display", "ve_vintage", "ve_script", "ve_futuristic",
-        ];
         let mut fonts = egui::FontDefinitions::default();
-        let mut any = false;
-        for key in KEYS {
-            let path = format!("assets/fonts/{}.ttf", key);
-            if let Ok(bytes) = std::fs::read(&path) {
-                fonts
-                    .font_data
-                    .insert(key.to_string(), egui::FontData::from_owned(bytes));
-                let fam = egui::FontFamily::Name(std::sync::Arc::from(key.to_string()));
-                fonts.families.entry(fam).or_default().push(key.to_string());
-                any = true;
-            }
+
+        let font_assets: [(&str, &[u8]); 10] = [
+            ("ve_sans", include_bytes!("../../assets/fonts/ve_sans.ttf")),
+            ("ve_serif", include_bytes!("../../assets/fonts/ve_serif.ttf")),
+            ("ve_mono", include_bytes!("../../assets/fonts/ve_mono.ttf")),
+            ("ve_impact", include_bytes!("../../assets/fonts/ve_impact.ttf")),
+            ("ve_hand", include_bytes!("../../assets/fonts/ve_hand.ttf")),
+            ("ve_condensed", include_bytes!("../../assets/fonts/ve_condensed.ttf")),
+            ("ve_display", include_bytes!("../../assets/fonts/ve_display.ttf")),
+            ("ve_vintage", include_bytes!("../../assets/fonts/ve_vintage.ttf")),
+            ("ve_script", include_bytes!("../../assets/fonts/ve_script.ttf")),
+            ("ve_futuristic", include_bytes!("../../assets/fonts/ve_futuristic.ttf")),
+        ];
+
+        for (key, bytes) in font_assets {
+            fonts
+                .font_data
+                .insert(key.to_string(), egui::FontData::from_static(bytes));
+            let fam = egui::FontFamily::Name(std::sync::Arc::from(key.to_string()));
+            fonts.families.entry(fam).or_default().push(key.to_string());
         }
-        if any {
-            ctx.set_fonts(fonts);
-        }
+
+        ctx.set_fonts(fonts);
     }
 
     fn apply(ctx: &egui::Context) {

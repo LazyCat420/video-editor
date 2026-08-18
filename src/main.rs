@@ -18,12 +18,12 @@ fn main() -> eframe::Result<()> {
     let _guard = rt.enter();
 
     let native_options = NativeOptions {
-        persist_window: false,
+        persist_window: true,
         viewport: egui::ViewportBuilder::default()
             .with_title("Video Editor (Rust + FFmpeg)")
             .with_maximized(true)
-            .with_inner_size(Vec2::new(1440.0, 900.0))
-            .with_min_inner_size(Vec2::new(1024.0, 680.0))
+            .with_inner_size(Vec2::new(1280.0, 720.0))
+            .with_min_inner_size(Vec2::new(960.0, 540.0))
             .with_resizable(true)
             .with_drag_and_drop(true),
         ..Default::default()

@@ -88,6 +88,8 @@ pub struct VideoEditorApp {
     pub new_custom_event_day: u32,
     pub new_custom_event_label: String,
     pub new_custom_event_color: [u8; 4],
+    pub startup_maximized_done: bool,
+    pub is_fullscreen: bool,
 }
 
 impl Default for VideoEditorApp {
@@ -134,6 +136,8 @@ impl Default for VideoEditorApp {
             new_custom_event_day: 1,
             new_custom_event_label: "Family Birthday".to_string(),
             new_custom_event_color: [255, 105, 180, 255],
+            startup_maximized_done: false,
+            is_fullscreen: false,
         }
     }
 }
@@ -367,6 +371,11 @@ impl VideoEditorApp {
 
 impl eframe::App for VideoEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if !self.startup_maximized_done {
+            self.startup_maximized_done = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+
         // Handle global OS dropped files
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
@@ -1200,6 +1209,10 @@ impl eframe::App for VideoEditorApp {
             if let Some(sel_idx) = self.selected_slide_element {
                 self.delete_slide_element(sel_idx, Some(ctx));
             }
+        }
+        if ctx.input(|i| i.key_pressed(Key::F11)) {
+            self.is_fullscreen = !self.is_fullscreen;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
         }
 
         // ==========================================

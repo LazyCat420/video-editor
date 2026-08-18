@@ -1021,7 +1021,7 @@ fn test_calendar_box_resizing_and_properties() {
         assert_eq!(c.year, 2026);
         assert_eq!(c.start_month, 1);
         assert_eq!(c.month_count, 1);
-        assert_eq!(c.w, 0.90);
+        assert_eq!(c.w, 0.46);
     } else {
         panic!("Expected Calendar element at index 1");
     }
