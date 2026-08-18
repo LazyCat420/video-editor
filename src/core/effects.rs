@@ -926,17 +926,17 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 4. FLYING BIRDS — Starling Murmuration (100-Bird Topological Fluid Mesh)
+    // 4. FLYING BIRDS — Natural Organic Starling Murmuration (Desynchronized Dynamics)
     // =========================================================================
     fn draw_birds(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let scale = Self::scale(rect);
 
-        // --- 1. POPULATION & 3D CHOREOGRAPHY ---
-        // 80–120 birds moving in a cohesive, undulating topological fluid mesh
-        let total_birds = (95.0 * intensity).round().clamp(60.0, 130.0) as usize;
-        let loop_period = 16.0_f64; // Grand 3D sweeping loop cycle across the sky
+        // --- 1. POPULATION & 3D CORRIDOR CHOREOGRAPHY ---
+        // 75–125 starlings moving in an organic, desynchronized, undulating 3D flock
+        let total_birds = (90.0 * intensity).round().clamp(55.0, 125.0) as usize;
+        let loop_period = 18.0_f64; // Grand natural 3D flight cycle
 
-        // Trajectory evaluation helper for flock center-of-mass at time tau
+        // Trajectory evaluation for flock center-of-mass at local time tau
         let eval_corridor = |tau: f64| -> (Pos2, f32, f32, f32) {
             let u = (tau % loop_period) / loop_period * (2.0 * std::f64::consts::PI);
             let sin_u = u.sin();
@@ -945,83 +945,133 @@ impl EffectParticleSimulator {
             let cos_2u = (2.0 * u).cos();
             let sin_3u = (3.0 * u).sin();
 
-            // 3D center-of-mass coordinates
-            let cx = rect.min.x + rect.width() * (0.50 + 0.42 * sin_u as f32 + 0.14 * sin_2u as f32);
-            let cy = rect.min.y + rect.height() * (0.38 + 0.22 * cos_u as f32 + 0.10 * sin_3u as f32);
-            let cz = 0.60 + 0.30 * ((u + 0.85).sin() as f32) + 0.12 * cos_2u as f32;
+            // 3D center-of-mass position
+            let cx = rect.min.x + rect.width() * (0.50 + 0.44 * sin_u as f32 + 0.12 * sin_2u as f32);
+            let cy = rect.min.y + rect.height() * (0.36 + 0.22 * cos_u as f32 + 0.09 * sin_3u as f32);
+            let cz = 0.62 + 0.28 * ((u + 0.75).sin() as f32) + 0.10 * cos_2u as f32;
 
-            // Velocity derivatives for 2D heading and 3D banking
-            let dx = 0.42 * cos_u as f32 + 0.28 * cos_2u as f32;
-            let dy = -0.22 * sin_u as f32 + 0.30 * (3.0 * u).cos() as f32;
+            // Velocity derivatives for heading and banking
+            let dx = 0.44 * cos_u as f32 + 0.24 * cos_2u as f32;
+            let dy = -0.22 * sin_u as f32 + 0.27 * (3.0 * u).cos() as f32;
             let heading = dy.atan2(dx);
 
-            // Curvature / Bank angle
-            let d2x = -0.42 * sin_u as f32 - 0.56 * sin_2u as f32;
-            let d2y = -0.22 * cos_u as f32 - 0.90 * sin_3u as f32;
+            // Curvature / banking
+            let d2x = -0.44 * sin_u as f32 - 0.48 * sin_2u as f32;
+            let d2y = -0.22 * cos_u as f32 - 0.81 * sin_3u as f32;
             let speed_sq = (dx * dx + dy * dy).max(0.01);
             let curvature = (dx * d2y - dy * d2x) / (speed_sq * speed_sq.sqrt());
-            let bank = (curvature * 14.0).clamp(-0.85, 0.85);
+            let bank = (curvature * 12.5).clamp(-0.80, 0.80);
 
             (Pos2::new(cx, cy), cz, heading, bank)
         };
 
-        // --- 2. GENERATE AND COLLECT ALL STARLINGS IN TOPOLOGICAL 3D MESH ---
+        // --- 2. GENERATE DESYNCHRONIZED STARLINGS ---
         struct StarlingData {
             pos: Pos2,
             depth_scale: f32,
             z_sort: f32,
             heading: f32,
             bank: f32,
-            flap_morph: f32,
+            wing_dy: f32,
             color: Color32,
             highlight: Color32,
         }
 
         let mut starlings = Vec::with_capacity(total_birds);
 
-        // Dynamic 3D Mesh Envelope dimensions
-        let env_len = (72.0 + 18.0 * (t * 1.25).sin() as f32) * scale;
-        let env_width = (44.0 + 12.0 * (t * 1.6).cos() as f32) * scale;
-        let env_depth = (36.0 + 10.0 * (t * 0.95 + 1.2).sin() as f32) * scale;
+        // Dynamic 3D Mesh Envelope dimensions (elongates during dives, clusters during turns)
+        let env_len = (80.0 + 22.0 * (t * 1.1).sin() as f32) * scale;
+        let env_width = (48.0 + 14.0 * (t * 1.4).cos() as f32) * scale;
+        let env_depth = (38.0 + 12.0 * (t * 0.85 + 1.0).sin() as f32) * scale;
 
         for i in 0..total_birds {
-            // Topological spherical/ellipsoidal coordinates (Fibonacci golden-spiral distribution)
-            let w_norm = 1.0 - (2.0 * i as f32 + 1.0) / (total_birds as f32); // -1.0 to 1.0 (longitudinal axis)
-            let rho = (1.0 - w_norm * w_norm).max(0.0).sqrt();
-            let theta = (i as f32) * 2.39996323; // Golden angle in radians
-            let u_norm = rho * theta.cos();       // Lateral axis
-            let v_norm = rho * theta.sin();       // Vertical axis
+            // Unique deterministic pseudorandom DNA for each individual starling
+            let b_seed = (i as u32).wrapping_mul(2654435761).wrapping_add(1013904223);
 
-            // Scale-free heading propagation: lead birds turn first, tail birds follow with phase lag
-            let t_lag = w_norm * 0.18;
-            let bird_t = t - t_lag as f64;
-            let (flock_center, flock_z, heading, bank) = eval_corridor(bird_t);
+            // Individualized flight characteristics (breaks all lockstep sync)
+            let freq_hz = Self::hash_range(b_seed.wrapping_add(1), 9.2, 14.2);      // 9.2 - 14.2 Hz individual wingbeat
+            let glide_cycle = Self::hash_range(b_seed.wrapping_add(2), 1.9, 3.1);  // 1.9 - 3.1s duty cycle period
+            let burst_frac = Self::hash_range(b_seed.wrapping_add(3), 0.44, 0.64);  // 44% - 64% spent flapping
+            let phase_offset = Self::hash_range(b_seed.wrapping_add(4), 0.0, 6.283); // Random start phase
+            let bank_responsiveness = Self::hash_range(b_seed.wrapping_add(5), 0.82, 1.22);
 
-            // Traveling Hydrodynamic Density Waves (density ripples through the flock)
-            let wave_phase = (w_norm * 3.4 - (t * 4.4) as f32) as f32;
-            let wave_dx = wave_phase.sin() * 7.5 * scale;
-            let wave_dy = wave_phase.cos() * 4.5 * scale;
-            let wave_dz = (wave_phase * 1.3).sin() * 5.0 * scale;
+            // Internal 3D Circulation Frequencies & Phases (smooth dynamic churning)
+            let circ_freq_u = Self::hash_range(b_seed.wrapping_add(6), 0.30, 0.80);
+            let circ_freq_v = Self::hash_range(b_seed.wrapping_add(7), 0.35, 0.90);
+            let circ_freq_w = Self::hash_range(b_seed.wrapping_add(8), 0.20, 0.65);
+            let circ_phase_u = Self::hash_range(b_seed.wrapping_add(9), 0.0, 6.283);
+            let circ_phase_v = Self::hash_range(b_seed.wrapping_add(10), 0.0, 6.283);
+            let circ_phase_w = Self::hash_range(b_seed.wrapping_add(11), 0.0, 6.283);
 
-            // Micro-turbulence & individual bird breathing jitter
-            let i_seed = (i as u32).wrapping_mul(157).wrapping_add(23);
-            let turb_x = ((t * 6.2 + i as f64 * 1.7).sin() as f32) * 2.4 * scale
-                + Self::hash_range(i_seed.wrapping_add(1), -1.2, 1.2) * scale;
-            let turb_y = ((t * 5.4 + i as f64 * 2.3).cos() as f32) * 1.8 * scale
-                + Self::hash_range(i_seed.wrapping_add(2), -1.0, 1.0) * scale;
+            // Base Fibonacci spherical distribution in normalized space [-1, 1]
+            let w_base = 1.0 - (2.0 * i as f32 + 1.0) / (total_birds as f32);
+            let rho = (1.0 - w_base * w_base).max(0.0).sqrt();
+            let theta = (i as f32) * 2.39996323; // Golden angle
+            let u_base = rho * theta.cos();
+            let v_base = rho * theta.sin();
+
+            // Internal 3D Circulation / Churning (birds continuously drift and weave through the flock)
+            let u_circ = (t as f32 * circ_freq_u + circ_phase_u).sin() * 0.36;
+            let v_circ = (t as f32 * circ_freq_v + circ_phase_v).cos() * 0.32;
+            let w_circ = (t as f32 * circ_freq_w + circ_phase_w).sin() * 0.28;
+
+            let u_norm = (u_base * 0.68 + u_circ).clamp(-1.15, 1.15);
+            let v_norm = (v_base * 0.68 + v_circ).clamp(-1.15, 1.15);
+            let w_norm = (w_base * 0.72 + w_circ).clamp(-1.15, 1.15);
+
+            // Staggered Reaction Latency: Leading birds initiate turns first, trailing follow with natural delay
+            let neural_jitter = Self::hash_range(b_seed.wrapping_add(12), -0.03, 0.03);
+            let t_lag = (w_norm * 0.20 + neural_jitter) as f64;
+            let bird_t = t - t_lag;
+            let (flock_center, flock_z, base_heading, base_bank) = eval_corridor(bird_t);
+
+            // Individual heading and banking variation (subtle independent micro-steering)
+            let bird_heading = base_heading + ((t * 2.6 + i as f64 * 0.8).sin() as f32) * 0.04;
+            let bird_bank = base_bank * bank_responsiveness + ((t * 2.2 + i as f64 * 0.7).cos() as f32) * 0.06;
+
+            // Traveling Hydrodynamic Density Ripple
+            let wave_phase = (w_norm * 3.2 - (t * 3.8) as f32) as f32;
+            let wave_dx = wave_phase.sin() * 6.5 * scale;
+            let wave_dy = wave_phase.cos() * 4.0 * scale;
+            let wave_dz = (wave_phase * 1.2).sin() * 4.5 * scale;
+
+            // Multi-Octave Continuous Micro-Turbulence
+            let turb_x = (((t * 3.4 + i as f64 * 1.4).sin() as f32) * 2.2
+                + ((t * 6.8 + i as f64 * 2.9).cos() as f32) * 1.0) * scale;
+            let turb_y = (((t * 3.1 + i as f64 * 1.6).cos() as f32) * 1.8
+                + ((t * 6.2 + i as f64 * 2.5).sin() as f32) * 0.9) * scale;
 
             // Rotate relative lattice position into flight frame (tangent & normal)
-            let cos_h = heading.cos();
-            let sin_h = heading.sin();
+            let cos_h = bird_heading.cos();
+            let sin_h = bird_heading.sin();
 
             // Local 3D offset relative to flock center
             let local_forward = w_norm * env_len + wave_dx;
             let local_lateral = u_norm * env_width + wave_dy;
             let local_vertical = v_norm * env_depth + wave_dz;
 
-            let bird_x = flock_center.x + local_forward * cos_h - local_lateral * sin_h + turb_x;
-            let bird_y = flock_center.y + local_forward * sin_h + local_lateral * cos_h + turb_y;
-            let bird_z = (flock_z + local_vertical * 0.005 + v_norm * 0.15).clamp(0.20, 1.80);
+            // --- 3. INDEPENDENT FLAP-BOUNDING & SOARING KINEMATICS ---
+            let cycle_local_t = (t + phase_offset as f64) % (glide_cycle as f64);
+            let cycle_p = (cycle_local_t / (glide_cycle as f64)) as f32;
+
+            let (wing_dy, lift_pulse, thrust_pulse) = if cycle_p < burst_frac {
+                // Active Flap Burst Phase (3–5 quick agile wingbeats)
+                let flap_theta = (t * (freq_hz as f64) * 2.0 * std::f64::consts::PI + phase_offset as f64) as f32;
+                let flap_sin = flap_theta.sin();
+                let dy = -flap_sin * 3.8 * scale;
+                let lift = flap_sin.max(0.0) * 1.4 * scale;
+                let thrust = flap_sin.max(0.0) * 1.6 * scale;
+                (dy, lift, thrust)
+            } else {
+                // Soaring Aerodynamic Glide (Wings locked in dihedral, subtle air current float)
+                let glide_dy = 0.6 * scale; // fixed shallow dihedral
+                let float_bob = ((t * 1.8 + i as f64 * 0.6).sin() as f32) * 0.5 * scale;
+                (glide_dy, float_bob, 0.0_f32)
+            };
+
+            let bird_x = flock_center.x + (local_forward + thrust_pulse) * cos_h - local_lateral * sin_h + turb_x;
+            let bird_y = flock_center.y + (local_forward + thrust_pulse) * sin_h + local_lateral * cos_h - lift_pulse + turb_y;
+            let bird_z = (flock_z + local_vertical * 0.005 + v_norm * 0.14).clamp(0.20, 1.80);
 
             // Skip if far off screen
             if bird_x < rect.min.x - 60.0 * scale || bird_x > rect.max.x + 60.0 * scale
@@ -1032,19 +1082,6 @@ impl EffectParticleSimulator {
 
             // Depth Scale
             let depth_scale = (0.50 + bird_z * 0.50).clamp(0.42, 1.18);
-
-            // High-Agility Starling Wingbeat Kinematics (~12.5 Hz wingbeats)
-            let flap_freq = 25.0 * std::f64::consts::PI; // ~12.5 flaps/sec
-            let bird_phase = (t * flap_freq + (i as f64) * 0.45) as f32;
-            let raw_flap = bird_phase.sin();
-
-            // During high bank turns, starlings lock into tight aerofoil glides
-            let is_banking_tight = bank.abs() > 0.35;
-            let flap_morph = if is_banking_tight {
-                0.15 * raw_flap // Shallow flutter
-            } else {
-                raw_flap // Full wingbeat
-            };
 
             // Color with atmospheric perspective
             let alpha_norm = ((bird_z - 0.20) / 1.60).clamp(0.0, 1.0);
@@ -1065,23 +1102,23 @@ impl EffectParticleSimulator {
                 pos: Pos2::new(bird_x, bird_y),
                 depth_scale,
                 z_sort: bird_z,
-                heading,
-                bank,
-                flap_morph,
+                heading: bird_heading,
+                bank: bird_bank,
+                wing_dy,
                 color: bird_color,
                 highlight: highlight_color,
             });
         }
 
-        // --- 3. SORT BY DEPTH (Back-to-Front Occlusion) ---
+        // --- 4. SORT BY DEPTH (Back-to-Front Occlusion) ---
         starlings.sort_by(|a, b| a.z_sort.partial_cmp(&b.z_sort).unwrap_or(std::cmp::Ordering::Equal));
 
-        // --- 4. RENDER STARLING FLIGHT SILHOUETTES ---
+        // --- 5. RENDER STARLING FLIGHT SILHOUETTES ---
         for b in &starlings {
             let cos_h = b.heading.cos();
             let sin_h = b.heading.sin();
 
-            // Transformation from bird local coordinate frame (X = forward, Y = lateral) to screen
+            // Local bird frame transformation to screen coordinates
             let rot = |dx: f32, dy: f32| -> Pos2 {
                 Pos2::new(
                     b.pos.x + dx * cos_h - dy * sin_h,
@@ -1097,9 +1134,9 @@ impl EffectParticleSimulator {
             let body_len = 9.5 * s;
             let body_w = 2.0 * s;
             let wing_span = 17.5 * s * bank_cos;
-            let wing_flap_dy = -b.flap_morph * 3.8 * s;
+            let wing_flap_dy = b.wing_dy * b.depth_scale;
 
-            // 4A. Compact Tapered Torpedo Fuselage & Sharp Pointed Bill
+            // 5A. Compact Tapered Torpedo Fuselage & Sharp Pointed Bill
             let beak_tip = rot(body_len * 0.85, 0.0);
             let head_top = rot(body_len * 0.45, -body_w * 0.70);
             let head_bot = rot(body_len * 0.45, body_w * 0.70);
@@ -1119,7 +1156,7 @@ impl EffectParticleSimulator {
             ];
             painter.add(Shape::convex_polygon(body_pts, b.color, Stroke::NONE));
 
-            // 4B. Short Compact Wedge Tail (Iconic Starling Profile)
+            // 5B. Short Compact Wedge Tail (Iconic Starling Profile)
             let tail_tip_top = rot(-body_len * 0.90, -body_w * 0.90);
             let tail_tip_center = rot(-body_len * 0.95, 0.0);
             let tail_tip_bot = rot(-body_len * 0.90, body_w * 0.90);
@@ -1132,7 +1169,7 @@ impl EffectParticleSimulator {
             ];
             painter.add(Shape::convex_polygon(tail_pts, b.color, Stroke::NONE));
 
-            // 4C. Triangular Swept Starling Wings (Bézier Cambered Profile)
+            // 5C. Triangular Swept Starling Wings (Bézier Cambered Profile)
             for &side in &[-1.0_f32, 1.0_f32] {
                 let shoulder = rot(body_len * 0.15, side * body_w * 0.85);
                 let wingtip = rot(
