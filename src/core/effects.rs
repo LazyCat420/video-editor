@@ -1493,11 +1493,11 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 6. SHOOTING STARS — Realistic Hypervelocity Meteors with Gradient Plasma Mesh
+    // 6. SHOOTING STARS — Radiant Glowing Star with Custom Smooth Fading Trail
     // =========================================================================
     fn draw_shooting_stars(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let star_count = (3.0 * intensity).round().max(2.0) as usize;
-        let star_period = 3.4_f64; // cycle interval between meteor streaks
+        let star_period = 3.2_f64; // cycle interval between periodic shooting stars
         let scale = Self::scale(rect);
 
         for i in 0..star_count {
@@ -1505,57 +1505,40 @@ impl EffectParticleSimulator {
             let offset = Self::hash_f(seed) as f64 * star_period;
             let local_t = (t + offset) % star_period;
 
-            // Celestial streak window: active for 1.15s, wake lingers for 1.25s
-            let streak_duration = 1.15_f64;
-            let wake_duration = 1.25_f64;
-            if local_t > streak_duration + wake_duration {
+            // Total shooting star lifetime: 1.3s
+            let duration = 1.30_f64;
+            if local_t > duration {
                 continue;
             }
 
-            let is_streaking = local_t <= streak_duration;
-            let streak_p = if is_streaking {
-                (local_t / streak_duration) as f32
-            } else {
-                1.0_f32
-            };
+            let p = (local_t / duration) as f32;
 
-            // Trajectory entry angle (~22° to 34° pitch down across upper sky)
-            let pitch_angle = Self::hash_range(seed.wrapping_add(4), 0.38, 0.58);
+            // Smooth diagonal sweep (~24° to 32° pitch angle)
+            let pitch_angle = Self::hash_range(seed.wrapping_add(4), 0.40, 0.56);
             let dir_x = pitch_angle.cos();
             let dir_y = pitch_angle.sin();
             let norm_x = -dir_y;
             let norm_y = dir_x;
 
-            let start_x_norm = Self::hash_range(seed.wrapping_add(1), 0.02, 0.42);
-            let start_y_norm = Self::hash_range(seed.wrapping_add(2), 0.02, 0.24);
-            let total_dist = Self::hash_range(seed.wrapping_add(3), 0.65, 0.88) * rect.width();
+            let start_x = rect.min.x + Self::hash_range(seed.wrapping_add(1), 0.04, 0.45) * rect.width();
+            let start_y = rect.min.y + Self::hash_range(seed.wrapping_add(2), 0.04, 0.26) * rect.height();
+            let total_dist = Self::hash_range(seed.wrapping_add(3), 0.60, 0.85) * rect.width();
 
-            let start_pos = Pos2::new(
-                rect.min.x + start_x_norm * rect.width(),
-                rect.min.y + start_y_norm * rect.height(),
-            );
-
-            // Hypervelocity entry acceleration curve
-            let accel_p = streak_p * (1.0 + streak_p * 0.32);
+            // Smooth acceleration curve across the sky
+            let accel_p = p * (1.0 + p * 0.28);
             let current_dist = total_dist * accel_p;
             let head = Pos2::new(
-                start_pos.x + dir_x * current_dist,
-                start_pos.y + dir_y * current_dist,
+                start_x + dir_x * current_dist,
+                start_y + dir_y * current_dist,
             );
 
-            // Fade profile across life cycle
-            let base_alpha = if is_streaking {
-                if streak_p < 0.10 {
-                    streak_p / 0.10
-                } else if streak_p > 0.85 {
-                    (1.0 - streak_p) / 0.15
-                } else {
-                    1.0_f32
-                }
+            // Lifecycle Alpha Envelope (Gentle fade-in, radiant sweep, gentle fade-out)
+            let base_alpha = if p < 0.10 {
+                p / 0.10
+            } else if p > 0.80 {
+                ((1.0 - p) / 0.20).powf(1.5)
             } else {
-                // Persistent phosphorescent wake fading smoothly
-                let wake_p = ((local_t - streak_duration) / wake_duration) as f32;
-                (1.0 - wake_p).powi(2) * 0.38
+                1.0_f32
             };
 
             if base_alpha <= 0.005 {
@@ -1563,193 +1546,100 @@ impl EffectParticleSimulator {
             }
 
             // -----------------------------------------------------------------
-            // 1. CONTINUOUS VERTEX-COLORED PLASMA RIBBON (TRIANGLE STRIP MESH)
+            // 1. CUSTOM LUMINOUS TRAIL (Smooth Tapering Gradient Ribbon)
             // -----------------------------------------------------------------
-            // Renders silky-smooth GPU-interpolated gradient plasma with NO concentric ring artifacts
-            let trail_span = if is_streaking {
-                (current_dist * 0.70).min(total_dist * 0.55)
-            } else {
-                total_dist * 0.65
-            };
+            // Trail spans smoothly behind the glowing star head and fades out
+            let max_trail_len = 160.0 * scale;
+            let trail_len = (current_dist * 0.75).min(max_trail_len);
 
-            if trail_span > 2.0 {
-                let seg_count = 42;
-                let mut mesh = Mesh::default();
+            if trail_len > 3.0 {
+                let seg_count = 36;
+                let mut trail_mesh = Mesh::default();
 
                 for s_idx in 0..=seg_count {
-                    let s = s_idx as f32 / seg_count as f32;
-                    let seg_decay = (1.0 - s).powf(1.4) * base_alpha;
+                    let s = s_idx as f32 / seg_count as f32; // 0.0 (head) to 1.0 (tail tip)
+                    let seg_decay = (1.0 - s).powf(1.6) * base_alpha;
                     let seg_pos = Pos2::new(
-                        head.x - dir_x * (trail_span * s),
-                        head.y - dir_y * (trail_span * s),
+                        head.x - dir_x * (trail_len * s),
+                        head.y - dir_y * (trail_len * s),
                     );
 
-                    // Width profiles along the tail
-                    let w_core = (1.6 * (1.0 - s * 0.75) + 0.3) * scale;
-                    let w_mid = (5.5 * (1.0 - s).powf(1.1) + 0.8) * scale;
-                    let w_outer = (16.0 * (1.0 - s).powf(1.3) + 1.8) * scale;
+                    // Width profile: starts at head width (3.2px), expands slightly into glow, tapers to zero
+                    let w_core = (2.4 * (1.0 - s * 0.8) + 0.3) * scale;
+                    let w_glow = (8.5 * (1.0 - s).powf(1.2) + 0.6) * scale;
 
-                    // Vertex Colors with smooth alpha falloff
-                    let c_core = Color32::from_rgba_unmultiplied(255, 255, 255, (seg_decay * 255.0).clamp(0.0, 255.0) as u8);
-                    let c_inner = Color32::from_rgba_unmultiplied(170, 240, 255, (seg_decay * 225.0).clamp(0.0, 255.0) as u8);
-                    let c_mid = Color32::from_rgba_unmultiplied(45, 145, 255, (seg_decay * 120.0).clamp(0.0, 255.0) as u8);
-                    let c_outer = Color32::from_rgba_unmultiplied(70, 45, 215, 0);
+                    let c_white = Color32::from_rgba_unmultiplied(255, 255, 255, (seg_decay * 255.0).clamp(0.0, 255.0) as u8);
+                    let c_cyan = Color32::from_rgba_unmultiplied(165, 230, 255, (seg_decay * 210.0).clamp(0.0, 255.0) as u8);
+                    let c_fade = Color32::from_rgba_unmultiplied(90, 180, 255, 0);
 
-                    // 7 Cross-section Vertices
+                    // Cross-section vertices (Outer Left, Core Left, Center, Core Right, Outer Right)
                     let v_pts = [
-                        Pos2::new(seg_pos.x - norm_x * w_outer, seg_pos.y - norm_y * w_outer), // 0: Outer Left (0 alpha)
-                        Pos2::new(seg_pos.x - norm_x * w_mid, seg_pos.y - norm_y * w_mid),     // 1: Mid Left
-                        Pos2::new(seg_pos.x - norm_x * w_core, seg_pos.y - norm_y * w_core),   // 2: Core Left
-                        seg_pos,                                                                 // 3: Center Core (White)
-                        Pos2::new(seg_pos.x + norm_x * w_core, seg_pos.y + norm_y * w_core),   // 4: Core Right
-                        Pos2::new(seg_pos.x + norm_x * w_mid, seg_pos.y + norm_y * w_mid),     // 5: Mid Right
-                        Pos2::new(seg_pos.x + norm_x * w_outer, seg_pos.y + norm_y * w_outer), // 6: Outer Right (0 alpha)
+                        Pos2::new(seg_pos.x - norm_x * w_glow, seg_pos.y - norm_y * w_glow),
+                        Pos2::new(seg_pos.x - norm_x * w_core, seg_pos.y - norm_y * w_core),
+                        seg_pos,
+                        Pos2::new(seg_pos.x + norm_x * w_core, seg_pos.y + norm_y * w_core),
+                        Pos2::new(seg_pos.x + norm_x * w_glow, seg_pos.y + norm_y * w_glow),
                     ];
-                    let v_cols = [c_outer, c_mid, c_inner, c_core, c_inner, c_mid, c_outer];
+                    let v_cols = [c_fade, c_cyan, c_white, c_cyan, c_fade];
 
-                    for v in 0..7 {
-                        mesh.vertices.push(Vertex {
+                    for v in 0..5 {
+                        trail_mesh.vertices.push(Vertex {
                             pos: v_pts[v],
                             uv: WHITE_UV,
                             color: v_cols[v],
                         });
                     }
 
-                    // Bridge quads between segment s_idx - 1 and s_idx
+                    // Bridge quads between adjacent segments
                     if s_idx > 0 {
-                        let prev_base = ((s_idx - 1) * 7) as u32;
-                        let curr_base = (s_idx * 7) as u32;
-                        for lane in 0..6 {
+                        let prev_base = ((s_idx - 1) * 5) as u32;
+                        let curr_base = (s_idx * 5) as u32;
+                        for lane in 0..4 {
                             let p_l = prev_base + lane;
                             let p_r = p_l + 1;
                             let c_l = curr_base + lane;
                             let c_r = c_l + 1;
 
-                            // Quad = 2 Triangles
-                            mesh.add_triangle(p_l, p_r, c_r);
-                            mesh.add_triangle(p_l, c_r, c_l);
+                            trail_mesh.add_triangle(p_l, p_r, c_r);
+                            trail_mesh.add_triangle(p_l, c_r, c_l);
                         }
                     }
                 }
-                painter.add(Shape::mesh(mesh));
+                painter.add(Shape::mesh(trail_mesh));
             }
 
             // -----------------------------------------------------------------
-            // 2. DIRECTIONAL AERODYNAMIC BOW-SHOCK HEAD & DIFFRACTION FLASH
+            // 2. BRIGHT GLOWING LIGHT (Clean Radiant Star Head)
             // -----------------------------------------------------------------
-            if is_streaking {
-                let mut head_mesh = Mesh::default();
+            // Outer Soft Halo Aura
+            painter.circle_filled(
+                head,
+                11.0 * scale,
+                Color32::from_rgba_unmultiplied(130, 200, 255, (base_alpha * 45.0) as u8),
+            );
 
-                // Parabolic Bow-Shock Cap vertices
-                let nose_apex = Pos2::new(head.x + dir_x * (3.8 * scale), head.y + dir_y * (3.8 * scale));
-                let head_center = head;
-                let flank_l_inner = Pos2::new(head.x - norm_x * (2.8 * scale) - dir_x * (2.0 * scale), head.y - norm_y * (2.8 * scale) - dir_y * (2.0 * scale));
-                let flank_r_inner = Pos2::new(head.x + norm_x * (2.8 * scale) - dir_x * (2.0 * scale), head.y + norm_y * (2.8 * scale) - dir_y * (2.0 * scale));
-                let flank_l_outer = Pos2::new(head.x - norm_x * (9.0 * scale) - dir_x * (7.0 * scale), head.y - norm_y * (9.0 * scale) - dir_y * (7.0 * scale));
-                let flank_r_outer = Pos2::new(head.x + norm_x * (9.0 * scale) - dir_x * (7.0 * scale), head.y + norm_y * (9.0 * scale) - dir_y * (7.0 * scale));
+            // Mid Radiant Glow
+            painter.circle_filled(
+                head,
+                5.5 * scale,
+                Color32::from_rgba_unmultiplied(185, 235, 255, (base_alpha * 125.0) as u8),
+            );
 
-                let c_hot = Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 255.0) as u8);
-                let c_sheath = Color32::from_rgba_unmultiplied(160, 240, 255, (base_alpha * 210.0) as u8);
-                let c_fade = Color32::from_rgba_unmultiplied(50, 120, 240, 0);
+            // Pure White-Hot Core
+            painter.circle_filled(
+                head,
+                2.4 * scale,
+                Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 255.0) as u8),
+            );
 
-                let head_pts = [nose_apex, head_center, flank_l_inner, flank_r_inner, flank_l_outer, flank_r_outer];
-                let head_colors = [c_hot, c_hot, c_sheath, c_sheath, c_fade, c_fade];
-
-                for (idx, &pt) in head_pts.iter().enumerate() {
-                    head_mesh.vertices.push(Vertex {
-                        pos: pt,
-                        uv: WHITE_UV,
-                        color: head_colors[idx],
-                    });
-                }
-                // Triangles for bow shock cap
-                head_mesh.add_triangle(0, 2, 1);
-                head_mesh.add_triangle(0, 1, 3);
-                head_mesh.add_triangle(2, 4, 1);
-                head_mesh.add_triangle(3, 1, 5);
-
-                painter.add(Shape::mesh(head_mesh));
-
-                // Razor-thin optical diffraction streak along velocity vector
-                let needle_len = 34.0 * scale * base_alpha;
-                let n_p0 = Pos2::new(head.x - dir_x * (needle_len * 0.4), head.y - dir_y * (needle_len * 0.4));
-                let n_p1 = Pos2::new(head.x + dir_x * (needle_len * 0.8), head.y + dir_y * (needle_len * 0.8));
-                painter.line_segment(
-                    [n_p0, n_p1],
-                    Stroke::new(
-                        1.0 * scale,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 250.0) as u8),
-                    ),
-                );
-
-                // Subtle perpendicular cross-glint
-                let cross_w = 6.5 * scale * base_alpha;
-                let c_p0 = Pos2::new(head.x - norm_x * cross_w, head.y - norm_y * cross_w);
-                let c_p1 = Pos2::new(head.x + norm_x * cross_w, head.y + norm_y * cross_w);
-                painter.line_segment(
-                    [c_p0, c_p1],
-                    Stroke::new(
-                        0.8 * scale,
-                        Color32::from_rgba_unmultiplied(210, 245, 255, (base_alpha * 190.0) as u8),
-                    ),
-                );
-
-                // -----------------------------------------------------------------
-                // 3. INCANDESCENT STARDUST ABLATION SPARK SHEDDING
-                // -----------------------------------------------------------------
-                // Thermal cooling: white-hot -> molten amber -> deep ember red
-                for sp in 0..8 {
-                    let sp_seed = seed.wrapping_mul(43).wrapping_add(sp);
-                    let sp_lag = Self::hash_range(sp_seed, 0.015, 0.16);
-                    let sp_back_dist = (current_dist - sp_lag * total_dist).max(0.0);
-                    let sp_flutter = ((t * 26.0 + sp as f64 * 2.1).sin() as f32) * 2.2 * scale;
-
-                    let sp_x = start_pos.x + dir_x * sp_back_dist + norm_x * sp_flutter;
-                    let sp_y = start_pos.y + dir_y * sp_back_dist + norm_y * sp_flutter;
-                    let sp_pos = Pos2::new(sp_x, sp_y);
-
-                    let (sp_color, sp_rad) = if sp_lag < 0.055 {
-                        (
-                            Color32::from_rgba_unmultiplied(255, 250, 210, (base_alpha * 240.0) as u8),
-                            1.4 * scale,
-                        )
-                    } else if sp_lag < 0.11 {
-                        (
-                            Color32::from_rgba_unmultiplied(255, 175, 45, (base_alpha * 200.0) as u8),
-                            1.1 * scale,
-                        )
-                    } else {
-                        (
-                            Color32::from_rgba_unmultiplied(230, 75, 20, (base_alpha * 140.0) as u8),
-                            0.8 * scale,
-                        )
-                    };
-
-                    painter.circle_filled(sp_pos, sp_rad, sp_color);
-                }
-            } else {
-                // -----------------------------------------------------------------
-                // 4. PHOSPHORESCENT WAKE DISPERSION (Lingering High-Altitude Ghost Trail)
-                // -----------------------------------------------------------------
-                let wake_p = ((local_t - streak_duration) / wake_duration) as f32;
-                let drift_drift = ((t * 1.1 + i as f64 * 0.8).sin() as f32) * 4.0 * scale;
-                let wake_w = (10.0 + wake_p * 18.0) * scale;
-                let wake_alpha = ((1.0 - wake_p).powi(2) * 60.0).clamp(0.0, 255.0) as u8;
-
-                let p0 = Pos2::new(start_pos.x + norm_x * drift_drift, start_pos.y + norm_y * drift_drift);
-                let p1 = Pos2::new(
-                    start_pos.x + dir_x * (total_dist * 0.75) + norm_x * drift_drift,
-                    start_pos.y + dir_y * (total_dist * 0.75) + norm_y * drift_drift,
-                );
-
-                painter.line_segment(
-                    [p0, p1],
-                    Stroke::new(
-                        wake_w,
-                        Color32::from_rgba_unmultiplied(65, 115, 195, wake_alpha),
-                    ),
-                );
-            }
+            // Delicate point-sparkle cross at star head
+            Self::draw_sparkle(
+                painter,
+                head,
+                5.5 * scale * base_alpha,
+                Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 210.0) as u8),
+                false,
+            );
         }
     }
 }
