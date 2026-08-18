@@ -1420,7 +1420,7 @@ impl EffectParticleSimulator {
     // =========================================================================
     fn draw_shooting_stars(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let star_count = (3.0 * intensity).round().max(2.0) as usize;
-        let star_period = 3.2; // time between periodic streaks
+        let star_period = 3.6; // time between periodic streaks
         let scale = Self::scale(rect);
 
         for i in 0..star_count {
@@ -1428,10 +1428,11 @@ impl EffectParticleSimulator {
             let offset = Self::hash_f(seed) as f64 * star_period;
             let local_t = (t + offset) % star_period;
 
-            // Swift celestial streak window: active for 0.46s
-            let streak_duration = 0.46_f64;
-            if local_t > streak_duration + 0.85 {
-                // Completely inactive
+            // Easily visible celestial streak window: active for 1.45s
+            let streak_duration = 1.45_f64;
+            let wake_duration = 0.95_f64;
+            if local_t > streak_duration + wake_duration {
+                // Inactive window
                 continue;
             }
 
@@ -1442,14 +1443,14 @@ impl EffectParticleSimulator {
                 1.0_f32
             };
 
-            // Trajectory parameters (diagonal entry across sky)
-            let start_x = Self::hash_range(seed.wrapping_add(1), 0.05, 0.55);
-            let start_y = Self::hash_range(seed.wrapping_add(2), 0.02, 0.30);
-            let streak_len_x = Self::hash_range(seed.wrapping_add(3), 0.40, 0.55);
-            let streak_len_y = streak_len_x * 0.48;
+            // Trajectory parameters (sweeping diagonal entry across upper sky)
+            let start_x = Self::hash_range(seed.wrapping_add(1), 0.02, 0.45);
+            let start_y = Self::hash_range(seed.wrapping_add(2), 0.02, 0.26);
+            let streak_len_x = Self::hash_range(seed.wrapping_add(3), 0.52, 0.70);
+            let streak_len_y = streak_len_x * 0.42;
 
-            // Hypervelocity entry acceleration
-            let accel_p = streak_p * (1.0 + streak_p * 0.4);
+            // Smooth hypervelocity entry acceleration
+            let accel_p = streak_p * (1.0 + streak_p * 0.35);
 
             let head_x = start_x + accel_p * streak_len_x;
             let head_y = start_y + accel_p * streak_len_y;
@@ -1460,16 +1461,17 @@ impl EffectParticleSimulator {
 
             // Fade intensity based on flight lifecycle
             let base_alpha = if is_streaking {
-                // Fade in rapidly, peak at 60%, fade out towards end
-                if streak_p < 0.15 {
-                    streak_p / 0.15
+                if streak_p < 0.12 {
+                    streak_p / 0.12
+                } else if streak_p > 0.82 {
+                    (1.0 - streak_p) / 0.18
                 } else {
-                    (1.0 - streak_p).powf(0.5)
+                    1.0_f32
                 }
             } else {
-                // Lingering phosphorescent wake fading out
-                let fade_p = ((local_t - streak_duration) / 0.85) as f32;
-                (1.0 - fade_p).powi(2) * 0.35
+                // Lingering phosphorescent wake slowly dissipating
+                let fade_p = ((local_t - streak_duration) / wake_duration) as f32;
+                (1.0 - fade_p).powi(2) * 0.42
             };
 
             if base_alpha <= 0.01 {
@@ -1477,10 +1479,10 @@ impl EffectParticleSimulator {
             }
 
             // -----------------------------------------------------------------
-            // 1. SEAMLESS SUB-PIXEL CONTINUOUS PLASMA RIBBON (65 Steps, No Dashes)
+            // 1. 4-TIER CONCENTRIC GLOWING PLASMA RIBBON (80 Steps, Broad Reach)
             // -----------------------------------------------------------------
-            let trail_steps = 65;
-            let trail_span = 0.32_f32; // span behind the head
+            let trail_steps = 80;
+            let trail_span = 0.65_f32; // broad luminous tail spanning 65% of trajectory
 
             for seg in 0..trail_steps {
                 let s0 = seg as f32 / trail_steps as f32;
@@ -1498,68 +1500,86 @@ impl EffectParticleSimulator {
                     rect.min.y + (start_y + back1 * streak_len_y) * rect.height(),
                 );
 
-                let seg_decay = (1.0 - s1).powf(1.6);
-                let seg_alpha = (base_alpha * seg_decay * 255.0).clamp(0.0, 255.0) as u8;
+                let seg_decay = (1.0 - s1).powf(1.4);
 
-                // LAYER A: Wide Outer Translucent Glow Aura
-                let aura_width = (8.5 * (1.0 - s1).powf(1.2) + 1.2) * scale;
-                let aura_alpha = (base_alpha * seg_decay * 65.0).clamp(0.0, 255.0) as u8;
-                let aura_color = Color32::from_rgba_unmultiplied(45, 175, 255, aura_alpha);
+                // TIER 4: Outer Atmospheric Violet/Indigo Diffuse Halo (Width ~32px)
+                let halo_width = (32.0 * (1.0 - s1).powf(1.1) + 4.0) * scale;
+                let halo_alpha = (base_alpha * seg_decay * 52.0).clamp(0.0, 255.0) as u8;
+                let halo_color = Color32::from_rgba_unmultiplied(85, 55, 235, halo_alpha);
+                painter.line_segment([p0, p1], Stroke::new(halo_width, halo_color));
+
+                // TIER 3: Radiant Celestial Sky Blue Mid-Glow Aura (Width ~16px)
+                let aura_width = (16.0 * (1.0 - s1).powf(1.3) + 2.0) * scale;
+                let aura_alpha = (base_alpha * seg_decay * 125.0).clamp(0.0, 255.0) as u8;
+                let aura_color = Color32::from_rgba_unmultiplied(40, 165, 255, aura_alpha);
                 painter.line_segment([p0, p1], Stroke::new(aura_width, aura_color));
 
-                // LAYER B: Middle Electric Cyan Ionization Sheath
-                let sheath_width = (4.0 * (1.0 - s1).powf(1.4) + 0.6) * scale;
-                let sheath_alpha = (base_alpha * seg_decay * 165.0).clamp(0.0, 255.0) as u8;
-                let sheath_color = Color32::from_rgba_unmultiplied(160, 245, 255, sheath_alpha);
+                // TIER 2: High-Intensity Electric Cyan Ionization Sheath (Width ~7.5px)
+                let sheath_width = (7.5 * (1.0 - s1).powf(1.5) + 1.2) * scale;
+                let sheath_alpha = (base_alpha * seg_decay * 220.0).clamp(0.0, 255.0) as u8;
+                let sheath_color = Color32::from_rgba_unmultiplied(140, 245, 255, sheath_alpha);
                 painter.line_segment([p0, p1], Stroke::new(sheath_width, sheath_color));
 
-                // LAYER C: Center Razor-Sharp White-Hot Core Filament
-                let core_width = (1.5 * (1.0 - s1 * 0.7)).max(0.6) * scale;
-                let core_color = Color32::from_rgba_unmultiplied(255, 255, 255, seg_alpha);
+                // TIER 1: Pure White-Hot Core Plasma Rod (Width ~3.2px)
+                let core_width = (3.2 * (1.0 - s1 * 0.75)).max(0.9) * scale;
+                let core_alpha = (base_alpha * seg_decay * 255.0).clamp(0.0, 255.0) as u8;
+                let core_color = Color32::from_rgba_unmultiplied(255, 255, 255, core_alpha);
                 painter.line_segment([p0, p1], Stroke::new(core_width, core_color));
             }
 
             // -----------------------------------------------------------------
-            // 2. 8-LAYER VOLUMETRIC GAUSSIAN BLOOM AROUND METEOR HEAD
+            // 2. 12-TIER VOLUMETRIC GAUSSIAN BLOOM BEACON AROUND METEOR HEAD
             // -----------------------------------------------------------------
             if is_streaking {
                 let bloom_radii = [
-                    24.0 * scale,
-                    17.0 * scale,
-                    12.0 * scale,
-                    8.5 * scale,
-                    6.0 * scale,
+                    48.0 * scale,
+                    36.0 * scale,
+                    27.0 * scale,
+                    20.0 * scale,
+                    15.0 * scale,
+                    11.0 * scale,
+                    8.0 * scale,
+                    5.8 * scale,
                     4.2 * scale,
-                    2.8 * scale,
-                    1.6 * scale,
+                    3.0 * scale,
+                    2.0 * scale,
+                    1.2 * scale,
                 ];
                 let bloom_alphas = [
-                    (base_alpha * 22.0) as u8,
-                    (base_alpha * 38.0) as u8,
-                    (base_alpha * 60.0) as u8,
-                    (base_alpha * 95.0) as u8,
-                    (base_alpha * 140.0) as u8,
-                    (base_alpha * 190.0) as u8,
-                    (base_alpha * 235.0) as u8,
+                    (base_alpha * 20.0) as u8,
+                    (base_alpha * 34.0) as u8,
+                    (base_alpha * 55.0) as u8,
+                    (base_alpha * 80.0) as u8,
+                    (base_alpha * 115.0) as u8,
+                    (base_alpha * 155.0) as u8,
+                    (base_alpha * 195.0) as u8,
+                    (base_alpha * 225.0) as u8,
+                    (base_alpha * 245.0) as u8,
+                    (base_alpha * 255.0) as u8,
+                    (base_alpha * 255.0) as u8,
                     (base_alpha * 255.0) as u8,
                 ];
                 let bloom_colors = [
-                    Color32::from_rgba_unmultiplied(35, 120, 255, bloom_alphas[0]),  // Outer Celestial Blue
-                    Color32::from_rgba_unmultiplied(50, 160, 255, bloom_alphas[1]),
-                    Color32::from_rgba_unmultiplied(75, 195, 255, bloom_alphas[2]),  // Electric Cyan
-                    Color32::from_rgba_unmultiplied(120, 225, 255, bloom_alphas[3]),
-                    Color32::from_rgba_unmultiplied(180, 240, 255, bloom_alphas[4]), // Ice Blue
-                    Color32::from_rgba_unmultiplied(225, 250, 255, bloom_alphas[5]),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[6]), // Pure White Core
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[7]),
+                    Color32::from_rgba_unmultiplied(45, 65, 240, bloom_alphas[0]),   // Outer Atmospheric Violet
+                    Color32::from_rgba_unmultiplied(40, 110, 255, bloom_alphas[1]),
+                    Color32::from_rgba_unmultiplied(35, 160, 255, bloom_alphas[2]),  // Celestial Blue
+                    Color32::from_rgba_unmultiplied(50, 195, 255, bloom_alphas[3]),
+                    Color32::from_rgba_unmultiplied(85, 220, 255, bloom_alphas[4]),  // Electric Cyan
+                    Color32::from_rgba_unmultiplied(130, 240, 255, bloom_alphas[5]),
+                    Color32::from_rgba_unmultiplied(180, 250, 255, bloom_alphas[6]), // Ice Blue
+                    Color32::from_rgba_unmultiplied(225, 255, 255, bloom_alphas[7]),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[8]), // Pure White Hot Core
+                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[9]),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[10]),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[11]),
                 ];
 
-                for b in 0..8 {
+                for b in 0..12 {
                     painter.circle_filled(head, bloom_radii[b], bloom_colors[b]);
                 }
 
                 // -----------------------------------------------------------------
-                // 3. ANAMORPHIC AXIAL LENS FLARE (Sharp Needle of Light Along Path)
+                // 3. ANAMORPHIC AXIAL LENS FLARE (Bright Optical Needle Along Path)
                 // -----------------------------------------------------------------
                 let dir_x = streak_len_x * rect.width();
                 let dir_y = streak_len_y * rect.height();
@@ -1567,22 +1587,31 @@ impl EffectParticleSimulator {
                 let norm_dx = dir_x / dir_len;
                 let norm_dy = dir_y / dir_len;
 
-                let flare_len = 22.0 * scale * base_alpha;
-                let flare_p0 = Pos2::new(head.x - norm_dx * flare_len * 0.6, head.y - norm_dy * flare_len * 0.6);
+                let flare_len = 38.0 * scale * base_alpha;
+                let flare_p0 = Pos2::new(head.x - norm_dx * flare_len * 0.5, head.y - norm_dy * flare_len * 0.5);
                 let flare_p1 = Pos2::new(head.x + norm_dx * flare_len * 1.0, head.y + norm_dy * flare_len * 1.0);
 
+                // Thick soft aura for flare
                 painter.line_segment(
                     [flare_p0, flare_p1],
                     Stroke::new(
-                        1.6 * scale,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 240.0) as u8),
+                        3.2 * scale,
+                        Color32::from_rgba_unmultiplied(120, 215, 255, (base_alpha * 160.0) as u8),
+                    ),
+                );
+                // Sharp center needle
+                painter.line_segment(
+                    [flare_p0, flare_p1],
+                    Stroke::new(
+                        1.4 * scale,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 255.0) as u8),
                     ),
                 );
 
-                // Perpendicular cross glint
+                // Perpendicular optical cross glint
                 let perp_dx = -norm_dy;
                 let perp_dy = norm_dx;
-                let cross_len = 8.0 * scale * base_alpha;
+                let cross_len = 14.0 * scale * base_alpha;
                 let cross_p0 = Pos2::new(head.x - perp_dx * cross_len, head.y - perp_dy * cross_len);
                 let cross_p1 = Pos2::new(head.x + perp_dx * cross_len, head.y + perp_dy * cross_len);
 
@@ -1590,12 +1619,34 @@ impl EffectParticleSimulator {
                     [cross_p0, cross_p1],
                     Stroke::new(
                         1.2 * scale,
-                        Color32::from_rgba_unmultiplied(210, 245, 255, (base_alpha * 210.0) as u8),
+                        Color32::from_rgba_unmultiplied(210, 245, 255, (base_alpha * 230.0) as u8),
                     ),
                 );
+
+                // -----------------------------------------------------------------
+                // 4. STARDUST MICRO-SPARK SHEDDING
+                // -----------------------------------------------------------------
+                for sp in 0..6 {
+                    let sp_seed = seed.wrapping_mul(41).wrapping_add(sp);
+                    let sp_lag = Self::hash_range(sp_seed, 0.02, 0.12);
+                    let sp_back = (accel_p - sp_lag).max(0.0);
+                    let sp_drift = (t * 6.0 + sp as f64 * 1.4).sin() as f32 * 4.0 * scale;
+
+                    let sp_pos = Pos2::new(
+                        rect.min.x + (start_x + sp_back * streak_len_x) * rect.width() + sp_drift,
+                        rect.min.y + (start_y + sp_back * streak_len_y) * rect.height() - sp_drift * 0.5,
+                    );
+                    let sp_alpha = (base_alpha * 220.0) as u8;
+                    painter.circle_filled(
+                        sp_pos,
+                        (1.6 * scale),
+                        Color32::from_rgba_unmultiplied(255, 245, 180, sp_alpha),
+                    );
+                }
             }
         }
     }
 }
+
 
 

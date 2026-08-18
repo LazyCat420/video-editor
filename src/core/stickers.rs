@@ -88,104 +88,108 @@ pub struct StickerItem {
 
 pub struct StickerCatalog;
 
+static STICKER_ITEMS: std::sync::LazyLock<Vec<StickerItem>> = std::sync::LazyLock::new(|| {
+    let raw: &[(&str, &str, StickerCategory, &'static str, [u8; 4], [u8; 4])] = &[
+        // Halloween
+        ("pumpkin", "Artistic Jack-o'-Lantern", StickerCategory::Halloween, "🎃", [255, 140, 0, 255], [75, 0, 130, 255]),
+        ("ghost", "Friendly Autumn Ghost", StickerCategory::Halloween, "👻", [240, 248, 255, 255], [148, 0, 211, 255]),
+        ("bat", "Watercolor Night Bat", StickerCategory::Halloween, "🦇", [47, 79, 79, 255], [255, 215, 0, 255]),
+        ("candy", "Halloween Treat Sweets", StickerCategory::Halloween, "🍬", [255, 105, 180, 255], [255, 140, 0, 255]),
+        ("spider_web", "Silver Spider Web", StickerCategory::Halloween, "🕸️", [200, 200, 200, 255], [40, 40, 50, 255]),
+        ("skull", "Festive Folk Skull", StickerCategory::Halloween, "💀", [245, 245, 245, 255], [20, 20, 30, 255]),
+
+        // Christmas
+        ("xmas_tree", "Woodland Christmas Tree", StickerCategory::Christmas, "🎄", [34, 139, 34, 255], [255, 215, 0, 255]),
+        ("santa", "Vintage Santa Claus", StickerCategory::Christmas, "🎅", [220, 20, 60, 255], [255, 255, 255, 255]),
+        ("snowman", "Cozy Scarf Snowman", StickerCategory::Christmas, "⛄", [240, 248, 255, 255], [220, 20, 60, 255]),
+        ("gift", "Festive Wrapped Gift", StickerCategory::Christmas, "🎁", [220, 20, 60, 255], [255, 215, 0, 255]),
+        ("bell", "Golden Jingle Bells", StickerCategory::Christmas, "🔔", [255, 215, 0, 255], [220, 20, 60, 255]),
+        ("snowflake", "Crystal Snowflake", StickerCategory::Christmas, "❄️", [173, 216, 230, 255], [255, 255, 255, 255]),
+        ("candle", "Warm Holiday Candle", StickerCategory::Christmas, "🕯️", [255, 215, 0, 255], [200, 40, 40, 255]),
+
+        // 4th of July / Independence Day
+        ("eagle", "Majestic American Eagle", StickerCategory::FourthOfJuly, "🦅", [160, 82, 45, 255], [255, 215, 0, 255]),
+        ("sparkler", "Festive Sparkler Wand", StickerCategory::FourthOfJuly, "🎆", [255, 215, 0, 255], [255, 255, 255, 255]),
+        ("firecracker", "Patriotic Firecracker", StickerCategory::FourthOfJuly, "🧨", [255, 0, 0, 255], [255, 215, 0, 255]),
+        ("star_glow", "Shining Liberty Star", StickerCategory::FourthOfJuly, "🌟", [255, 215, 0, 255], [30, 144, 255, 255]),
+        ("popper", "Celebration Popper", StickerCategory::FourthOfJuly, "🎉", [255, 140, 0, 255], [50, 205, 50, 255]),
+        ("star_gold", "Gold Star Rosette", StickerCategory::FourthOfJuly, "⭐", [255, 215, 0, 255], [220, 20, 60, 255]),
+
+        // Thanksgiving
+        ("turkey", "Harvest Autumn Turkey", StickerCategory::Thanksgiving, "🦃", [160, 82, 45, 255], [205, 133, 63, 255]),
+        ("pie", "Rustic Pumpkin Pie", StickerCategory::Thanksgiving, "🥧", [244, 164, 96, 255], [210, 105, 30, 255]),
+        ("autumn_leaf", "Golden Fall Foliage", StickerCategory::Thanksgiving, "🍂", [218, 112, 214, 255], [255, 69, 0, 255]),
+        ("maple_leaf", "Watercolor Maple Leaf", StickerCategory::Thanksgiving, "🍁", [220, 60, 20, 255], [255, 140, 0, 255]),
+        ("corn", "Harvest Indian Corn", StickerCategory::Thanksgiving, "🌽", [205, 133, 63, 255], [255, 215, 0, 255]),
+        ("roast_leg", "Roast Feast Dish", StickerCategory::Thanksgiving, "🍗", [210, 105, 30, 255], [255, 255, 255, 255]),
+
+        // Easter
+        ("easter_bunny", "Fluffy Easter Bunny", StickerCategory::Easter, "🐰", [255, 250, 250, 255], [255, 192, 203, 255]),
+        ("chick", "Hatching Spring Chick", StickerCategory::Easter, "🐣", [255, 255, 0, 255], [255, 140, 0, 255]),
+        ("tulip", "Spring Tulip Bouquet", StickerCategory::Easter, "🌷", [255, 105, 180, 255], [34, 139, 34, 255]),
+        ("butterfly", "Monarch Butterfly", StickerCategory::Easter, "🦋", [30, 144, 255, 255], [255, 20, 147, 255]),
+        ("blossom", "Cherry Blossom Sprig", StickerCategory::Easter, "🌸", [255, 192, 203, 255], [255, 255, 255, 255]),
+        ("egg", "Painted Easter Egg", StickerCategory::Easter, "🥚", [255, 220, 230, 255], [173, 216, 230, 255]),
+
+        // Valentine's Day
+        ("rose", "Lush Rose Bouquet", StickerCategory::Valentine, "🌹", [220, 20, 60, 255], [34, 139, 34, 255]),
+        ("love_letter", "Vintage Love Letter", StickerCategory::Valentine, "💌", [255, 240, 245, 255], [220, 20, 60, 255]),
+        ("red_heart", "Romantic Love Heart", StickerCategory::Valentine, "💖", [255, 20, 147, 255], [255, 105, 180, 255]),
+        ("cupid_arrow", "Cupid Heart & Arrow", StickerCategory::Valentine, "💘", [255, 0, 128, 255], [255, 215, 0, 255]),
+        ("sparkle_heart", "Shimmering Heart", StickerCategory::Valentine, "💖", [255, 20, 147, 255], [255, 255, 255, 255]),
+        ("kiss", "Velvet Kiss Mark", StickerCategory::Valentine, "💋", [220, 20, 60, 255], [255, 105, 180, 255]),
+
+        // New Year's
+        ("champagne", "Celebration Cheers Toast", StickerCategory::NewYear, "🥂", [255, 215, 0, 255], [255, 255, 255, 255]),
+        ("crown", "Golden Royal Crown", StickerCategory::NewYear, "👑", [255, 215, 0, 255], [220, 20, 60, 255]),
+        ("confetti_ball", "Confetti Sparkle Ball", StickerCategory::NewYear, "🎊", [255, 105, 180, 255], [50, 205, 50, 255]),
+        ("party_horn", "New Year Horn", StickerCategory::NewYear, "🎉", [255, 140, 0, 255], [50, 205, 50, 255]),
+
+        // Birthday & Milestones
+        ("bday_cake", "Celebration Birthday Cake", StickerCategory::Birthday, "🎂", [255, 182, 193, 255], [255, 215, 0, 255]),
+        ("cupcake", "Sweet Berry Cupcake", StickerCategory::Birthday, "🧁", [255, 105, 180, 255], [245, 222, 179, 255]),
+        ("bday_balloon", "Party Balloon Bouquet", StickerCategory::Birthday, "🎈", [220, 20, 60, 255], [255, 215, 0, 255]),
+        ("lollipop", "Rainbow Swirl Lollipop", StickerCategory::Birthday, "🍭", [255, 69, 0, 255], [255, 255, 255, 255]),
+
+        // Mother's & Father's Day
+        ("bouquet", "Garden Flower Bouquet", StickerCategory::MothersAndFathersDay, "💐", [255, 105, 180, 255], [255, 215, 0, 255]),
+        ("sunflower", "Golden Sunflower", StickerCategory::MothersAndFathersDay, "🌻", [255, 215, 0, 255], [139, 69, 19, 255]),
+        ("trophy", "#1 Best Award Trophy", StickerCategory::MothersAndFathersDay, "🏆", [255, 215, 0, 255], [30, 144, 255, 255]),
+        ("hibiscus", "Tropical Bloom", StickerCategory::MothersAndFathersDay, "🌺", [255, 20, 147, 255], [255, 215, 0, 255]),
+        ("medal", "Golden Honor Medal", StickerCategory::MothersAndFathersDay, "🥇", [255, 215, 0, 255], [220, 20, 60, 255]),
+        ("ribbon", "Festive Award Ribbon", StickerCategory::MothersAndFathersDay, "🎀", [255, 105, 180, 255], [255, 215, 0, 255]),
+
+        // Lunar New Year
+        ("dragon", "Auspicious Golden Dragon", StickerCategory::LunarNewYear, "🐉", [220, 20, 60, 255], [255, 215, 0, 255]),
+        ("red_envelope", "Lucky Red Envelope", StickerCategory::LunarNewYear, "🧧", [255, 0, 0, 255], [255, 215, 0, 255]),
+        ("red_lantern", "Silk Red Lantern", StickerCategory::LunarNewYear, "🏮", [220, 20, 60, 255], [255, 215, 0, 255]),
+        ("gold_coin", "Fortune Gold Coin", StickerCategory::LunarNewYear, "🪙", [255, 215, 0, 255], [178, 34, 34, 255]),
+        ("tangerine", "Prosperity Tangerine", StickerCategory::LunarNewYear, "🍊", [255, 140, 0, 255], [34, 139, 34, 255]),
+
+        // Everyday Fun & Collage
+        ("sun_face", "Radiant Sunshine", StickerCategory::EverydayFun, "🌞", [255, 215, 0, 255], [255, 140, 0, 255]),
+        ("rainbow", "Dreamy Watercolor Rainbow", StickerCategory::EverydayFun, "🌈", [255, 105, 180, 255], [64, 224, 208, 255]),
+        ("sparkles", "Magic Stardust Sparkles", StickerCategory::EverydayFun, "✨", [255, 215, 0, 255], [255, 255, 255, 255]),
+        ("star_eyes", "Starstruck Smile", StickerCategory::EverydayFun, "🤩", [255, 215, 0, 255], [255, 69, 0, 255]),
+        ("party_face", "Party Smile", StickerCategory::EverydayFun, "🥳", [255, 215, 0, 255], [138, 43, 226, 255]),
+        ("heart_eyes", "Sweetheart Smile", StickerCategory::EverydayFun, "😍", [255, 215, 0, 255], [220, 20, 60, 255]),
+    ];
+
+    raw.iter()
+        .map(|(id, name, cat, emoji, p_col, a_col)| StickerItem {
+            id: id.to_string(),
+            name: name.to_string(),
+            category: *cat,
+            emoji,
+            primary_color: *p_col,
+            accent_color: *a_col,
+        })
+        .collect()
+});
+
 impl StickerCatalog {
-    pub fn all_stickers() -> Vec<StickerItem> {
-        let raw: &[(&str, &str, StickerCategory, &'static str, [u8; 4], [u8; 4])] = &[
-            // Halloween
-            ("pumpkin", "Artistic Jack-o'-Lantern", StickerCategory::Halloween, "🎃", [255, 140, 0, 255], [75, 0, 130, 255]),
-            ("ghost", "Friendly Autumn Ghost", StickerCategory::Halloween, "👻", [240, 248, 255, 255], [148, 0, 211, 255]),
-            ("bat", "Watercolor Night Bat", StickerCategory::Halloween, "🦇", [47, 79, 79, 255], [255, 215, 0, 255]),
-            ("candy", "Halloween Treat Sweets", StickerCategory::Halloween, "🍬", [255, 105, 180, 255], [255, 140, 0, 255]),
-            ("spider_web", "Silver Spider Web", StickerCategory::Halloween, "🕸️", [200, 200, 200, 255], [40, 40, 50, 255]),
-            ("skull", "Festive Folk Skull", StickerCategory::Halloween, "💀", [245, 245, 245, 255], [20, 20, 30, 255]),
-
-            // Christmas
-            ("xmas_tree", "Woodland Christmas Tree", StickerCategory::Christmas, "🎄", [34, 139, 34, 255], [255, 215, 0, 255]),
-            ("santa", "Vintage Santa Claus", StickerCategory::Christmas, "🎅", [220, 20, 60, 255], [255, 255, 255, 255]),
-            ("snowman", "Cozy Scarf Snowman", StickerCategory::Christmas, "⛄", [240, 248, 255, 255], [220, 20, 60, 255]),
-            ("gift", "Festive Wrapped Gift", StickerCategory::Christmas, "🎁", [220, 20, 60, 255], [255, 215, 0, 255]),
-            ("bell", "Golden Jingle Bells", StickerCategory::Christmas, "🔔", [255, 215, 0, 255], [220, 20, 60, 255]),
-            ("snowflake", "Crystal Snowflake", StickerCategory::Christmas, "❄️", [173, 216, 230, 255], [255, 255, 255, 255]),
-            ("candle", "Warm Holiday Candle", StickerCategory::Christmas, "🕯️", [255, 215, 0, 255], [200, 40, 40, 255]),
-
-            // 4th of July / Independence Day
-            ("eagle", "Majestic American Eagle", StickerCategory::FourthOfJuly, "🦅", [160, 82, 45, 255], [255, 215, 0, 255]),
-            ("sparkler", "Festive Sparkler Wand", StickerCategory::FourthOfJuly, "🎆", [255, 215, 0, 255], [255, 255, 255, 255]),
-            ("firecracker", "Patriotic Firecracker", StickerCategory::FourthOfJuly, "🧨", [255, 0, 0, 255], [255, 215, 0, 255]),
-            ("star_glow", "Shining Liberty Star", StickerCategory::FourthOfJuly, "🌟", [255, 215, 0, 255], [30, 144, 255, 255]),
-            ("popper", "Celebration Popper", StickerCategory::FourthOfJuly, "🎉", [255, 140, 0, 255], [50, 205, 50, 255]),
-            ("star_gold", "Gold Star Rosette", StickerCategory::FourthOfJuly, "⭐", [255, 215, 0, 255], [220, 20, 60, 255]),
-
-            // Thanksgiving
-            ("turkey", "Harvest Autumn Turkey", StickerCategory::Thanksgiving, "🦃", [160, 82, 45, 255], [205, 133, 63, 255]),
-            ("pie", "Rustic Pumpkin Pie", StickerCategory::Thanksgiving, "🥧", [244, 164, 96, 255], [210, 105, 30, 255]),
-            ("autumn_leaf", "Golden Fall Foliage", StickerCategory::Thanksgiving, "🍂", [218, 112, 214, 255], [255, 69, 0, 255]),
-            ("maple_leaf", "Watercolor Maple Leaf", StickerCategory::Thanksgiving, "🍁", [220, 60, 20, 255], [255, 140, 0, 255]),
-            ("corn", "Harvest Indian Corn", StickerCategory::Thanksgiving, "🌽", [205, 133, 63, 255], [255, 215, 0, 255]),
-            ("roast_leg", "Roast Feast Dish", StickerCategory::Thanksgiving, "🍗", [210, 105, 30, 255], [255, 255, 255, 255]),
-
-            // Easter
-            ("easter_bunny", "Fluffy Easter Bunny", StickerCategory::Easter, "🐰", [255, 250, 250, 255], [255, 192, 203, 255]),
-            ("chick", "Hatching Spring Chick", StickerCategory::Easter, "🐣", [255, 255, 0, 255], [255, 140, 0, 255]),
-            ("tulip", "Spring Tulip Bouquet", StickerCategory::Easter, "🌷", [255, 105, 180, 255], [34, 139, 34, 255]),
-            ("butterfly", "Monarch Butterfly", StickerCategory::Easter, "🦋", [30, 144, 255, 255], [255, 20, 147, 255]),
-            ("blossom", "Cherry Blossom Sprig", StickerCategory::Easter, "🌸", [255, 192, 203, 255], [255, 255, 255, 255]),
-            ("egg", "Painted Easter Egg", StickerCategory::Easter, "🥚", [255, 220, 230, 255], [173, 216, 230, 255]),
-
-            // Valentine's Day
-            ("rose", "Lush Rose Bouquet", StickerCategory::Valentine, "🌹", [220, 20, 60, 255], [34, 139, 34, 255]),
-            ("love_letter", "Vintage Love Letter", StickerCategory::Valentine, "💌", [255, 240, 245, 255], [220, 20, 60, 255]),
-            ("red_heart", "Romantic Love Heart", StickerCategory::Valentine, "💖", [255, 20, 147, 255], [255, 105, 180, 255]),
-            ("cupid_arrow", "Cupid Heart & Arrow", StickerCategory::Valentine, "💘", [255, 0, 128, 255], [255, 215, 0, 255]),
-            ("sparkle_heart", "Shimmering Heart", StickerCategory::Valentine, "💖", [255, 20, 147, 255], [255, 255, 255, 255]),
-            ("kiss", "Velvet Kiss Mark", StickerCategory::Valentine, "💋", [220, 20, 60, 255], [255, 105, 180, 255]),
-
-            // New Year's
-            ("champagne", "Celebration Cheers Toast", StickerCategory::NewYear, "🥂", [255, 215, 0, 255], [255, 255, 255, 255]),
-            ("crown", "Golden Royal Crown", StickerCategory::NewYear, "👑", [255, 215, 0, 255], [220, 20, 60, 255]),
-            ("confetti_ball", "Confetti Sparkle Ball", StickerCategory::NewYear, "🎊", [255, 105, 180, 255], [50, 205, 50, 255]),
-            ("party_horn", "New Year Horn", StickerCategory::NewYear, "🎉", [255, 140, 0, 255], [50, 205, 50, 255]),
-
-            // Birthday & Milestones
-            ("bday_cake", "Celebration Birthday Cake", StickerCategory::Birthday, "🎂", [255, 182, 193, 255], [255, 215, 0, 255]),
-            ("cupcake", "Sweet Berry Cupcake", StickerCategory::Birthday, "🧁", [255, 105, 180, 255], [245, 222, 179, 255]),
-            ("bday_balloon", "Party Balloon Bouquet", StickerCategory::Birthday, "🎈", [220, 20, 60, 255], [255, 215, 0, 255]),
-            ("lollipop", "Rainbow Swirl Lollipop", StickerCategory::Birthday, "🍭", [255, 69, 0, 255], [255, 255, 255, 255]),
-
-            // Mother's & Father's Day
-            ("bouquet", "Garden Flower Bouquet", StickerCategory::MothersAndFathersDay, "💐", [255, 105, 180, 255], [255, 215, 0, 255]),
-            ("sunflower", "Golden Sunflower", StickerCategory::MothersAndFathersDay, "🌻", [255, 215, 0, 255], [139, 69, 19, 255]),
-            ("trophy", "#1 Best Award Trophy", StickerCategory::MothersAndFathersDay, "🏆", [255, 215, 0, 255], [30, 144, 255, 255]),
-            ("hibiscus", "Tropical Bloom", StickerCategory::MothersAndFathersDay, "🌺", [255, 20, 147, 255], [255, 215, 0, 255]),
-            ("medal", "Golden Honor Medal", StickerCategory::MothersAndFathersDay, "🥇", [255, 215, 0, 255], [220, 20, 60, 255]),
-            ("ribbon", "Festive Award Ribbon", StickerCategory::MothersAndFathersDay, "🎀", [255, 105, 180, 255], [255, 215, 0, 255]),
-
-            // Lunar New Year
-            ("dragon", "Auspicious Golden Dragon", StickerCategory::LunarNewYear, "🐉", [220, 20, 60, 255], [255, 215, 0, 255]),
-            ("red_envelope", "Lucky Red Envelope", StickerCategory::LunarNewYear, "🧧", [255, 0, 0, 255], [255, 215, 0, 255]),
-            ("red_lantern", "Silk Red Lantern", StickerCategory::LunarNewYear, "🏮", [220, 20, 60, 255], [255, 215, 0, 255]),
-            ("gold_coin", "Fortune Gold Coin", StickerCategory::LunarNewYear, "🪙", [255, 215, 0, 255], [178, 34, 34, 255]),
-            ("tangerine", "Prosperity Tangerine", StickerCategory::LunarNewYear, "🍊", [255, 140, 0, 255], [34, 139, 34, 255]),
-
-            // Everyday Fun & Collage
-            ("sun_face", "Radiant Sunshine", StickerCategory::EverydayFun, "🌞", [255, 215, 0, 255], [255, 140, 0, 255]),
-            ("rainbow", "Dreamy Watercolor Rainbow", StickerCategory::EverydayFun, "🌈", [255, 105, 180, 255], [64, 224, 208, 255]),
-            ("sparkles", "Magic Stardust Sparkles", StickerCategory::EverydayFun, "✨", [255, 215, 0, 255], [255, 255, 255, 255]),
-            ("star_eyes", "Starstruck Smile", StickerCategory::EverydayFun, "🤩", [255, 215, 0, 255], [255, 69, 0, 255]),
-            ("party_face", "Party Smile", StickerCategory::EverydayFun, "🥳", [255, 215, 0, 255], [138, 43, 226, 255]),
-            ("heart_eyes", "Sweetheart Smile", StickerCategory::EverydayFun, "😍", [255, 215, 0, 255], [220, 20, 60, 255]),
-        ];
-
-        raw.iter()
-            .map(|(id, name, cat, emoji, p_col, a_col)| StickerItem {
-                id: id.to_string(),
-                name: name.to_string(),
-                category: *cat,
-                emoji,
-                primary_color: *p_col,
-                accent_color: *a_col,
-            })
-            .collect()
+    pub fn all_stickers() -> &'static [StickerItem] {
+        STICKER_ITEMS.as_slice()
     }
 
     /// Ensure all sticker image assets exist as transparent PNGs in `assets/stickers/`.

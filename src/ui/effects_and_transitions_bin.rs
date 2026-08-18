@@ -40,6 +40,10 @@ pub enum EffectsAndTransitionsAction {
 pub type TransitionBinAction = EffectsAndTransitionsAction;
 pub type TransitionBinView = EffectsAndTransitionsBinView;
 
+static STICKER_IMAGE_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Option<egui::ColorImage>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 impl EffectsAndTransitionsBinView {
     fn get_or_load_thumbnail(
         ctx: &egui::Context,
@@ -52,18 +56,36 @@ impl EffectsAndTransitionsBinView {
             return Some(t);
         }
 
-        if path.exists() {
-            if let Ok(dyn_img) = image::open(path) {
-                let rgba = dyn_img.to_rgba8();
-                let size = [rgba.width() as usize, rgba.height() as usize];
-                let pixels = rgba.into_raw();
-                let color_img = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-                let label = format!("stk_tex_lbl_{}", id);
-                let t = ctx.load_texture(label, color_img, egui::TextureOptions::LINEAR);
-                ctx.data_mut(|d| d.insert_temp(tex_id, t.clone()));
-                return Some(t);
+        // Check persistent in-memory decoded ColorImage cache to avoid repeated disk reads
+        let color_img_opt = {
+            let mut cache = STICKER_IMAGE_CACHE.lock().unwrap();
+            if let Some(img) = cache.get(id) {
+                img.clone()
+            } else {
+                let loaded = if path.exists() {
+                    if let Ok(dyn_img) = image::open(path) {
+                        let rgba = dyn_img.to_rgba8();
+                        let size = [rgba.width() as usize, rgba.height() as usize];
+                        let pixels = rgba.into_raw();
+                        Some(egui::ColorImage::from_rgba_unmultiplied(size, &pixels))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                cache.insert(id.to_string(), loaded.clone());
+                loaded
             }
+        };
+
+        if let Some(color_img) = color_img_opt {
+            let label = format!("stk_tex_lbl_{}", id);
+            let t = ctx.load_texture(label, color_img, egui::TextureOptions::LINEAR);
+            ctx.data_mut(|d| d.insert_temp(tex_id, t.clone()));
+            return Some(t);
         }
+
         None
     }
 
@@ -76,11 +98,11 @@ impl EffectsAndTransitionsBinView {
             .data_mut(|d| d.get_temp(slot_id))
             .unwrap_or(TransitionSlot::In);
 
-        // Persistent sticker category filter
+        // Persistent sticker category filter (default to Halloween for compact initial load)
         let cat_filter_id = Id::new("effects_and_trans_sticker_cat");
         let mut selected_cat: StickerCategory = ui
             .data_mut(|d| d.get_temp(cat_filter_id))
-            .unwrap_or(StickerCategory::All);
+            .unwrap_or(StickerCategory::Halloween);
 
         // Persistent collapsible header states (both DEFAULT UNCOLLAPSED / OPEN = true)
         let effects_open_id = Id::new("effects_section_uncollapsed_v1");
