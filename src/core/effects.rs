@@ -1639,7 +1639,7 @@ impl EffectParticleSimulator {
                     let sp_alpha = (base_alpha * 220.0) as u8;
                     painter.circle_filled(
                         sp_pos,
-                        (1.6 * scale),
+                        1.6 * scale,
                         Color32::from_rgba_unmultiplied(255, 245, 180, sp_alpha),
                     );
                 }
