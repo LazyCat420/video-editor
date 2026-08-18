@@ -1,3 +1,4 @@
+use egui::epaint::{Mesh, Vertex, WHITE_UV};
 use egui::{Color32, Pos2, Rect, Shape, Stroke};
 use serde::{Deserialize, Serialize};
 
@@ -926,68 +927,60 @@ impl EffectParticleSimulator {
 
     // =========================================================================
     // 4. FLYING BIRDS — Multi-Segment Curved Wings, Body, Depth Variation
-    // =========================================================================
-    // =========================================================================
-    // 4. FLYING BIRDS — Aerodynamic V-Formation Flock & Wingbeat Physics
+    // ========================================    // =========================================================================
+    // 4. FLYING BIRDS — Realistic Avian Aerodynamics, Bézier Silhouettes & Kinematics
     // =========================================================================
     fn draw_birds(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let scale = Self::scale(rect);
 
-        // 2 Coordinated Flocks:
-        // Flock 0: Primary foreground V-formation (7–9 birds, crisp & prominent)
-        // Flock 1: Distant background secondary V-formation (5 birds, faint & higher in sky)
+        // 2 Coordinated Avian Flocks:
+        // Flock 0: Primary foreground V-formation (7–9 swift birds, crisp & prominent)
+        // Flock 1: Distant background secondary V-formation (5 birds, atmospheric haze tint & higher in sky)
         let flock_configs = [
-            // (flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, color)
+            // (flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, color, highlight_color)
             (
                 0_u32,
                 (7.0 * intensity).round().clamp(5.0, 9.0) as usize,
-                7.2_f64,
+                7.4_f64,
                 0.0_f64,
-                0.26_f32,
+                0.24_f32,
                 1.0_f32,
-                Color32::from_rgba_unmultiplied(28, 34, 48, 235),
+                Color32::from_rgba_unmultiplied(22, 28, 42, 245),
+                Color32::from_rgba_unmultiplied(110, 145, 195, 120),
             ),
             (
                 1_u32,
                 (5.0 * intensity).round().clamp(3.0, 5.0) as usize,
-                9.4_f64,
+                9.6_f64,
                 3.8_f64,
-                0.14_f32,
-                0.58_f32,
-                Color32::from_rgba_unmultiplied(75, 92, 122, 160),
+                0.13_f32,
+                0.55_f32,
+                Color32::from_rgba_unmultiplied(65, 82, 115, 160),
+                Color32::from_rgba_unmultiplied(130, 155, 190, 70),
             ),
         ];
 
-        for &(flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, bird_color) in &flock_configs {
+        for &(flock_idx, bird_count, loop_period, phase_offset, y_base, depth_scale, bird_color, highlight_color) in &flock_configs {
             let flock_seed = (flock_idx + 1).wrapping_mul(317);
             let local_t = (t + phase_offset) % loop_period;
             let progress = (local_t / loop_period) as f32;
 
             // Collective flock flight corridor (smooth swooping undulation across the sky)
-            let undulate_y = ((t * 1.1 + flock_idx as f64 * 1.4).sin() as f32 * 12.0
-                + (t * 0.45).cos() as f32 * 8.0)
+            let undulate_y = ((t * 0.95 + flock_idx as f64 * 1.4).sin() as f32 * 14.0
+                + (t * 0.40).cos() as f32 * 9.0)
                 * scale
                 * depth_scale;
 
-            // Apex Leader Position (spans across the screen with margin)
-            let leader_x = rect.min.x - 140.0 * scale * depth_scale
-                + progress * (rect.width() + 280.0 * scale * depth_scale);
+            // Apex Leader Position (spans smoothly across the screen with margin)
+            let leader_x = rect.min.x - 150.0 * scale * depth_scale
+                + progress * (rect.width() + 300.0 * scale * depth_scale);
             let leader_y = rect.min.y + y_base * rect.height() + undulate_y;
 
-            // Flap-Glide Duty Cycle:
-            // 2.4s total cycle: 1.5s active powerstroke flapping, 0.9s flat-winged soaring glide
-            let glide_period = 2.4;
-            let glide_cycle_t = (t + flock_idx as f64 * 0.7) % glide_period;
-            let glide_envelope = if glide_cycle_t < 1.5 {
-                1.0_f32
-            } else {
-                // Smooth transition into flat-winged aerodynamic glide
-                ((1.0 - (glide_cycle_t - 1.5) / 0.9) * std::f64::consts::PI).sin().powi(2) as f32 * 0.35 + 0.05
-            };
-
-            // Flapping frequency
-            let flap_freq = 19.5_f64; // ~3.1 flaps/sec
-            let phase_lag_step = 0.42_f64; // phase lag per echelon step down the V
+            // Natural Flap-Glide Duty Cycle:
+            // 2.7s total cycle: 1.35s active burst flapping (4 wingbeats), 1.35s flat-winged soaring glide
+            let glide_period = 2.7_f64;
+            let flap_freq = 20.2_f64; // ~3.2 flaps/sec
+            let phase_lag_step = 0.38_f64; // phase lag per echelon step down the V
 
             for k in 0..bird_count {
                 let k_seed = flock_seed.wrapping_mul(79).wrapping_add(k as u32);
@@ -1003,102 +996,195 @@ impl EffectParticleSimulator {
                     ((k / 2) as f32, 1.0_f32) // Right arm
                 };
 
-                // Aerodynamic spacing: 25px back, 14px out per echelon step
-                let dx_spacing = 25.0 * scale * depth_scale;
-                let dy_spacing = 14.0 * scale * depth_scale;
+                // Aerodynamic spacing: 28px back, 15px out per echelon step
+                let dx_spacing = 28.0 * scale * depth_scale;
+                let dy_spacing = 15.0 * scale * depth_scale;
 
                 // Micro-turbulence drafting adjustments
-                let turb_x = Self::hash_range(k_seed.wrapping_add(1), -2.0, 2.0) * scale * depth_scale;
-                let turb_y = Self::hash_range(k_seed.wrapping_add(2), -1.5, 1.5) * scale * depth_scale;
+                let turb_x = Self::hash_range(k_seed.wrapping_add(1), -2.2, 2.2) * scale * depth_scale;
+                let turb_y = Self::hash_range(k_seed.wrapping_add(2), -1.6, 1.6) * scale * depth_scale;
 
-                let bird_x = leader_x - echelon_step * dx_spacing + turb_x;
-                let bird_y = leader_y + arm_side * echelon_step * dy_spacing + turb_y;
-                let bird_center = Pos2::new(bird_x, bird_y);
+                let base_bird_x = leader_x - echelon_step * dx_spacing + turb_x;
+                let base_bird_y = leader_y + arm_side * echelon_step * dy_spacing + turb_y;
 
                 // Skip drawing if completely off-screen
-                if bird_x < rect.min.x - 40.0 * scale || bird_x > rect.max.x + 40.0 * scale {
+                if base_bird_x < rect.min.x - 50.0 * scale || base_bird_x > rect.max.x + 50.0 * scale {
                     continue;
                 }
 
-                // --- 2. PHASE-LAG WINGBEAT WAVE SYNCHRONIZATION ---
-                let bird_phase = (t * flap_freq - (echelon_step as f64) * phase_lag_step) as f32;
-                let raw_flap = bird_phase.sin();
-                let flap = raw_flap * glide_envelope * 0.72; // amplitude in radians
+                // --- 2. INDIVIDUAL FLAP-GLIDE TIMING & ASYMMETRIC FLAP KINEMATICS ---
+                let bird_glide_offset = (echelon_step as f64 * 0.22) + (k_seed % 100) as f64 * 0.003;
+                let bird_glide_t = (t + bird_glide_offset) % glide_period;
 
-                let wing_span = 20.0 * scale * depth_scale;
-                let body_len = 10.0 * scale * depth_scale;
+                let (is_flapping, flap_envelope) = if bird_glide_t < 1.35 {
+                    // Active powerstroke flap burst
+                    let p = (bird_glide_t / 1.35) as f32;
+                    let env = if p < 0.15 {
+                        p / 0.15
+                    } else if p > 0.85 {
+                        (1.0 - p) / 0.15
+                    } else {
+                        1.0
+                    };
+                    (true, env)
+                } else {
+                    // Soaring aerodynamic glide with shallow V-dihedral
+                    (false, 0.0_f32)
+                };
 
-                // --- 3. STREAMLINED AVIAN ANATOMY RENDERING ---
+                // Flap cycle parameter in [0, 1):
+                let raw_cycle = (t * flap_freq - (echelon_step as f64) * phase_lag_step) / (2.0 * std::f64::consts::PI);
+                let cycle_p = (raw_cycle.fract() + 1.0).fract() as f32;
 
-                // A. Aerodynamic Torso Fuselage
-                let torso_pts = vec![
-                    Pos2::new(bird_center.x - body_len * 0.55, bird_center.y),
-                    Pos2::new(bird_center.x - body_len * 0.1, bird_center.y + 1.8 * scale * depth_scale),
-                    Pos2::new(bird_center.x + body_len * 0.45, bird_center.y + 0.6 * scale * depth_scale),
-                    Pos2::new(bird_center.x + body_len * 0.65, bird_center.y),
-                    Pos2::new(bird_center.x + body_len * 0.45, bird_center.y - 0.6 * scale * depth_scale),
-                    Pos2::new(bird_center.x - body_len * 0.1, bird_center.y - 1.8 * scale * depth_scale),
-                ];
-                painter.add(Shape::convex_polygon(torso_pts, bird_color, Stroke::NONE));
+                // Biological Asymmetry:
+                // Downstroke (power phase, p in 0..0.38): fast, wings fully extended, convex downward bow
+                // Upstroke (recovery phase, p in 0.38..1.0): relaxed, wings fold inward (span contracts 26%), wrist lags
+                let (flap_angle, span_morph, wing_fold_x, body_lift, body_pitch) = if is_flapping {
+                    if cycle_p < 0.38 {
+                        // Downstroke
+                        let dp = cycle_p / 0.38;
+                        let angle = (dp * std::f32::consts::PI).sin() * 0.78 * flap_envelope;
+                        let lift = (dp * std::f32::consts::PI).sin() * 2.8 * scale * depth_scale * flap_envelope;
+                        let pitch = -(dp * std::f32::consts::PI).sin() * 0.06 * flap_envelope;
+                        (angle, 1.0_f32, 0.0_f32, lift, pitch)
+                    } else {
+                        // Upstroke (folded recovery)
+                        let up = (cycle_p - 0.38) / 0.62;
+                        let angle = -(up * std::f32::consts::PI).sin() * 0.62 * flap_envelope;
+                        let span = 1.0 - (up * std::f32::consts::PI).sin() * 0.26 * flap_envelope;
+                        let fold_x = -(up * std::f32::consts::PI).sin() * 2.5 * scale * depth_scale * flap_envelope;
+                        let lift = -(up * std::f32::consts::PI).sin() * 1.2 * scale * depth_scale * flap_envelope;
+                        let pitch = (up * std::f32::consts::PI).sin() * 0.04 * flap_envelope;
+                        (angle, span, fold_x, lift, pitch)
+                    }
+                } else {
+                    // Glide: shallow fixed dihedral angle
+                    let glide_bob = ((t * 1.8 + echelon_step as f64 * 0.4).sin() as f32) * 0.8 * scale * depth_scale;
+                    (0.12_f32, 1.0_f32, 0.0_f32, glide_bob, 0.0_f32)
+                };
 
-                // B. Forward Head & Aerodynamic Sharp Beak
-                let head_pos = Pos2::new(bird_center.x + body_len * 0.65, bird_center.y);
-                let beak_tip = Pos2::new(bird_center.x + body_len * 1.05, bird_center.y - 0.2 * scale * depth_scale);
-                painter.circle_filled(head_pos, 2.2 * scale * depth_scale, bird_color);
-                let beak_pts = vec![
-                    Pos2::new(head_pos.x, head_pos.y - 1.2 * scale * depth_scale),
+                let bird_center = Pos2::new(base_bird_x, base_bird_y - body_lift);
+
+                // --- 3. STREAMLINED AVIAN SILHOUETTE GEOMETRY (SWALLOW / FALCON) ---
+                let wing_span = 24.0 * scale * depth_scale * span_morph;
+                let body_len = 13.0 * scale * depth_scale;
+                let body_half_w = 2.4 * scale * depth_scale;
+
+                // 3A. Sleek Tapered Avian Fuselage (Nose -> Breast -> Tail Root)
+                let cos_p = body_pitch.cos();
+                let sin_p = body_pitch.sin();
+                let rot = |dx: f32, dy: f32| -> Pos2 {
+                    Pos2::new(
+                        bird_center.x + dx * cos_p - dy * sin_p,
+                        bird_center.y + dx * sin_p + dy * cos_p,
+                    )
+                };
+
+                // Streamlined Body Spline Points (Bullet Head, Sleek Breast, Tapered Ventral)
+                let beak_tip = rot(body_len * 0.75, 0.0);
+                let head_top = rot(body_len * 0.45, -body_half_w * 0.75);
+                let head_bot = rot(body_len * 0.45, body_half_w * 0.75);
+                let chest_top = rot(body_len * 0.15, -body_half_w * 1.15);
+                let chest_bot = rot(body_len * 0.15, body_half_w * 1.15);
+                let belly_top = rot(-body_len * 0.25, -body_half_w * 0.85);
+                let belly_bot = rot(-body_len * 0.25, body_half_w * 0.85);
+                let tail_root = rot(-body_len * 0.65, 0.0);
+
+                let body_pts = vec![
                     beak_tip,
-                    Pos2::new(head_pos.x, head_pos.y + 1.2 * scale * depth_scale),
+                    head_top,
+                    chest_top,
+                    belly_top,
+                    tail_root,
+                    belly_bot,
+                    chest_bot,
+                    head_bot,
                 ];
-                painter.add(Shape::convex_polygon(beak_pts, bird_color, Stroke::NONE));
+                painter.add(Shape::convex_polygon(body_pts, bird_color, Stroke::NONE));
 
-                // C. Feathered Tail Fan (Rudder)
-                let tail_base = Pos2::new(bird_center.x - body_len * 0.55, bird_center.y);
+                // 3B. Forked Swallow Tail Rudder
+                let tail_fork_l = rot(-body_len * 1.15, -body_half_w * 1.5);
+                let tail_fork_r = rot(-body_len * 1.15, body_half_w * 1.5);
+                let tail_center_notch = rot(-body_len * 0.82, 0.0);
                 let tail_pts = vec![
-                    tail_base,
-                    Pos2::new(tail_base.x - body_len * 0.55, tail_base.y - 2.8 * scale * depth_scale),
-                    Pos2::new(tail_base.x - body_len * 0.65, tail_base.y),
-                    Pos2::new(tail_base.x - body_len * 0.55, tail_base.y + 2.8 * scale * depth_scale),
+                    rot(-body_len * 0.55, -body_half_w * 0.7),
+                    tail_fork_l,
+                    tail_center_notch,
+                    tail_fork_r,
+                    rot(-body_len * 0.55, body_half_w * 0.7),
                 ];
                 painter.add(Shape::convex_polygon(tail_pts, bird_color, Stroke::NONE));
 
-                // D. Cambered Multi-Segment Feathered Wings
-                // Upstroke & Downstroke dynamic joint displacement
-                let tip_y = -flap * wing_span * 0.62;
-                let elbow_y = -flap * wing_span * 0.32 + (if flap > 0.0 { 1.5 } else { -0.5 }) * scale * depth_scale;
-                let wrist_y = -flap * wing_span * 0.48;
+                // 3C. Organic Cambered Curved Wings (Bézier Leading Edge & Feathered Trailing Edge)
+                // Wing Articulation: Shoulder -> Elbow -> Wrist -> Wingtip
+                // Left Wing (Negative Y in local frame)
+                // Right Wing (Positive Y in local frame)
+                for &(side, is_left) in &[( -1.0_f32, true ), ( 1.0_f32, false )] {
+                    // Kinematic Phase Lag across Joint Segments:
+                    let elbow_lag = if is_flapping {
+                        (flap_angle * 0.45 + (if flap_angle > 0.0 { 0.12 } else { -0.06 })) * wing_span * 0.35
+                    } else {
+                        flap_angle * wing_span * 0.25
+                    };
+                    let wrist_lag = flap_angle * wing_span * 0.65;
+                    let tip_lag = flap_angle * wing_span * 1.05;
 
-                // Left Wing Cambered Polygon (Body -> Elbow -> Wrist -> Wingtip)
-                let left_wing_pts = vec![
-                    Pos2::new(bird_center.x, bird_center.y - 1.2 * scale * depth_scale),
-                    Pos2::new(bird_center.x - wing_span * 0.28, bird_center.y - wing_span * 0.32 + elbow_y),
-                    Pos2::new(bird_center.x - wing_span * 0.45, bird_center.y - wing_span * 0.68 + wrist_y),
-                    Pos2::new(bird_center.x - wing_span * 0.55, bird_center.y - wing_span + tip_y),
-                    Pos2::new(bird_center.x - wing_span * 0.35, bird_center.y - wing_span * 0.65 + wrist_y + 1.8 * scale * depth_scale),
-                    Pos2::new(bird_center.x - wing_span * 0.15, bird_center.y - wing_span * 0.28 + elbow_y + 2.4 * scale * depth_scale),
-                    Pos2::new(bird_center.x - body_len * 0.3, bird_center.y),
-                ];
-                painter.add(Shape::convex_polygon(
-                    left_wing_pts,
-                    bird_color,
-                    Stroke::new(1.2 * scale * depth_scale, bird_color),
-                ));
+                    // Joint Positions in Screen Space
+                    let shoulder = rot(body_len * 0.12, side * body_half_w * 0.9);
+                    let elbow = rot(
+                        body_len * 0.02 + wing_fold_x * 0.4,
+                        side * (body_half_w + wing_span * 0.30) - elbow_lag,
+                    );
+                    let wrist = rot(
+                        -body_len * 0.12 + wing_fold_x * 0.8,
+                        side * (body_half_w + wing_span * 0.65) - wrist_lag,
+                    );
+                    let wingtip = rot(
+                        -body_len * 0.32 + wing_fold_x,
+                        side * (body_half_w + wing_span) - tip_lag,
+                    );
 
-                // Right Wing Cambered Polygon (Body -> Elbow -> Wrist -> Wingtip)
-                let right_wing_pts = vec![
-                    Pos2::new(bird_center.x, bird_center.y + 1.2 * scale * depth_scale),
-                    Pos2::new(bird_center.x - wing_span * 0.28, bird_center.y + wing_span * 0.32 - elbow_y),
-                    Pos2::new(bird_center.x - wing_span * 0.45, bird_center.y + wing_span * 0.68 - wrist_y),
-                    Pos2::new(bird_center.x - wing_span * 0.55, bird_center.y + wing_span - tip_y),
-                    Pos2::new(bird_center.x - wing_span * 0.35, bird_center.y + wing_span * 0.65 - wrist_y - 1.8 * scale * depth_scale),
-                    Pos2::new(bird_center.x - wing_span * 0.15, bird_center.y + wing_span * 0.28 - elbow_y - 2.4 * scale * depth_scale),
-                    Pos2::new(bird_center.x - body_len * 0.3, bird_center.y),
-                ];
-                painter.add(Shape::convex_polygon(
-                    right_wing_pts,
-                    bird_color,
-                    Stroke::new(1.2 * scale * depth_scale, bird_color),
-                ));
+                    // Trailing Edge Intermediate Feather Points
+                    let primary_notch = rot(
+                        -body_len * 0.42 + wing_fold_x * 0.85,
+                        side * (body_half_w + wing_span * 0.78) - wrist_lag * 0.85,
+                    );
+                    let secondary_mid = rot(
+                        -body_len * 0.35 + wing_fold_x * 0.45,
+                        side * (body_half_w + wing_span * 0.42) - elbow_lag * 0.75,
+                    );
+                    let wing_root_trail = rot(-body_len * 0.30, side * body_half_w * 0.65);
+
+                    // Build Smooth Organic Wing Polygon by sampling Bézier curves
+                    let mut wing_pts = Vec::with_capacity(18);
+
+                    // Leading Edge Curve: Shoulder -> Elbow -> Wrist -> Wingtip
+                    let lead_segments = 6;
+                    for s in 0..=lead_segments {
+                        let u = s as f32 / lead_segments as f32;
+                        let pt = Self::bezier(shoulder, elbow, wrist, wingtip, u);
+                        wing_pts.push(pt);
+                    }
+
+                    // Trailing Edge Curve: Wingtip -> Primary Notch -> Secondary Mid -> Wing Root
+                    let trail_segments = 6;
+                    for s in 1..=trail_segments {
+                        let u = s as f32 / trail_segments as f32;
+                        let pt = Self::bezier(wingtip, primary_notch, secondary_mid, wing_root_trail, u);
+                        wing_pts.push(pt);
+                    }
+
+                    // Render smooth organic wing aerofoil
+                    painter.add(Shape::convex_polygon(wing_pts.clone(), bird_color, Stroke::NONE));
+
+                    // Ambient Rim Light along Leading Edge for depth & cinematic sky illumination
+                    if is_left {
+                        let rim_stroke = Stroke::new(0.9 * scale * depth_scale, highlight_color);
+                        for s in 0..lead_segments {
+                            painter.line_segment([wing_pts[s], wing_pts[s + 1]], rim_stroke);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1416,11 +1502,11 @@ impl EffectParticleSimulator {
     }
 
     // =========================================================================
-    // 6. SHOOTING STARS — Cinematic Glowing Plasma Bolides with Volumetric Bloom
+    // 6. SHOOTING STARS — Realistic Hypervelocity Meteors with Gradient Plasma Mesh
     // =========================================================================
     fn draw_shooting_stars(painter: &egui::Painter, rect: Rect, t: f64, intensity: f32) {
         let star_count = (3.0 * intensity).round().max(2.0) as usize;
-        let star_period = 3.6; // time between periodic streaks
+        let star_period = 3.4_f64; // cycle interval between meteor streaks
         let scale = Self::scale(rect);
 
         for i in 0..star_count {
@@ -1428,11 +1514,10 @@ impl EffectParticleSimulator {
             let offset = Self::hash_f(seed) as f64 * star_period;
             let local_t = (t + offset) % star_period;
 
-            // Easily visible celestial streak window: active for 1.45s
-            let streak_duration = 1.45_f64;
-            let wake_duration = 0.95_f64;
+            // Celestial streak window: active for 1.15s, wake lingers for 1.25s
+            let streak_duration = 1.15_f64;
+            let wake_duration = 1.25_f64;
             if local_t > streak_duration + wake_duration {
-                // Inactive window
                 continue;
             }
 
@@ -1443,206 +1528,236 @@ impl EffectParticleSimulator {
                 1.0_f32
             };
 
-            // Trajectory parameters (sweeping diagonal entry across upper sky)
-            let start_x = Self::hash_range(seed.wrapping_add(1), 0.02, 0.45);
-            let start_y = Self::hash_range(seed.wrapping_add(2), 0.02, 0.26);
-            let streak_len_x = Self::hash_range(seed.wrapping_add(3), 0.52, 0.70);
-            let streak_len_y = streak_len_x * 0.42;
+            // Trajectory entry angle (~22° to 34° pitch down across upper sky)
+            let pitch_angle = Self::hash_range(seed.wrapping_add(4), 0.38, 0.58);
+            let dir_x = pitch_angle.cos();
+            let dir_y = pitch_angle.sin();
+            let norm_x = -dir_y;
+            let norm_y = dir_x;
 
-            // Smooth hypervelocity entry acceleration
-            let accel_p = streak_p * (1.0 + streak_p * 0.35);
+            let start_x_norm = Self::hash_range(seed.wrapping_add(1), 0.02, 0.42);
+            let start_y_norm = Self::hash_range(seed.wrapping_add(2), 0.02, 0.24);
+            let total_dist = Self::hash_range(seed.wrapping_add(3), 0.65, 0.88) * rect.width();
 
-            let head_x = start_x + accel_p * streak_len_x;
-            let head_y = start_y + accel_p * streak_len_y;
-            let head = Pos2::new(
-                rect.min.x + head_x * rect.width(),
-                rect.min.y + head_y * rect.height(),
+            let start_pos = Pos2::new(
+                rect.min.x + start_x_norm * rect.width(),
+                rect.min.y + start_y_norm * rect.height(),
             );
 
-            // Fade intensity based on flight lifecycle
+            // Hypervelocity entry acceleration curve
+            let accel_p = streak_p * (1.0 + streak_p * 0.32);
+            let current_dist = total_dist * accel_p;
+            let head = Pos2::new(
+                start_pos.x + dir_x * current_dist,
+                start_pos.y + dir_y * current_dist,
+            );
+
+            // Fade profile across life cycle
             let base_alpha = if is_streaking {
-                if streak_p < 0.12 {
-                    streak_p / 0.12
-                } else if streak_p > 0.82 {
-                    (1.0 - streak_p) / 0.18
+                if streak_p < 0.10 {
+                    streak_p / 0.10
+                } else if streak_p > 0.85 {
+                    (1.0 - streak_p) / 0.15
                 } else {
                     1.0_f32
                 }
             } else {
-                // Lingering phosphorescent wake slowly dissipating
-                let fade_p = ((local_t - streak_duration) / wake_duration) as f32;
-                (1.0 - fade_p).powi(2) * 0.42
+                // Persistent phosphorescent wake fading smoothly
+                let wake_p = ((local_t - streak_duration) / wake_duration) as f32;
+                (1.0 - wake_p).powi(2) * 0.38
             };
 
-            if base_alpha <= 0.01 {
+            if base_alpha <= 0.005 {
                 continue;
             }
 
             // -----------------------------------------------------------------
-            // 1. 4-TIER CONCENTRIC GLOWING PLASMA RIBBON (80 Steps, Broad Reach)
+            // 1. CONTINUOUS VERTEX-COLORED PLASMA RIBBON (TRIANGLE STRIP MESH)
             // -----------------------------------------------------------------
-            let trail_steps = 80;
-            let trail_span = 0.65_f32; // broad luminous tail spanning 65% of trajectory
+            // Renders silky-smooth GPU-interpolated gradient plasma with NO concentric ring artifacts
+            let trail_span = if is_streaking {
+                (current_dist * 0.70).min(total_dist * 0.55)
+            } else {
+                total_dist * 0.65
+            };
 
-            for seg in 0..trail_steps {
-                let s0 = seg as f32 / trail_steps as f32;
-                let s1 = (seg + 1) as f32 / trail_steps as f32;
+            if trail_span > 2.0 {
+                let seg_count = 42;
+                let mut mesh = Mesh::default();
 
-                let back0 = (accel_p - s0 * (accel_p * trail_span)).max(0.0);
-                let back1 = (accel_p - s1 * (accel_p * trail_span)).max(0.0);
+                for s_idx in 0..=seg_count {
+                    let s = s_idx as f32 / seg_count as f32;
+                    let seg_decay = (1.0 - s).powf(1.4) * base_alpha;
+                    let seg_pos = Pos2::new(
+                        head.x - dir_x * (trail_span * s),
+                        head.y - dir_y * (trail_span * s),
+                    );
 
-                let p0 = Pos2::new(
-                    rect.min.x + (start_x + back0 * streak_len_x) * rect.width(),
-                    rect.min.y + (start_y + back0 * streak_len_y) * rect.height(),
-                );
-                let p1 = Pos2::new(
-                    rect.min.x + (start_x + back1 * streak_len_x) * rect.width(),
-                    rect.min.y + (start_y + back1 * streak_len_y) * rect.height(),
-                );
+                    // Width profiles along the tail
+                    let w_core = (1.6 * (1.0 - s * 0.75) + 0.3) * scale;
+                    let w_mid = (5.5 * (1.0 - s).powf(1.1) + 0.8) * scale;
+                    let w_outer = (16.0 * (1.0 - s).powf(1.3) + 1.8) * scale;
 
-                let seg_decay = (1.0 - s1).powf(1.4);
+                    // Vertex Colors with smooth alpha falloff
+                    let c_core = Color32::from_rgba_unmultiplied(255, 255, 255, (seg_decay * 255.0).clamp(0.0, 255.0) as u8);
+                    let c_inner = Color32::from_rgba_unmultiplied(170, 240, 255, (seg_decay * 225.0).clamp(0.0, 255.0) as u8);
+                    let c_mid = Color32::from_rgba_unmultiplied(45, 145, 255, (seg_decay * 120.0).clamp(0.0, 255.0) as u8);
+                    let c_outer = Color32::from_rgba_unmultiplied(70, 45, 215, 0);
 
-                // TIER 4: Outer Atmospheric Violet/Indigo Diffuse Halo (Width ~32px)
-                let halo_width = (32.0 * (1.0 - s1).powf(1.1) + 4.0) * scale;
-                let halo_alpha = (base_alpha * seg_decay * 52.0).clamp(0.0, 255.0) as u8;
-                let halo_color = Color32::from_rgba_unmultiplied(85, 55, 235, halo_alpha);
-                painter.line_segment([p0, p1], Stroke::new(halo_width, halo_color));
+                    // 7 Cross-section Vertices
+                    let v_pts = [
+                        Pos2::new(seg_pos.x - norm_x * w_outer, seg_pos.y - norm_y * w_outer), // 0: Outer Left (0 alpha)
+                        Pos2::new(seg_pos.x - norm_x * w_mid, seg_pos.y - norm_y * w_mid),     // 1: Mid Left
+                        Pos2::new(seg_pos.x - norm_x * w_core, seg_pos.y - norm_y * w_core),   // 2: Core Left
+                        seg_pos,                                                                 // 3: Center Core (White)
+                        Pos2::new(seg_pos.x + norm_x * w_core, seg_pos.y + norm_y * w_core),   // 4: Core Right
+                        Pos2::new(seg_pos.x + norm_x * w_mid, seg_pos.y + norm_y * w_mid),     // 5: Mid Right
+                        Pos2::new(seg_pos.x + norm_x * w_outer, seg_pos.y + norm_y * w_outer), // 6: Outer Right (0 alpha)
+                    ];
+                    let v_cols = [c_outer, c_mid, c_inner, c_core, c_inner, c_mid, c_outer];
 
-                // TIER 3: Radiant Celestial Sky Blue Mid-Glow Aura (Width ~16px)
-                let aura_width = (16.0 * (1.0 - s1).powf(1.3) + 2.0) * scale;
-                let aura_alpha = (base_alpha * seg_decay * 125.0).clamp(0.0, 255.0) as u8;
-                let aura_color = Color32::from_rgba_unmultiplied(40, 165, 255, aura_alpha);
-                painter.line_segment([p0, p1], Stroke::new(aura_width, aura_color));
+                    for v in 0..7 {
+                        mesh.vertices.push(Vertex {
+                            pos: v_pts[v],
+                            uv: WHITE_UV,
+                            color: v_cols[v],
+                        });
+                    }
 
-                // TIER 2: High-Intensity Electric Cyan Ionization Sheath (Width ~7.5px)
-                let sheath_width = (7.5 * (1.0 - s1).powf(1.5) + 1.2) * scale;
-                let sheath_alpha = (base_alpha * seg_decay * 220.0).clamp(0.0, 255.0) as u8;
-                let sheath_color = Color32::from_rgba_unmultiplied(140, 245, 255, sheath_alpha);
-                painter.line_segment([p0, p1], Stroke::new(sheath_width, sheath_color));
+                    // Bridge quads between segment s_idx - 1 and s_idx
+                    if s_idx > 0 {
+                        let prev_base = ((s_idx - 1) * 7) as u32;
+                        let curr_base = (s_idx * 7) as u32;
+                        for lane in 0..6 {
+                            let p_l = prev_base + lane;
+                            let p_r = p_l + 1;
+                            let c_l = curr_base + lane;
+                            let c_r = c_l + 1;
 
-                // TIER 1: Pure White-Hot Core Plasma Rod (Width ~3.2px)
-                let core_width = (3.2 * (1.0 - s1 * 0.75)).max(0.9) * scale;
-                let core_alpha = (base_alpha * seg_decay * 255.0).clamp(0.0, 255.0) as u8;
-                let core_color = Color32::from_rgba_unmultiplied(255, 255, 255, core_alpha);
-                painter.line_segment([p0, p1], Stroke::new(core_width, core_color));
+                            // Quad = 2 Triangles
+                            mesh.add_triangle(p_l, p_r, c_r);
+                            mesh.add_triangle(p_l, c_r, c_l);
+                        }
+                    }
+                }
+                painter.add(Shape::mesh(mesh));
             }
 
             // -----------------------------------------------------------------
-            // 2. 12-TIER VOLUMETRIC GAUSSIAN BLOOM BEACON AROUND METEOR HEAD
+            // 2. DIRECTIONAL AERODYNAMIC BOW-SHOCK HEAD & DIFFRACTION FLASH
             // -----------------------------------------------------------------
             if is_streaking {
-                let bloom_radii = [
-                    48.0 * scale,
-                    36.0 * scale,
-                    27.0 * scale,
-                    20.0 * scale,
-                    15.0 * scale,
-                    11.0 * scale,
-                    8.0 * scale,
-                    5.8 * scale,
-                    4.2 * scale,
-                    3.0 * scale,
-                    2.0 * scale,
-                    1.2 * scale,
-                ];
-                let bloom_alphas = [
-                    (base_alpha * 20.0) as u8,
-                    (base_alpha * 34.0) as u8,
-                    (base_alpha * 55.0) as u8,
-                    (base_alpha * 80.0) as u8,
-                    (base_alpha * 115.0) as u8,
-                    (base_alpha * 155.0) as u8,
-                    (base_alpha * 195.0) as u8,
-                    (base_alpha * 225.0) as u8,
-                    (base_alpha * 245.0) as u8,
-                    (base_alpha * 255.0) as u8,
-                    (base_alpha * 255.0) as u8,
-                    (base_alpha * 255.0) as u8,
-                ];
-                let bloom_colors = [
-                    Color32::from_rgba_unmultiplied(45, 65, 240, bloom_alphas[0]),   // Outer Atmospheric Violet
-                    Color32::from_rgba_unmultiplied(40, 110, 255, bloom_alphas[1]),
-                    Color32::from_rgba_unmultiplied(35, 160, 255, bloom_alphas[2]),  // Celestial Blue
-                    Color32::from_rgba_unmultiplied(50, 195, 255, bloom_alphas[3]),
-                    Color32::from_rgba_unmultiplied(85, 220, 255, bloom_alphas[4]),  // Electric Cyan
-                    Color32::from_rgba_unmultiplied(130, 240, 255, bloom_alphas[5]),
-                    Color32::from_rgba_unmultiplied(180, 250, 255, bloom_alphas[6]), // Ice Blue
-                    Color32::from_rgba_unmultiplied(225, 255, 255, bloom_alphas[7]),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[8]), // Pure White Hot Core
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[9]),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[10]),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, bloom_alphas[11]),
-                ];
+                let mut head_mesh = Mesh::default();
 
-                for b in 0..12 {
-                    painter.circle_filled(head, bloom_radii[b], bloom_colors[b]);
+                // Parabolic Bow-Shock Cap vertices
+                let nose_apex = Pos2::new(head.x + dir_x * (3.8 * scale), head.y + dir_y * (3.8 * scale));
+                let head_center = head;
+                let flank_l_inner = Pos2::new(head.x - norm_x * (2.8 * scale) - dir_x * (2.0 * scale), head.y - norm_y * (2.8 * scale) - dir_y * (2.0 * scale));
+                let flank_r_inner = Pos2::new(head.x + norm_x * (2.8 * scale) - dir_x * (2.0 * scale), head.y + norm_y * (2.8 * scale) - dir_y * (2.0 * scale));
+                let flank_l_outer = Pos2::new(head.x - norm_x * (9.0 * scale) - dir_x * (7.0 * scale), head.y - norm_y * (9.0 * scale) - dir_y * (7.0 * scale));
+                let flank_r_outer = Pos2::new(head.x + norm_x * (9.0 * scale) - dir_x * (7.0 * scale), head.y + norm_y * (9.0 * scale) - dir_y * (7.0 * scale));
+
+                let c_hot = Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 255.0) as u8);
+                let c_sheath = Color32::from_rgba_unmultiplied(160, 240, 255, (base_alpha * 210.0) as u8);
+                let c_fade = Color32::from_rgba_unmultiplied(50, 120, 240, 0);
+
+                let head_pts = [nose_apex, head_center, flank_l_inner, flank_r_inner, flank_l_outer, flank_r_outer];
+                let head_colors = [c_hot, c_hot, c_sheath, c_sheath, c_fade, c_fade];
+
+                for (idx, &pt) in head_pts.iter().enumerate() {
+                    head_mesh.vertices.push(Vertex {
+                        pos: pt,
+                        uv: WHITE_UV,
+                        color: head_colors[idx],
+                    });
                 }
+                // Triangles for bow shock cap
+                head_mesh.add_triangle(0, 2, 1);
+                head_mesh.add_triangle(0, 1, 3);
+                head_mesh.add_triangle(2, 4, 1);
+                head_mesh.add_triangle(3, 1, 5);
 
-                // -----------------------------------------------------------------
-                // 3. ANAMORPHIC AXIAL LENS FLARE (Bright Optical Needle Along Path)
-                // -----------------------------------------------------------------
-                let dir_x = streak_len_x * rect.width();
-                let dir_y = streak_len_y * rect.height();
-                let dir_len = (dir_x * dir_x + dir_y * dir_y).sqrt().max(1.0);
-                let norm_dx = dir_x / dir_len;
-                let norm_dy = dir_y / dir_len;
+                painter.add(Shape::mesh(head_mesh));
 
-                let flare_len = 38.0 * scale * base_alpha;
-                let flare_p0 = Pos2::new(head.x - norm_dx * flare_len * 0.5, head.y - norm_dy * flare_len * 0.5);
-                let flare_p1 = Pos2::new(head.x + norm_dx * flare_len * 1.0, head.y + norm_dy * flare_len * 1.0);
-
-                // Thick soft aura for flare
+                // Razor-thin optical diffraction streak along velocity vector
+                let needle_len = 34.0 * scale * base_alpha;
+                let n_p0 = Pos2::new(head.x - dir_x * (needle_len * 0.4), head.y - dir_y * (needle_len * 0.4));
+                let n_p1 = Pos2::new(head.x + dir_x * (needle_len * 0.8), head.y + dir_y * (needle_len * 0.8));
                 painter.line_segment(
-                    [flare_p0, flare_p1],
+                    [n_p0, n_p1],
                     Stroke::new(
-                        3.2 * scale,
-                        Color32::from_rgba_unmultiplied(120, 215, 255, (base_alpha * 160.0) as u8),
-                    ),
-                );
-                // Sharp center needle
-                painter.line_segment(
-                    [flare_p0, flare_p1],
-                    Stroke::new(
-                        1.4 * scale,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 255.0) as u8),
+                        1.0 * scale,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (base_alpha * 250.0) as u8),
                     ),
                 );
 
-                // Perpendicular optical cross glint
-                let perp_dx = -norm_dy;
-                let perp_dy = norm_dx;
-                let cross_len = 14.0 * scale * base_alpha;
-                let cross_p0 = Pos2::new(head.x - perp_dx * cross_len, head.y - perp_dy * cross_len);
-                let cross_p1 = Pos2::new(head.x + perp_dx * cross_len, head.y + perp_dy * cross_len);
-
+                // Subtle perpendicular cross-glint
+                let cross_w = 6.5 * scale * base_alpha;
+                let c_p0 = Pos2::new(head.x - norm_x * cross_w, head.y - norm_y * cross_w);
+                let c_p1 = Pos2::new(head.x + norm_x * cross_w, head.y + norm_y * cross_w);
                 painter.line_segment(
-                    [cross_p0, cross_p1],
+                    [c_p0, c_p1],
                     Stroke::new(
-                        1.2 * scale,
-                        Color32::from_rgba_unmultiplied(210, 245, 255, (base_alpha * 230.0) as u8),
+                        0.8 * scale,
+                        Color32::from_rgba_unmultiplied(210, 245, 255, (base_alpha * 190.0) as u8),
                     ),
                 );
 
                 // -----------------------------------------------------------------
-                // 4. STARDUST MICRO-SPARK SHEDDING
+                // 3. INCANDESCENT STARDUST ABLATION SPARK SHEDDING
                 // -----------------------------------------------------------------
-                for sp in 0..6 {
-                    let sp_seed = seed.wrapping_mul(41).wrapping_add(sp);
-                    let sp_lag = Self::hash_range(sp_seed, 0.02, 0.12);
-                    let sp_back = (accel_p - sp_lag).max(0.0);
-                    let sp_drift = (t * 6.0 + sp as f64 * 1.4).sin() as f32 * 4.0 * scale;
+                // Thermal cooling: white-hot -> molten amber -> deep ember red
+                for sp in 0..8 {
+                    let sp_seed = seed.wrapping_mul(43).wrapping_add(sp);
+                    let sp_lag = Self::hash_range(sp_seed, 0.015, 0.16);
+                    let sp_back_dist = (current_dist - sp_lag * total_dist).max(0.0);
+                    let sp_flutter = ((t * 26.0 + sp as f64 * 2.1).sin() as f32) * 2.2 * scale;
 
-                    let sp_pos = Pos2::new(
-                        rect.min.x + (start_x + sp_back * streak_len_x) * rect.width() + sp_drift,
-                        rect.min.y + (start_y + sp_back * streak_len_y) * rect.height() - sp_drift * 0.5,
-                    );
-                    let sp_alpha = (base_alpha * 220.0) as u8;
-                    painter.circle_filled(
-                        sp_pos,
-                        1.6 * scale,
-                        Color32::from_rgba_unmultiplied(255, 245, 180, sp_alpha),
-                    );
+                    let sp_x = start_pos.x + dir_x * sp_back_dist + norm_x * sp_flutter;
+                    let sp_y = start_pos.y + dir_y * sp_back_dist + norm_y * sp_flutter;
+                    let sp_pos = Pos2::new(sp_x, sp_y);
+
+                    let (sp_color, sp_rad) = if sp_lag < 0.055 {
+                        (
+                            Color32::from_rgba_unmultiplied(255, 250, 210, (base_alpha * 240.0) as u8),
+                            1.4 * scale,
+                        )
+                    } else if sp_lag < 0.11 {
+                        (
+                            Color32::from_rgba_unmultiplied(255, 175, 45, (base_alpha * 200.0) as u8),
+                            1.1 * scale,
+                        )
+                    } else {
+                        (
+                            Color32::from_rgba_unmultiplied(230, 75, 20, (base_alpha * 140.0) as u8),
+                            0.8 * scale,
+                        )
+                    };
+
+                    painter.circle_filled(sp_pos, sp_rad, sp_color);
                 }
+            } else {
+                // -----------------------------------------------------------------
+                // 4. PHOSPHORESCENT WAKE DISPERSION (Lingering High-Altitude Ghost Trail)
+                // -----------------------------------------------------------------
+                let wake_p = ((local_t - streak_duration) / wake_duration) as f32;
+                let drift_drift = ((t * 1.1 + i as f64 * 0.8).sin() as f32) * 4.0 * scale;
+                let wake_w = (10.0 + wake_p * 18.0) * scale;
+                let wake_alpha = ((1.0 - wake_p).powi(2) * 60.0).clamp(0.0, 255.0) as u8;
+
+                let p0 = Pos2::new(start_pos.x + norm_x * drift_drift, start_pos.y + norm_y * drift_drift);
+                let p1 = Pos2::new(
+                    start_pos.x + dir_x * (total_dist * 0.75) + norm_x * drift_drift,
+                    start_pos.y + dir_y * (total_dist * 0.75) + norm_y * drift_drift,
+                );
+
+                painter.line_segment(
+                    [p0, p1],
+                    Stroke::new(
+                        wake_w,
+                        Color32::from_rgba_unmultiplied(65, 115, 195, wake_alpha),
+                    ),
+                );
             }
         }
     }

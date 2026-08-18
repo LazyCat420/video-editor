@@ -78,7 +78,7 @@ fn test_holiday_stickers_catalog_and_asset_generation() {
     let categories = StickerCategory::all_filter_categories();
     assert_eq!(categories.len(), 12);
 
-    for item in &all_stickers {
+    for item in all_stickers {
         assert!(!item.id.is_empty());
         assert!(!item.name.is_empty());
         assert!(!item.emoji.is_empty());
