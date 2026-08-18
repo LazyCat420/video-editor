@@ -1,42 +1,15 @@
 use video_editor::app::VideoEditorApp;
 use video_editor::core::text_overlay::{FontFamilyPreset, SlideElement, TextBoxStyle, TextOverlay};
 use video_editor::ui::theme::AppTheme;
-use video_editor::ui::SlideBinAction;
-use egui::{FontDefinitions, FontFamily, FontId, Pos2, Rect, Vec2};
+use egui::{FontFamily, FontId, Pos2, Rect, Vec2};
 use std::sync::Arc;
-
-#[test]
-fn test_embedded_custom_fonts_installed_in_egui_context() {
-    let ctx = egui::Context::default();
-    AppTheme::install_custom_fonts(&ctx);
-
-    let fonts = ctx.fonts(|f| f.definitions().clone());
-
-    // Verify all 10 custom font presets are present in egui font definitions
-    for preset in FontFamilyPreset::all() {
-        let key = preset.preview_family();
-        assert!(
-            fonts.font_data.contains_key(key),
-            "Expected embedded font data for key '{}'",
-            key
-        );
-
-        let fam = FontFamily::Name(Arc::from(key));
-        assert!(
-            fonts.families.contains_key(&fam),
-            "Expected font family definition for '{}'",
-            key
-        );
-    }
-}
 
 #[test]
 fn test_all_10_font_presets_layout_without_panic() {
     let ctx = egui::Context::default();
     AppTheme::install_custom_fonts(&ctx);
 
-    // Simulate painting text galleys for each font preset on an empty canvas
-    ctx.begin_frame(egui::RawInput::default());
+    ctx.begin_pass(egui::RawInput::default());
     
     let painter = ctx.layer_painter(egui::LayerId::background());
     let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
@@ -52,9 +25,19 @@ fn test_all_10_font_presets_layout_without_panic() {
             rect,
             &overlay,
         );
+
+        // Also test direct galley layout
+        let fam = FontFamily::Name(Arc::from(preset.preview_family()));
+        let font_id = FontId::new(20.0, fam);
+        let galley = painter.layout_no_wrap(
+            format!("Direct layout test for {}", preset.label()),
+            font_id,
+            egui::Color32::WHITE,
+        );
+        assert!(galley.size().x > 0.0);
     }
 
-    let _ = ctx.end_frame();
+    let _ = ctx.end_pass();
 }
 
 #[test]

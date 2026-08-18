@@ -65,16 +65,6 @@ impl SlideBinView {
             ui.add_space(6.0);
 
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                egui::CollapsingHeader::new(RichText::new("⚙️ Calendar & Holiday Settings").size(12.5).strong().color(AppTheme::accent_yellow()))
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        Self::render_calendar_config_panel(ui, app, &mut action, false);
-                    });
-
-                ui.add_space(6.0);
-                ui.separator();
-                ui.add_space(6.0);
-
                 let active = app.active_slide().cloned();
                 match active {
                     Some(clip) => {
@@ -120,6 +110,16 @@ impl SlideBinView {
                         });
                     }
                 }
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                egui::CollapsingHeader::new(RichText::new("⚙️ Calendar & Holiday Settings").size(12.5).strong().color(AppTheme::accent_yellow()))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        Self::render_calendar_config_panel(ui, app, &mut action, false);
+                    });
             });
         });
 
