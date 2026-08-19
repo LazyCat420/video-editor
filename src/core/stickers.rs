@@ -206,42 +206,60 @@ impl StickerCatalog {
         }
     }
 
-    /// Generates a fallback 256x256 anti-aliased RGBA sticker badge with badge borders.
+    /// Generates an anti-aliased RGBA sticker with transparent background and distinct artwork.
     pub fn generate_procedural_sticker_image(item: &StickerItem) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
         let size = 256u32;
         let mut img = ImageBuffer::from_pixel(size, size, Rgba([0, 0, 0, 0]));
 
-        let cx = size as f32 / 2.0;
-        let cy = size as f32 / 2.0;
-        let radius = size as f32 * 0.44;
+        let pad = 24.0;
+        let corner_rad = 32.0;
+        let w = size as f32 - 2.0 * pad;
+        let h = size as f32 - 2.0 * pad;
 
         let [pr, pg, pb, _] = item.primary_color;
         let [ar, ag, ab, _] = item.accent_color;
 
+        // Draw soft rounded badge with inner gradient and border
         for y in 0..size {
             for x in 0..size {
-                let dx = x as f32 - cx;
-                let dy = y as f32 - cy;
-                let dist = (dx * dx + dy * dy).sqrt();
+                let px = x as f32;
+                let py = y as f32;
 
-                if dist <= radius {
-                    let border_w = 12.0;
-                    if dist >= radius - border_w {
-                        let border_t = (dist - (radius - border_w)) / border_w;
-                        let r = (ar as f32 * (1.0 - border_t) + 255.0 * border_t) as u8;
-                        let g = (ag as f32 * (1.0 - border_t) + 255.0 * border_t) as u8;
-                        let b = (ab as f32 * (1.0 - border_t) + 255.0 * border_t) as u8;
-                        img.put_pixel(x, y, Rgba([r, g, b, 255]));
+                if px >= pad && px <= size as f32 - pad && py >= pad && py <= size as f32 - pad {
+                    let local_x = px - pad;
+                    let local_y = py - pad;
+
+                    // Signed distance to rounded rectangle
+                    let dx = (local_x - corner_rad).min(0.0).abs().max((local_x - (w - corner_rad)).max(0.0));
+                    let dy = (local_y - corner_rad).min(0.0).abs().max((local_y - (h - corner_rad)).max(0.0));
+                    let corner_dist = (dx * dx + dy * dy).sqrt();
+
+                    let is_in_corner = (local_x < corner_rad || local_x > w - corner_rad)
+                        && (local_y < corner_rad || local_y > h - corner_rad);
+
+                    let inside = if is_in_corner {
+                        corner_dist <= corner_rad
                     } else {
-                        let t = dist / (radius - border_w);
-                        let r = (pr as f32 * (1.0 - t * 0.35)) as u8;
-                        let g = (pg as f32 * (1.0 - t * 0.35)) as u8;
-                        let b = (pb as f32 * (1.0 - t * 0.35)) as u8;
-                        img.put_pixel(x, y, Rgba([r, g, b, 245]));
+                        true
+                    };
+
+                    if inside {
+                        let is_border = if is_in_corner {
+                            corner_dist >= corner_rad - 8.0
+                        } else {
+                            local_x <= 8.0 || local_x >= w - 8.0 || local_y <= 8.0 || local_y >= h - 8.0
+                        };
+
+                        if is_border {
+                            img.put_pixel(x, y, Rgba([ar, ag, ab, 255]));
+                        } else {
+                            let prog_y = local_y / h;
+                            let r = (pr as f32 * (1.0 - prog_y * 0.25) + ar as f32 * (prog_y * 0.25)).clamp(0.0, 255.0) as u8;
+                            let g = (pg as f32 * (1.0 - prog_y * 0.25) + ag as f32 * (prog_y * 0.25)).clamp(0.0, 255.0) as u8;
+                            let b = (pb as f32 * (1.0 - prog_y * 0.25) + ab as f32 * (prog_y * 0.25)).clamp(0.0, 255.0) as u8;
+                            img.put_pixel(x, y, Rgba([r, g, b, 245]));
+                        }
                     }
-                } else if dist <= radius + 2.5 {
-                    let alpha = ((radius + 2.5 - dist) / 2.5 * 255.0).clamp(0.0, 255.0) as u8;
-                    img.put_pixel(x, y, Rgba([ar, ag, ab, alpha]));
                 }
             }
         }
@@ -250,6 +268,19 @@ impl StickerCatalog {
     }
 
     pub fn sticker_asset_path(assets_dir: &Path, sticker_id: &str) -> PathBuf {
-        assets_dir.join("stickers").join(format!("{}.png", sticker_id))
+        let filename = format!("{}.png", sticker_id);
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                let candidate = parent.join("assets").join("stickers").join(&filename);
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+        let candidate = assets_dir.join("stickers").join(&filename);
+        if candidate.exists() {
+            return candidate;
+        }
+        assets_dir.join("stickers").join(filename)
     }
 }

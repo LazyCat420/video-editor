@@ -1224,12 +1224,6 @@ impl eframe::App for VideoEditorApp {
                     let rx = render_project_async(self.project.timeline.clone(), config);
                     self.export_dialog.progress_rx = Some(rx);
                 }
-                ExportDialogAction::StartExportPptx(path) => {
-                    match crate::export::export_to_pptx(&self.project.timeline, &path) {
-                        Ok(()) => self.export_dialog.export_status = Some(Ok(path)),
-                        Err(e) => self.export_dialog.export_status = Some(Err(e.to_string())),
-                    }
-                }
                 ExportDialogAction::StartExportPdf(path) => {
                     match crate::export::export_to_pdf(&self.project.timeline, &path) {
                         Ok(()) => self.export_dialog.export_status = Some(Ok(path)),

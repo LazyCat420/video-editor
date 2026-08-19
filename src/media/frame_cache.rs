@@ -6,77 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-/// Find ffmpeg executable path (beside exe, in cwd, in bin/, or in PATH).
-pub fn find_ffmpeg_executable() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let next_to_exe = parent.join(if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" });
-            if next_to_exe.exists() {
-                return next_to_exe;
-            }
-            let bin_sub = parent.join("bin").join(if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" });
-            if bin_sub.exists() {
-                return bin_sub;
-            }
-        }
-    }
-
-    let local_paths = [
-        PathBuf::from("ffmpeg.exe"),
-        PathBuf::from("ffmpeg"),
-        PathBuf::from("bin/ffmpeg.exe"),
-        PathBuf::from("ffmpeg/bin/ffmpeg.exe"),
-        PathBuf::from("C:/ffmpeg/bin/ffmpeg.exe"),
-    ];
-
-    for p in &local_paths {
-        if p.exists() {
-            return p.clone();
-        }
-    }
-
-    if cfg!(target_os = "windows") {
-        PathBuf::from("ffmpeg.exe")
-    } else {
-        PathBuf::from("ffmpeg")
-    }
-}
-
-/// Find ffprobe executable path (beside exe, in cwd, in bin/, or in PATH).
-pub fn find_ffprobe_executable() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let next_to_exe = parent.join(if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" });
-            if next_to_exe.exists() {
-                return next_to_exe;
-            }
-            let bin_sub = parent.join("bin").join(if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" });
-            if bin_sub.exists() {
-                return bin_sub;
-            }
-        }
-    }
-
-    let local_paths = [
-        PathBuf::from("ffprobe.exe"),
-        PathBuf::from("ffprobe"),
-        PathBuf::from("bin/ffprobe.exe"),
-        PathBuf::from("ffmpeg/bin/ffprobe.exe"),
-        PathBuf::from("C:/ffmpeg/bin/ffprobe.exe"),
-    ];
-
-    for p in &local_paths {
-        if p.exists() {
-            return p.clone();
-        }
-    }
-
-    if cfg!(target_os = "windows") {
-        PathBuf::from("ffprobe.exe")
-    } else {
-        PathBuf::from("ffprobe")
-    }
-}
+pub use crate::media::ffmpeg_locator::{find_ffmpeg_executable, find_ffprobe_executable};
 
 /// Helper to configure Command with no console window on Windows.
 #[cfg(target_os = "windows")]

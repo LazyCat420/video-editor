@@ -490,6 +490,7 @@ pub fn build_ffmpeg_export_command(
     args.push("-ar".to_string());
     args.push("48000".to_string());
 
+    args.push("-y".to_string());
     args.push("-progress".to_string());
     args.push("pipe:1".to_string());
     args.push(config.output_path.to_str().unwrap_or("output.mp4").to_string());
@@ -517,8 +518,8 @@ fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String
         .max(14.0)
         .round() as u32;
     let font_name = overlay.font_family.ffmpeg_font_name();
-    let col = overlay.text_color;
-    let hex_color = format!("0x{:02X}{:02X}{:02X}", col.r(), col.g(), col.b());
+    let paint = crate::core::TextPaint::from_color32(overlay.text_color);
+    let hex_color = paint.to_ffmpeg_fontcolor();
 
     // Center-anchored, matching the preview: a click near the middle maps to where it was placed.
     let x_expr = format!("(w-text_w)/2 + ({} - 0.5)*w", overlay.x);

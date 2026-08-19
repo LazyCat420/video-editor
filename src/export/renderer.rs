@@ -71,6 +71,24 @@ pub fn render_project_async(
         let mut cur_fps = 0.0f32;
         let _ = cur_time_secs;
 
+        let stderr_lines = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::VecDeque::with_capacity(50)));
+        let stderr_lines_clone = stderr_lines.clone();
+
+        let stderr_handle = if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    let mut lock = stderr_lines_clone.lock().await;
+                    if lock.len() >= 50 {
+                        lock.pop_front();
+                    }
+                    lock.push_back(line);
+                }
+            })
+        } else {
+            tokio::spawn(async {})
+        };
+
         if let Some(stdout) = child.stdout.take() {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
@@ -95,6 +113,8 @@ pub fn render_project_async(
             }
         }
 
+        let _ = stderr_handle.await;
+
         match child.wait().await {
             Ok(status) if status.success() => {
                 let _ = tx.send(RenderProgress::Completed {
@@ -102,13 +122,18 @@ pub fn render_project_async(
                 });
             }
             Ok(status) => {
-                let _ = tx.send(RenderProgress::Failed {
-                    error: format!("ffmpeg export process exited with code {}", status),
-                });
+                let lock = stderr_lines.lock().await;
+                let error_detail = lock.iter().cloned().collect::<Vec<_>>().join("\n");
+                let error_msg = if error_detail.trim().is_empty() {
+                    format!("FFmpeg export process exited with code: {:?}", status.code())
+                } else {
+                    format!("FFmpeg failed (exit code {:?}):\n{}", status.code(), error_detail)
+                };
+                let _ = tx.send(RenderProgress::Failed { error: error_msg });
             }
             Err(e) => {
                 let _ = tx.send(RenderProgress::Failed {
-                    error: format!("ffmpeg execution error: {}", e),
+                    error: format!("FFmpeg execution error: {}", e),
                 });
             }
         }

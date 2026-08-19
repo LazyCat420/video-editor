@@ -42,7 +42,8 @@ pub fn generate_proxy_async<P: AsRef<Path>>(
             }
         }
 
-        let mut child = match Command::new("ffmpeg")
+        let ffmpeg_bin = crate::media::find_ffmpeg_executable();
+        let mut child = match Command::new(&ffmpeg_bin)
             .args([
                 "-y",
                 "-i",

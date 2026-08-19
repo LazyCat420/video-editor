@@ -163,9 +163,8 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                     ));
                 }
                 SlideElement::Text(overlay) => {
-                    let r = overlay.text_color.r() as f64 / 255.0;
-                    let g = overlay.text_color.g() as f64 / 255.0;
-                    let b = overlay.text_color.b() as f64 / 255.0;
+                    let paint = crate::core::TextPaint::from_color32(overlay.text_color);
+                    let (r, g, b) = paint.to_pdf_rgb();
                     let pt_size = (overlay.font_size as f64 * 0.75).clamp(10.0, 72.0);
                     let is_bold = overlay.font_family == FontFamilyPreset::Impact;
                     let font_ref = if is_bold { "/F2" } else { "/F1" };
@@ -313,6 +312,12 @@ fn embed_image_object(
             }
         }
     }
+
+    // Video poster frame fallback: extract frame at t=0
+    if let Ok(color_img) = crate::media::extract_thumbnail(path, 0.0) {
+        return embed_raw_image_object(pdf_data, offsets, next_obj_id, &color_img);
+    }
+
     None
 }
 

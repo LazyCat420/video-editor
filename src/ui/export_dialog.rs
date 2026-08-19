@@ -7,7 +7,6 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormatTab {
     VideoMp4,
-    PowerPointPptx,
     PresentationPdf,
 }
 
@@ -15,7 +14,6 @@ pub struct ExportDialog {
     pub is_open: bool,
     pub active_tab: ExportFormatTab,
     pub config: ExportConfig,
-    pub pptx_output_path: PathBuf,
     pub pdf_output_path: PathBuf,
     pub progress_rx: Option<tokio::sync::watch::Receiver<RenderProgress>>,
     pub export_status: Option<Result<PathBuf, String>>,
@@ -29,7 +27,6 @@ impl Default for ExportDialog {
             is_open: false,
             active_tab: ExportFormatTab::VideoMp4,
             config: ExportConfig::default(),
-            pptx_output_path: default_dir.join("presentation.pptx"),
             pdf_output_path: default_dir.join("slideshow.pdf"),
             progress_rx: None,
             export_status: None,
@@ -40,7 +37,6 @@ impl Default for ExportDialog {
 pub enum ExportDialogAction {
     None,
     StartExportVideo(ExportConfig),
-    StartExportPptx(PathBuf),
     StartExportPdf(PathBuf),
     Close,
 }
@@ -75,14 +71,6 @@ impl ExportDialog {
                     );
                     if ui.add(video_btn).on_hover_text("Export animated movie with audio & transitions").clicked() {
                         self.active_tab = ExportFormatTab::VideoMp4;
-                    }
-
-                    let pptx_btn = egui::SelectableLabel::new(
-                        self.active_tab == ExportFormatTab::PowerPointPptx,
-                        RichText::new("📊 PowerPoint (.pptx)").size(13.0).strong(),
-                    );
-                    if ui.add(pptx_btn).on_hover_text("Export editable Microsoft PowerPoint presentation").clicked() {
-                        self.active_tab = ExportFormatTab::PowerPointPptx;
                     }
 
                     let pdf_btn = egui::SelectableLabel::new(
@@ -166,9 +154,9 @@ impl ExportDialog {
                                     .add_filter("MP4 Video", &["mp4"])
                                     .set_file_name("slideshow.mp4")
                                     .save_file()
-                                {
-                                    self.config.output_path = path;
-                                }
+                                    {
+                                        self.config.output_path = path;
+                                    }
                             }
                         });
 
@@ -205,68 +193,6 @@ impl ExportDialog {
 
                             if ui.add_enabled(!is_rendering, render_btn).clicked() {
                                 action = ExportDialogAction::StartExportVideo(self.config.clone());
-                            }
-
-                            if ui.button("Close").clicked() {
-                                should_close = true;
-                                action = ExportDialogAction::Close;
-                            }
-                        });
-                    }
-
-                    ExportFormatTab::PowerPointPptx => {
-                        ui.heading(RichText::new("PowerPoint Presentation Export").size(15.0).color(AppTheme::accent_yellow()));
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new("Creates a native Microsoft PowerPoint (.pptx) file with editable text, native-resolution photos, and vector calendars.")
-                                .color(AppTheme::text_secondary())
-                                .size(12.0)
-                        );
-                        ui.add_space(8.0);
-
-                        ui.label(RichText::new("• 16:9 Widescreen Presentation Layout").size(12.0));
-                        ui.label(RichText::new("• 100% Editable Text Boxes (Fonts, Colors & Sizing preserved)").size(12.0));
-                        ui.label(RichText::new("• High-Resolution Embedded Photos & Video Poster Frames").size(12.0));
-                        ui.label(RichText::new("• Compatible with MS PowerPoint, Google Slides, Keynote, & LibreOffice").size(12.0));
-
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            ui.label("Save File To:");
-                            let path_str = self.pptx_output_path.to_str().unwrap_or("presentation.pptx");
-                            ui.label(RichText::new(path_str).monospace().size(11.0).color(AppTheme::accent_cyan()));
-                            if ui.button("Browse...").clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("PowerPoint Presentation", &["pptx"])
-                                    .set_file_name("presentation.pptx")
-                                    .save_file()
-                                {
-                                    self.pptx_output_path = path;
-                                }
-                            }
-                        });
-
-                        if let Some(ref res) = self.export_status {
-                            match res {
-                                Ok(p) => {
-                                    ui.add_space(8.0);
-                                    ui.label(RichText::new("✅ PowerPoint File Created Successfully!").color(AppTheme::accent_green()).strong());
-                                    ui.label(RichText::new(format!("Saved to: {}", p.display())).size(11.0));
-                                }
-                                Err(e) => {
-                                    ui.add_space(8.0);
-                                    ui.label(RichText::new(format!("❌ Export Failed: {}", e)).color(AppTheme::accent_red()));
-                                }
-                            }
-                        }
-
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            let export_btn = Button::new(RichText::new("📊 Export PowerPoint (.pptx)").color(Color32::WHITE).strong())
-                                .fill(AppTheme::accent_blue());
-
-                            if ui.add(export_btn).clicked() {
-                                action = ExportDialogAction::StartExportPptx(self.pptx_output_path.clone());
                             }
 
                             if ui.button("Close").clicked() {

@@ -15,10 +15,12 @@ pub mod timeline;
 pub mod track;
 
 pub mod text_overlay;
+pub mod text_paint;
 pub use text_overlay::{
     CalendarOverlay, FontFamilyPreset, SlideBackground, SlideElement, TextAlignment, TextBoxStyle, TextOverlay,
     TitleCardBackground,
 };
+pub use text_paint::TextPaint;
 
 pub use clip::Clip;
 pub use envelope::{CurveType, VolumeEnvelope, VolumeNode};
