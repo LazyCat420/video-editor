@@ -8,3 +8,5 @@ Cargo.lock
 /proxies/
 /temp/
 /cache/
+/dist/
+*.o
