@@ -66,12 +66,69 @@ fn test_ffmpeg_command_contains_overwrite_and_progress_flags() {
     let args = build_ffmpeg_export_command(&timeline, &config).expect("Failed to build ffmpeg command");
     let full_cmd = args.join(" ");
 
-    // Critical assertions: Overwrite flag, progress pipe, drawtext color
+    // Critical assertions: Overwrite flag, progress pipe, drawtext color, and valid filter syntax
     assert!(args.contains(&"-y".to_string()), "Command must include -y flag to avoid prompt deadlocks");
     assert!(args.contains(&"-progress".to_string()), "Command must include -progress");
     assert!(args.contains(&"pipe:1".to_string()), "Progress must be piped to stdout");
     assert!(full_cmd.contains("fontcolor=0xFFC832"), "Drawtext filter must contain formatted fontcolor");
     assert!(full_cmd.contains("my_export.mp4"), "Command must output to specified path");
+    assert!(!full_cmd.contains("],"), "Filtergraph MUST NEVER contain a leading comma after an input label");
+}
+
+#[test]
+fn test_ffmpeg_drawtext_filtergraph_executes_without_syntax_error() {
+    let mut timeline = Timeline::new(30.0);
+    let v_track_id = timeline.tracks[0].id;
+
+    let mut clip = Clip::new_blank_slide(1, v_track_id, "Slide 1".to_string(), 2.0);
+    clip.background = Some(SlideBackground::Solid(Color32::from_rgb(10, 15, 20)));
+
+    let mut overlay = TextOverlay::new("Line One\nLine Two");
+    overlay.is_bold = true;
+    overlay.is_italic = true;
+    overlay.show_shadow = true;
+    overlay.font_family = FontFamilyPreset::SansSerif;
+    overlay.text_color = Color32::from_rgb(0, 229, 255);
+    clip.elements.push(SlideElement::Text(overlay));
+
+    if let Some(t) = timeline.get_track_mut(v_track_id) {
+        t.add_clip(clip);
+    }
+
+    let temp_out = std::env::temp_dir().join(format!("ve_test_export_{}.mp4", uuid::Uuid::new_v4()));
+    let config = ExportConfig {
+        output_path: temp_out.clone(),
+        width: 640,
+        height: 360,
+        fps: 24.0,
+        video_bitrate_kbps: 2000,
+        audio_bitrate_kbps: 128,
+        encoder: EncoderType::Libx264,
+    };
+
+    let args = build_ffmpeg_export_command(&timeline, &config).expect("Failed to build ffmpeg command");
+    let full_cmd = args.join(" ");
+
+    assert!(!full_cmd.contains("],"), "Filtergraph must not have empty filter slots from leading commas");
+
+    // Execute with ffmpeg to verify exit code 0
+    let ffmpeg_bin = find_ffmpeg_executable();
+    let output = std::process::Command::new(&ffmpeg_bin)
+        .args(&args)
+        .output();
+
+    if let Ok(out) = output {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "FFmpeg execution failed with code {:?}. Stderr:\n{}",
+            out.status.code(),
+            stderr
+        );
+        assert!(!stderr.contains("No such filter"), "Stderr must not report missing filter: {}", stderr);
+    }
+
+    let _ = std::fs::remove_file(temp_out);
 }
 
 #[test]

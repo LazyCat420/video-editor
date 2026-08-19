@@ -218,9 +218,11 @@ pub fn build_ffmpeg_export_command(
                         }
                         SlideElement::Text(o) if !o.text.trim().is_empty() => {
                             let dt = build_drawtext_filter(o, config);
-                            let outl = next_overlay_label();
-                            filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
-                            current = outl;
+                            if !dt.is_empty() {
+                                let outl = next_overlay_label();
+                                filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
+                                current = outl;
+                            }
                         }
                         SlideElement::Calendar(c) => {
                             let mut text_overlay = TextOverlay::default();
@@ -238,9 +240,11 @@ pub fn build_ffmpeg_export_command(
                             text_overlay.font_family = crate::core::text_overlay::FontFamilyPreset::Monospace;
                             text_overlay.box_style = crate::core::text_overlay::TextBoxStyle::TranslucentBox;
                             let dt = build_drawtext_filter(&text_overlay, config);
-                            let outl = next_overlay_label();
-                            filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
-                            current = outl;
+                            if !dt.is_empty() {
+                                let outl = next_overlay_label();
+                                filter_chains.push(format!("[{}]{}[{}]", current, dt, outl));
+                                current = outl;
+                            }
                         }
                         _ => {}
                     }
@@ -507,30 +511,30 @@ fn next_overlay_label() -> String {
 }
 
 fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String {
-    let mut out = String::new();
     let formatted = overlay.formatted_text();
     let lines: Vec<&str> = formatted.lines().collect();
     if lines.is_empty() {
-        return out;
+        return String::new();
     }
 
     let font_size = ((overlay.font_size / 720.0) * (config.height as f32))
         .max(14.0)
         .round() as u32;
-    let font_name = overlay.font_family.ffmpeg_font_name();
+
+    let base_font = overlay.font_family.ffmpeg_font_name();
+    let font_name = match (overlay.is_bold, overlay.is_italic) {
+        (true, true) => format!("{} Bold Italic", base_font),
+        (true, false) => format!("{} Bold", base_font),
+        (false, true) => format!("{} Italic", base_font),
+        (false, false) => base_font.to_string(),
+    };
+
     let paint = crate::core::TextPaint::from_color32(overlay.text_color);
     let hex_color = paint.to_ffmpeg_fontcolor();
 
     // Center-anchored, matching the preview: a click near the middle maps to where it was placed.
     let x_expr = format!("(w-text_w)/2 + ({} - 0.5)*w", overlay.x);
     let y_base = format!("(h-text_h)/2 + ({} - 0.5)*h", overlay.y);
-
-    let style_flags = match (overlay.is_bold, overlay.is_italic) {
-        (true, true) => ":bold=1:italic=1",
-        (true, false) => ":bold=1",
-        (false, true) => ":italic=1",
-        (false, false) => "",
-    };
 
     let box_str = match overlay.box_style {
         TextBoxStyle::None => {
@@ -548,6 +552,7 @@ fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String
         }
     };
 
+    let mut drawtext_filters = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let escaped = line
             .replace('\\', "\\\\")
@@ -564,10 +569,10 @@ fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String
                 format!("{}-{}", y_base, -offset)
             }
         };
-        out.push_str(&format!(
-            ",drawtext=text='{}':font='{}'{}:fontsize={}:fontcolor={}{}:x={}:y={}",
-            escaped, font_name, style_flags, font_size, hex_color, box_str, x_expr, line_y_expr
+        drawtext_filters.push(format!(
+            "drawtext=text='{}':font='{}':fontsize={}:fontcolor={}{}:x={}:y={}",
+            escaped, font_name, font_size, hex_color, box_str, x_expr, line_y_expr
         ));
     }
-    out
+    drawtext_filters.join(",")
 }
