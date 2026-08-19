@@ -1,12 +1,11 @@
-use crate::core::text_overlay::{TextAlignment, TextBoxStyle, TextOverlay};
+use crate::core::text_overlay::TextOverlay;
 use crate::core::time::TimeCode;
 use crate::core::timeline::Timeline;
 use crate::ui::theme::AppTheme;
 use egui::{
-    Align2, Button, Color32, ColorImage, FontFamily, FontId, Id, Pos2, Rect, RichText, Rounding,
+    Align2, Button, Color32, ColorImage, FontId, Id, Pos2, Rect, RichText, Rounding,
     Sense, TextureHandle, TextureOptions, Ui, Vec2,
 };
-use std::sync::Arc;
 
 /// One resolved element handed to the preview for drawing + hit-testing. `texture` carries
 /// the frame for Picture/Video elements; `overlay` carries a Text element's styling. `idx`
@@ -385,66 +384,7 @@ impl PreviewPlayerView {
                     }
                 }
                 if let Some(overlay) = &v.overlay {
-                    if selected_element == Some(v.idx) {
-                        let anchor = rect.min + Vec2::new(overlay.x * rect.width(), overlay.y * rect.height());
-                        let scale = (rect.height() / 400.0).clamp(0.6, 2.5);
-                        let font_size = (overlay.font_size * scale * 0.55).max(12.0);
-                        let family = FontFamily::Name(Arc::from(overlay.font_family.preview_family()));
-                        let font_id = FontId::new(font_size, family);
-
-                        let mut text_buf = overlay.text.clone();
-                        let edit_id = Id::new("canvas_inline_text_edit").with(v.idx);
-
-                        let align = match overlay.alignment {
-                            TextAlignment::Left => egui::Align::Min,
-                            TextAlignment::Center => egui::Align::Center,
-                            TextAlignment::Right => egui::Align::Max,
-                        };
-
-                        let edit_w = srect.width().max(160.0);
-                        let edit_h = srect.height().max(44.0);
-                        let edit_rect = Rect::from_center_size(anchor, Vec2::new(edit_w, edit_h));
-
-                        // Background styling
-                        if overlay.box_style != TextBoxStyle::None {
-                            let alpha = ((overlay.box_opacity * 255.0).clamp(10.0, 255.0)) as u8;
-                            painter.rect_filled(edit_rect, Rounding::same(6.0), Color32::from_black_alpha(alpha));
-                            painter.rect_stroke(
-                                edit_rect,
-                                Rounding::same(6.0),
-                                egui::Stroke::new(1.0, Color32::from_white_alpha((alpha / 4).max(10))),
-                            );
-                        }
-
-                        let text_edit = egui::TextEdit::multiline(&mut text_buf)
-                            .id(edit_id)
-                            .font(font_id)
-                            .text_color(overlay.text_color)
-                            .horizontal_align(align)
-                            .hint_text("Type text here...")
-                            .frame(false)
-                            .desired_width(edit_w - 12.0)
-                            .margin(egui::Margin::symmetric(6.0, 3.0));
-
-                        let edit_resp = ui.put(edit_rect, text_edit);
-
-                        // Auto focus when element was newly selected
-                        let focus_id = Id::new("canvas_text_focused_elem");
-                        let last_focused: Option<usize> = ui.data(|d| d.get_temp(focus_id));
-                        if last_focused != Some(v.idx) {
-                            edit_resp.request_focus();
-                            ui.data_mut(|d| d.insert_temp(focus_id, Some(v.idx)));
-                        }
-
-                        if edit_resp.changed() {
-                            action = PlayerAction::UpdateTextContent {
-                                idx: v.idx,
-                                text: text_buf,
-                            };
-                        }
-                    } else {
-                        crate::ui::text_renderer::TextRenderer::draw_text_overlay(&painter, rect, overlay);
-                    }
+                    crate::ui::text_renderer::TextRenderer::draw_text_overlay(&painter, rect, overlay);
                 }
             }
 

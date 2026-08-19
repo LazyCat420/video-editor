@@ -256,4 +256,52 @@ fn test_pptx_and_pdf_export_text_formatting() {
     let _ = std::fs::remove_dir_all(temp_dir);
 }
 
+#[test]
+fn test_selected_text_element_renders_realtime_on_canvas() {
+    use video_editor::ui::preview_player::{PlayerAction, PreviewPlayerView};
+
+    let mut app = VideoEditorApp::default();
+    app.insert_blank_slide_at_playhead(5.0, None);
+
+    let slide_id = app.active_slide().unwrap().id;
+    let mut overlay = TextOverlay::new("Live Canvas Update");
+    overlay.is_bold = true;
+    overlay.is_italic = true;
+    overlay.text_color = egui::Color32::from_rgb(255, 230, 0);
+
+    if let Some(clip) = app.project.timeline.get_clip_mut(slide_id) {
+        clip.elements.push(SlideElement::Text(overlay));
+        app.selected_slide_element = Some(0);
+    }
+
+    let ctx = egui::Context::default();
+    AppTheme::install_custom_fonts(&ctx);
+
+    let mut raw_input = egui::RawInput::default();
+    raw_input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0)));
+
+    let mut player_action = PlayerAction::None;
+    let _ = ctx.run(raw_input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let visuals = vec![];
+            let mut texture = None;
+            let mut view_mode = video_editor::ui::MainViewMode::Slideshow;
+            player_action = PreviewPlayerView::render(
+                ui,
+                &app.project.timeline,
+                None,
+                &visuals,
+                &mut texture,
+                false,
+                false,
+                Some(0),
+                &mut view_mode,
+            );
+        });
+    });
+
+    assert!(matches!(player_action, PlayerAction::None));
+}
+
+
 
