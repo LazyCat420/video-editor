@@ -1298,3 +1298,206 @@ fn test_action_row_card_respects_parent_clip_rect() {
         );
     }
 }
+
+/// Write a single-frame still to `path` so image inputs can be exercised end to end.
+#[cfg(test)]
+fn make_test_still(path: &std::path::Path) {
+    let ok = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=orange:s=320x240:d=1:r=1",
+            "-frames:v",
+            "1",
+            path.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "failed to make test image at {:?}", path);
+}
+
+/// Run an export command under a deadline. An unbounded looped input makes FFmpeg encode
+/// forever, so a plain `status()` would hang the suite instead of failing it.
+#[cfg(test)]
+fn run_export_with_deadline(cmd: &[String], secs: u64) {
+    let mut child = std::process::Command::new("ffmpeg")
+        .args(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn ffmpeg");
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait().expect("wait ffmpeg") {
+            Some(status) => {
+                assert!(status.success(), "ffmpeg render failed: {:?}", status);
+                return;
+            }
+            None => {
+                if start.elapsed() > std::time::Duration::from_secs(secs) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!(
+                        "ffmpeg did not finish within {}s — a looped still input is unbounded \
+                         (needs `-t`), so the render never reaches EOF. cmd: {:?}",
+                        secs, cmd
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+}
+
+/// Number of decoded video frames actually present in a rendered file. The container's
+/// duration field is not a substitute: a collapsed single-frame render still reports the
+/// full duration.
+#[cfg(test)]
+fn rendered_frame_count(path: &std::path::Path) -> u64 {
+    let out = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "csv=p=0",
+            path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ffprobe");
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0)
+}
+
+/// A still used by a slide (picture background + picture element) must be passed as
+/// `-loop 1 -t <dur> -i <path>`. Putting `-loop` after `-i` makes FFmpeg treat the literal
+/// string `-loop` as the input filename; omitting `-t` makes the render never terminate.
+#[test]
+fn test_image_input_loop_precedes_i_and_terminates() {
+    use video_editor::core::text_overlay::{SlideBackground, SlideElement};
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let dir = std::env::temp_dir().join(format!("ve_img_loop_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("photo.png");
+    make_test_still(&png);
+
+    let mut timeline = video_editor::core::timeline::Timeline::new(25.0);
+    let track_id = timeline.tracks[0].id;
+    let mut slide =
+        video_editor::core::clip::Clip::new_blank_slide(1, track_id, "Slide".to_string(), 2.0);
+    slide.background = Some(SlideBackground::Picture(png.clone()));
+    slide.elements.push(SlideElement::Picture {
+        path: png.clone(),
+        x: 0.25,
+        y: 0.25,
+        w: 0.5,
+        h: 0.5,
+    });
+    timeline.tracks[0].add_clip(slide);
+
+    let out = dir.join("out.mp4");
+    let config = ExportConfig {
+        output_path: out.clone(),
+        width: 320,
+        height: 240,
+        fps: 25.0,
+        ..ExportConfig::default()
+    };
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+
+    let png_str = png.to_str().unwrap();
+    let loop_at = cmd
+        .windows(2)
+        .position(|w| w[0] == "-loop" && w[1] == "1")
+        .expect(&format!("no `-loop 1` for the still in {:?}", cmd));
+    assert_eq!(
+        (cmd[loop_at + 2].as_str(), cmd[loop_at + 4].as_str(), cmd[loop_at + 5].as_str()),
+        ("-t", "-i", png_str),
+        "expected `-loop 1 -t <dur> -i {}`, got {:?}",
+        png_str,
+        &cmd[loop_at..(loop_at + 6).min(cmd.len())]
+    );
+    assert!(
+        cmd[loop_at + 3].parse::<f64>().is_ok_and(|d| d > 0.0),
+        "`-t` needs a positive duration, got {:?}",
+        cmd[loop_at + 3]
+    );
+    for w in cmd.windows(2) {
+        assert!(
+            !(w[0] == "-i" && w[1] == "-loop"),
+            "`-i` must never be followed by `-loop` (FFmpeg opens a file named -loop): {:?}",
+            cmd
+        );
+    }
+
+    run_export_with_deadline(&cmd, 120);
+    assert!(std::fs::metadata(&out).expect("output file").len() > 0);
+    let frames = rendered_frame_count(&out);
+    assert!(
+        frames > 25,
+        "expected a full 2s of frames at 25fps, got {} — the still did not fill the slide",
+        frames
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// An image dropped straight onto a video track becomes a clip with `has_video = true`, so
+/// it is the base layer and is cut with `trim=start=..:end=source_out`. The looped input
+/// must reach that far or the clip collapses to a single frame — which still reports the
+/// full container duration, so only a frame count catches it.
+#[test]
+fn test_image_base_layer_clip_renders_every_frame() {
+    use video_editor::export::filter_graph::{build_ffmpeg_export_command, ExportConfig};
+
+    let dir = std::env::temp_dir().join(format!("ve_img_base_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("photo.png");
+    make_test_still(&png);
+
+    let mut timeline = video_editor::core::timeline::Timeline::new(25.0);
+    let track_id = timeline.tracks[0].id;
+    let clip = video_editor::core::clip::Clip::new(
+        1,
+        track_id,
+        "Photo".to_string(),
+        png.clone(),
+        video_editor::core::time::TimeCode::from_secs_f64(3.0),
+        true,
+        false,
+    );
+    timeline.tracks[0].add_clip(clip);
+
+    let out = dir.join("out.mp4");
+    let config = ExportConfig {
+        output_path: out.clone(),
+        width: 320,
+        height: 240,
+        fps: 25.0,
+        ..ExportConfig::default()
+    };
+    let cmd = build_ffmpeg_export_command(&timeline, &config).expect("build command");
+    run_export_with_deadline(&cmd, 120);
+
+    let frames = rendered_frame_count(&out);
+    assert!(
+        frames > 50,
+        "a 3s image clip at 25fps collapsed to {} frame(s): the looped input does not reach \
+         the clip's source_out",
+        frames
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}

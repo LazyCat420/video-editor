@@ -83,6 +83,24 @@ fn collect_sources(
     (unique, map)
 }
 
+/// How long a looped still input must run to satisfy every clip that reads it.
+///
+/// A base-layer image clip is cut with `trim=start=..:end=source_out`, so the input has to
+/// carry frames all the way to the largest `source_out` among the clips using it. Overlay
+/// uses need no such reach (framesync repeats the last frame of a secondary input), but the
+/// timeline duration is kept as a floor so a still always outlasts what it is composited on.
+fn image_input_duration(timeline: &Timeline, src: &PathBuf) -> f64 {
+    let mut needed = timeline.duration().as_secs_f64();
+    for track in &timeline.tracks {
+        for clip in &track.clips {
+            if &clip.source_path == src {
+                needed = needed.max(clip.source_out.as_secs_f64());
+            }
+        }
+    }
+    needed.max(0.04)
+}
+
 /// Builds the complete FFmpeg CLI command arguments for rendering the timeline project.
 pub fn build_ffmpeg_export_command(
     timeline: &Timeline,
@@ -106,12 +124,16 @@ pub fn build_ffmpeg_export_command(
             src.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
             Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("bmp")
         );
-        args.push("-i".to_string());
         if is_image {
-            // Loop a still so it can drive an overlay for the full clip duration.
+            // Loop a still so it can fill the clips that use it. `-loop` and `-t` are input
+            // options, so they must precede this input's `-i`. `-t` is required: an unbounded
+            // `-loop 1` input never reaches EOF and the render runs forever.
             args.push("-loop".to_string());
             args.push("1".to_string());
+            args.push("-t".to_string());
+            args.push(format!("{:.3}", image_input_duration(timeline, src)));
         }
+        args.push("-i".to_string());
         args.push(src.to_str().unwrap_or_default().to_string());
     }
 
