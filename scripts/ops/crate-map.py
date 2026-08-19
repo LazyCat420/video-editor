@@ -141,9 +141,25 @@ def main() -> int:
     for status, path in unmapped:
         print(f"UNMAPPED {status} {path}")
 
+    # Shape classification. The warning exists for a STRUCTURAL change that no
+    # gate would notice — a file added or deleted that nothing compiles. But an
+    # added .md is not that: nothing compiling a document is the correct and
+    # expected state, and shouting about it is a false red. A false red costs a
+    # gate its authority exactly as fast as a false green does, so documents
+    # and assets are classified as docs-only even when added or deleted.
+    # Anything else structural (a new .sh, .py, an asset the build consumes, an
+    # unknown extension) still warrants the banner.
+    def is_doc_like(path: str) -> bool:
+        if path.startswith(("documentation/", "docs/", "reports/", ".agents/")):
+            return True
+        return os.path.splitext(path)[1].lower() in {
+            ".md", ".markdown", ".rst", ".txt", ".html", ".css",
+            ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+        }
+
     if closure:
         shape = "code-mapped"
-    elif any(s in ("A", "D", "R", "?") for s, _ in unmapped):
+    elif any(s in ("A", "D", "R", "?") and not is_doc_like(p) for s, p in unmapped):
         shape = "structural-unmapped"
     else:
         shape = "docs-only"
