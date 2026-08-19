@@ -40,7 +40,7 @@ fi
 
 echo "==> Creating portable ZIP..."
 cd "${DIST_DIR}"
-zip -r "VideoEditor-v0.1.0-Windows-Portable.zip" "VideoEditor-Portable"
+python3 -m zipfile -c "VideoEditor-v0.1.0-Windows-Portable.zip" "VideoEditor-Portable"
 
 echo "==> Done! Output available at:"
 echo "    ${DIST_DIR}/VideoEditor-v0.1.0-Windows-Portable.zip"
