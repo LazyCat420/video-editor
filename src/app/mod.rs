@@ -1205,7 +1205,7 @@ impl eframe::App for VideoEditorApp {
         if ctx.input(|i| i.modifiers.command && i.key_pressed(Key::Y)) {
             self.redo(Some(ctx));
         }
-        if (ctx.input(|i| i.key_pressed(Key::Delete)) || ctx.input(|i| i.key_pressed(Key::Backspace))) && !ctx.wants_keyboard_input() {
+        if ctx.input(|i| i.key_pressed(Key::Delete)) && !ctx.wants_keyboard_input() {
             if let Some(sel_idx) = self.selected_slide_element {
                 self.delete_slide_element(sel_idx, Some(ctx));
             }

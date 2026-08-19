@@ -74,3 +74,63 @@ fn test_add_text_box_slide_bin_action() {
         panic!("Expected SlideElement::Text");
     }
 }
+
+#[test]
+fn test_backspace_does_not_delete_text_box() {
+    use video_editor::ui::preview_player::{PlayerAction, PreviewPlayerView};
+
+    let mut app = VideoEditorApp::default();
+    app.insert_blank_slide_at_playhead(5.0, None);
+
+    let active_slide = app.active_slide().expect("Expected active slide");
+    let slide_id = active_slide.id;
+
+    // Add a text box
+    let overlay = TextOverlay::new("Hello World");
+    if let Some(clip) = app.project.timeline.get_clip_mut(slide_id) {
+        clip.elements.push(SlideElement::Text(overlay));
+        app.selected_slide_element = Some(0);
+    }
+
+    assert_eq!(app.active_slide().unwrap().elements.len(), 1);
+    assert_eq!(app.selected_slide_element, Some(0));
+
+    // Run an egui frame where Backspace key is pressed
+    let ctx = egui::Context::default();
+    let mut raw_input = egui::RawInput::default();
+    raw_input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0)));
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::Backspace,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::default(),
+    });
+
+    let mut player_action = PlayerAction::None;
+    let _ = ctx.run(raw_input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let visuals = vec![];
+            let mut texture = None;
+            let mut view_mode = video_editor::ui::MainViewMode::Slideshow;
+            player_action = PreviewPlayerView::render(
+                ui,
+                &app.project.timeline,
+                None,
+                &visuals,
+                &mut texture,
+                false,
+                false,
+                Some(0),
+                &mut view_mode,
+            );
+        });
+    });
+
+    // Assert that PlayerAction::DeleteElement was NOT produced by Backspace
+    assert!(
+        !matches!(player_action, PlayerAction::DeleteElement(_)),
+        "Backspace must NEVER produce a DeleteElement action"
+    );
+}
+

@@ -691,7 +691,9 @@ impl PreviewPlayerView {
 
         // 5. Keyboard shortcuts for selected element
         if let Some(sel_idx) = selected_element {
-            if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+            // Only Delete key deletes selected element when NOT focused on a text input.
+            // Backspace is strictly reserved for text editing.
+            if !ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
                 *action = PlayerAction::DeleteElement(sel_idx);
                 return;
             }
