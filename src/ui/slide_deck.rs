@@ -103,16 +103,7 @@ impl SlideDeckView {
                 }
                 SlideElement::Text(o) => {
                     if !o.text.trim().is_empty() {
-                        // Text x/y anchor the CENTER of the text box on the canvas.
-                        let pos = rect.min + Vec2::new(o.x * rect.width(), o.y * rect.height());
-                        let scaled = (o.font_size * rect.height() / 360.0).clamp(6.0, 16.0);
-                        painter.text(
-                            pos,
-                            egui::Align2::CENTER_CENTER,
-                            o.text.lines().next().unwrap_or(""),
-                            egui::FontId::proportional(scaled),
-                            o.text_color,
-                        );
+                        crate::ui::text_renderer::TextRenderer::draw_text_overlay(painter, rect, o);
                         drew = true;
                     }
                 }

@@ -50,7 +50,28 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
         .as_bytes(),
     );
 
-    let mut next_obj_id = 3;
+    let font_italic_obj_id = 3;
+    offsets.push(pdf_data.len());
+    pdf_data.extend_from_slice(
+        format!(
+            "{} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n",
+            font_italic_obj_id
+        )
+        .as_bytes(),
+    );
+
+    let font_bold_italic_obj_id = 4;
+    offsets.push(pdf_data.len());
+    pdf_data.extend_from_slice(
+        format!(
+            "{} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique >>\nendobj\n",
+            font_bold_italic_obj_id
+        )
+        .as_bytes(),
+    );
+
+    let pages_obj_id = 5;
+    let mut next_obj_id = 6;
     let mut page_obj_ids = Vec::new();
 
     for clip in &slides {
@@ -68,49 +89,56 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                     r, g, b, PDF_WIDTH, PDF_HEIGHT
                 ));
             }
-            Some(SlideBackground::Picture(path)) => {
-                if let Some(img_obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, path) {
-                    let im_name = format!("Im{}", xobjects.len() + 1);
-                    xobjects.push((im_name.clone(), img_obj_id));
+            Some(SlideBackground::Picture(p)) => {
+                if let Some(obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, p) {
+                    let name = format!("Im{}", obj_id);
                     content_stream.push_str(&format!(
                         "q {:.1} 0 0 {:.1} 0 0 cm /{} Do Q\n",
-                        PDF_WIDTH, PDF_HEIGHT, im_name
+                        PDF_WIDTH, PDF_HEIGHT, name
                     ));
-                } else {
-                    content_stream.push_str(&format!(
-                        "q 0.07 0.07 0.09 rg 0 0 {:.1} {:.1} re f Q\n",
-                        PDF_WIDTH, PDF_HEIGHT
-                    ));
+                    xobjects.push((name, obj_id));
                 }
             }
-            None => {
-                // Default dark elegant background
+            _ => {
+                // Default Dark Slate Background
                 content_stream.push_str(&format!(
-                    "q 0.07 0.07 0.09 rg 0 0 {:.1} {:.1} re f Q\n",
+                    "q 0.09 0.10 0.13 rg 0 0 {:.1} {:.1} re f Q\n",
                     PDF_WIDTH, PDF_HEIGHT
                 ));
             }
         }
 
-        // B. Slide Elements (Pictures, Videos, Calendars, Text)
+        // B. Render Slide Elements
         for el in &clip.elements {
             match el {
-                SlideElement::Picture { path, x, y, w, h }
-                | SlideElement::Sticker { path, x, y, w, h, .. }
-                | SlideElement::Video { path, x, y, w, h } => {
-                    if let Some(img_obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, path) {
-                        let im_name = format!("Im{}", xobjects.len() + 1);
-                        xobjects.push((im_name.clone(), img_obj_id));
-
+                SlideElement::Picture { path, x, y, w, h } | SlideElement::Video { path, x, y, w, h } => {
+                    if let Some(obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, path) {
+                        let name = format!("Im{}", obj_id);
+                        let pdf_x = *x as f64 * PDF_WIDTH;
+                        let pdf_y = PDF_HEIGHT - (*y as f64 * PDF_HEIGHT) - (*h as f64 * PDF_HEIGHT);
                         let pdf_w = *w as f64 * PDF_WIDTH;
                         let pdf_h = *h as f64 * PDF_HEIGHT;
-                        let pdf_x = *x as f64 * PDF_WIDTH;
-                        let pdf_y = PDF_HEIGHT - (*y as f64 * PDF_HEIGHT) - pdf_h;
 
                         content_stream.push_str(&format!(
                             "q {:.1} 0 0 {:.1} {:.1} {:.1} cm /{} Do Q\n",
-                            pdf_w, pdf_h, pdf_x, pdf_y, im_name
+                            pdf_w, pdf_h, pdf_x, pdf_y, name
                         ));
+                        xobjects.push((name, obj_id));
+                    }
+                }
+                SlideElement::Sticker { path, x, y, w, h, .. } => {
+                    if let Some(obj_id) = embed_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, path) {
+                        let name = format!("Im{}", obj_id);
+                        let pdf_x = *x as f64 * PDF_WIDTH;
+                        let pdf_y = PDF_HEIGHT - (*y as f64 * PDF_HEIGHT) - (*h as f64 * PDF_HEIGHT);
+                        let pdf_w = *w as f64 * PDF_WIDTH;
+                        let pdf_h = *h as f64 * PDF_HEIGHT;
+
+                        content_stream.push_str(&format!(
+                            "q {:.1} 0 0 {:.1} {:.1} {:.1} cm /{} Do Q\n",
+                            pdf_w, pdf_h, pdf_x, pdf_y, name
+                        ));
+                        xobjects.push((name, obj_id));
                     }
                 }
                 SlideElement::Calendar(cal) => {
@@ -124,9 +152,7 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                         &cal.holidays,
                     );
                     if let Some(img_obj_id) = embed_raw_image_object(&mut pdf_data, &mut offsets, &mut next_obj_id, &cal_img) {
-                        let im_name = format!("Im{}", xobjects.len() + 1);
-                        xobjects.push((im_name.clone(), img_obj_id));
-
+                        let im_name = format!("Im{}", img_obj_id);
                         let pdf_w = cal.w as f64 * PDF_WIDTH;
                         let pdf_h = cal.h as f64 * PDF_HEIGHT;
                         let pdf_x = cal.x as f64 * PDF_WIDTH;
@@ -136,26 +162,25 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                             "q {:.1} 0 0 {:.1} {:.1} {:.1} cm /{} Do Q\n",
                             pdf_w, pdf_h, pdf_x, pdf_y, im_name
                         ));
+                        xobjects.push((im_name, img_obj_id));
                     }
                 }
                 SlideElement::Placeholder { label, x, y, w, h, .. } => {
+                    let pdf_x = *x as f64 * PDF_WIDTH;
+                    let pdf_y = PDF_HEIGHT - (*y as f64 * PDF_HEIGHT) - (*h as f64 * PDF_HEIGHT);
                     let pdf_w = *w as f64 * PDF_WIDTH;
                     let pdf_h = *h as f64 * PDF_HEIGHT;
-                    let pdf_x = *x as f64 * PDF_WIDTH;
-                    let pdf_y = PDF_HEIGHT - (*y as f64 * PDF_HEIGHT) - pdf_h;
 
-                    // Box fill
+                    // Draw placeholder frame & centered label
                     content_stream.push_str(&format!(
-                        "q 0.12 0.16 0.24 rg {:.1} {:.1} {:.1} {:.1} re f Q\n",
+                        "q 0.15 0.18 0.24 rg {:.1} {:.1} {:.1} {:.1} re f Q\n",
                         pdf_x, pdf_y, pdf_w, pdf_h
                     ));
-                    // Dashed border
                     content_stream.push_str(&format!(
-                        "q [4 4] 0 d 0.23 0.51 0.96 RG 2 w {:.1} {:.1} {:.1} {:.1} re S Q\n",
+                        "q 0.38 0.65 0.98 RG 1.5 w {:.1} {:.1} {:.1} {:.1} re S Q\n",
                         pdf_x, pdf_y, pdf_w, pdf_h
                     ));
-                    // Label text
-                    let text_x = pdf_x + pdf_w / 2.0 - (label.len() as f64 * 3.5);
+                    let text_x = pdf_x + pdf_w / 2.0 - 40.0;
                     let text_y = pdf_y + pdf_h / 2.0 - 5.0;
                     content_stream.push_str(&format!(
                         "BT /F2 14 Tf 0.38 0.65 0.98 rg {:.1} {:.1} Td ({}) Tj ET\n",
@@ -166,10 +191,17 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                     let paint = crate::core::TextPaint::from_color32(overlay.text_color);
                     let (r, g, b) = paint.to_pdf_rgb();
                     let pt_size = (overlay.font_size as f64 * 0.75).clamp(10.0, 72.0);
-                    let is_bold = overlay.font_family == FontFamilyPreset::Impact;
-                    let font_ref = if is_bold { "/F2" } else { "/F1" };
+                    let is_bold = overlay.is_bold || overlay.font_family == FontFamilyPreset::Impact;
+                    let is_italic = overlay.is_italic;
+                    let font_ref = match (is_bold, is_italic) {
+                        (false, false) => "/F1",
+                        (true, false) => "/F2",
+                        (false, true) => "/F3",
+                        (true, true) => "/F4",
+                    };
 
-                    let lines: Vec<&str> = overlay.text.lines().collect();
+                    let formatted = overlay.formatted_text();
+                    let lines: Vec<&str> = formatted.lines().collect();
                     let line_height = pt_size * 1.25;
                     let total_h = lines.len() as f64 * line_height;
 
@@ -183,6 +215,13 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
                             TextAlignment::Center => ((overlay.x as f64 * PDF_WIDTH) - (estimated_w / 2.0)).clamp(20.0, PDF_WIDTH - 20.0),
                             TextAlignment::Right => ((overlay.x as f64 * PDF_WIDTH) - estimated_w).clamp(20.0, PDF_WIDTH - 20.0),
                         };
+
+                        if overlay.show_shadow {
+                            content_stream.push_str(&format!(
+                                "BT {} {:.1} Tf 0.05 0.05 0.05 rg {:.1} {:.1} Td ({}) Tj ET\n",
+                                font_ref, pt_size, cur_x + 1.2, cur_y - 1.2, escape_pdf_str(line)
+                            ));
+                        }
 
                         content_stream.push_str(&format!(
                             "BT {} {:.1} Tf {:.3} {:.3} {:.3} rg {:.1} {:.1} Td ({}) Tj ET\n",
@@ -225,32 +264,31 @@ pub fn export_to_pdf<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std
         offsets.push(pdf_data.len());
         pdf_data.extend_from_slice(
             format!(
-                "{} 0 obj\n<< /Type /Page /Parent 4 0 R /MediaBox [0 0 {:.1} {:.1}] /Contents {} 0 R /Resources << /Font << /F1 1 0 R /F2 2 0 R >>{} >> >>\nendobj\n",
-                page_obj_id, PDF_WIDTH, PDF_HEIGHT, content_obj_id, xobj_dict
+                "{} 0 obj\n<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {:.1} {:.1}] /Contents {} 0 R /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R /F4 4 0 R >>{} >> >>\nendobj\n",
+                page_obj_id, pages_obj_id, PDF_WIDTH, PDF_HEIGHT, content_obj_id, xobj_dict
             )
             .as_bytes(),
         );
     }
 
-    // Pages Tree Root Object (Obj 4)
-    let pages_obj_id = 4;
-    let kids_str = page_obj_ids
-        .iter()
-        .map(|id| format!("{} 0 R", id))
-        .collect::<Vec<_>>()
-        .join(" ");
-
+    // Pages Tree Root Object
     offsets.push(pdf_data.len());
     pdf_data.extend_from_slice(
         format!(
             "{} 0 obj\n<< /Type /Pages /Kids [{}] /Count {} >>\nendobj\n",
-            pages_obj_id, kids_str, slide_count
+            pages_obj_id,
+            page_obj_ids
+                .iter()
+                .map(|id| format!("{} 0 R", id))
+                .collect::<Vec<_>>()
+                .join(" "),
+            slide_count
         )
         .as_bytes(),
     );
 
-    // Catalog Object (Obj 5)
-    let catalog_obj_id = 5;
+    // Catalog Object
+    let catalog_obj_id = next_obj_id;
     offsets.push(pdf_data.len());
     pdf_data.extend_from_slice(
         format!(

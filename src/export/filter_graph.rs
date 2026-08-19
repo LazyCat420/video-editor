@@ -525,6 +525,13 @@ fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String
     let x_expr = format!("(w-text_w)/2 + ({} - 0.5)*w", overlay.x);
     let y_base = format!("(h-text_h)/2 + ({} - 0.5)*h", overlay.y);
 
+    let style_flags = match (overlay.is_bold, overlay.is_italic) {
+        (true, true) => ":bold=1:italic=1",
+        (true, false) => ":bold=1",
+        (false, true) => ":italic=1",
+        (false, false) => "",
+    };
+
     let box_str = match overlay.box_style {
         TextBoxStyle::None => {
             if overlay.show_shadow {
@@ -558,8 +565,8 @@ fn build_drawtext_filter(overlay: &TextOverlay, config: &ExportConfig) -> String
             }
         };
         out.push_str(&format!(
-            ",drawtext=text='{}':font='{}':fontsize={}:fontcolor={}{}:x={}:y={}",
-            escaped, font_name, font_size, hex_color, box_str, x_expr, line_y_expr
+            ",drawtext=text='{}':font='{}'{}:fontsize={}:fontcolor={}{}:x={}:y={}",
+            escaped, font_name, style_flags, font_size, hex_color, box_str, x_expr, line_y_expr
         ));
     }
     out

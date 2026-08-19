@@ -473,19 +473,24 @@ pub fn export_to_pptx<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> st
                         TextAlignment::Right => "r",
                     };
 
+                    let alpha_val = (overlay.box_opacity * 100000.0).clamp(10000.0, 100000.0).round() as u32;
                     let bg_fill = if overlay.box_style != TextBoxStyle::None {
-                        r#"<a:solidFill><a:srgbClr val="000000"><a:alpha val="60000"/></a:srgbClr></a:solidFill>"#
+                        format!(r#"<a:solidFill><a:srgbClr val="000000"><a:alpha val="{}"/></a:srgbClr></a:solidFill>"#, alpha_val)
                     } else {
-                        "<a:noFill/>"
+                        "<a:noFill/>".to_string()
                     };
 
+                    let is_bold = if overlay.is_bold || overlay.font_family == FontFamilyPreset::Impact { 1 } else { 0 };
+                    let is_italic = if overlay.is_italic { 1 } else { 0 };
+                    let formatted_text = overlay.formatted_text();
+
                     let mut paragraphs_xml = String::new();
-                    for line in overlay.text.lines() {
+                    for line in formatted_text.lines() {
                         paragraphs_xml.push_str(&format!(
                             r#"          <a:p>
             <a:pPr algn="{}"/>
             <a:r>
-              <a:rPr lang="en-US" sz="{}" b="{}">
+              <a:rPr lang="en-US" sz="{}" b="{}" i="{}">
                 <a:solidFill><a:srgbClr val="{}"/></a:solidFill>
                 <a:latin typeface="{}"/>
               </a:rPr>
@@ -495,7 +500,8 @@ pub fn export_to_pptx<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> st
 "#,
                             align,
                             sz,
-                            if overlay.font_family == FontFamilyPreset::Impact { 1 } else { 0 },
+                            is_bold,
+                            is_italic,
                             hex_color,
                             typeface,
                             html_escape(line)

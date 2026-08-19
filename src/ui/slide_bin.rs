@@ -716,7 +716,7 @@ impl SlideBinView {
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("✏️ Selected Text / Calendar")
+                        RichText::new("✏️ Text Controls")
                             .size(13.0)
                             .strong()
                             .color(AppTheme::accent_cyan()),
@@ -727,41 +727,12 @@ impl SlideBinView {
                         }
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
 
-                // Quick Sizing Presets & Slider — tightened padding: at the
-                // theme's default button padding this row measured ~303px
-                // against the 254px budget (dead-gap overflow).
-                ui.scope(|ui| {
-                    ui.spacing_mut().button_padding.x = 6.0;
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Size:").size(11.5).strong().color(AppTheme::text_secondary()));
-                        for (label, sz) in [("S (14)", 14.0), ("M (18)", 18.0), ("L (24)", 24.0), ("XL (32)", 32.0)] {
-                            let is_active = (updated.font_size - sz).abs() < 1.0;
-                            if ui.add(Button::new(RichText::new(label).size(10.5)).fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
-                                updated.font_size = sz;
-                                changed = true;
-                            }
-                        }
-                    });
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Scale Slider:").size(11.0).color(AppTheme::text_muted()));
-                    crate::ui::small_slider(ui, 12.0, |ui| {
-                        if ui.add_sized([120.0, 12.0], egui::Slider::new(&mut updated.font_size, 10.0..=60.0).step_by(1.0)).changed() {
-                            changed = true;
-                        }
-                    });
-                });
-
-                ui.add_space(4.0);
-                ui.label(RichText::new("Text Words / Grid:").size(11.5).color(AppTheme::text_secondary()));
+                // Text Input Area
+                ui.label(RichText::new("Text Words / Grid:").size(11.0).color(AppTheme::text_secondary()));
                 let text_resp = ui.add_sized(
-                    // −8: TextEdit adds its own 2×4px margin on top of the
-                    // given size, which nudged this over the width budget.
-                    [ui.available_width() - 8.0, 60.0],
+                    [ui.available_width() - 8.0, 56.0],
                     egui::TextEdit::multiline(&mut updated.text).hint_text("Type words..."),
                 );
                 if text_resp.changed() {
@@ -771,7 +742,7 @@ impl SlideBinView {
                 // If this text element appears to be a calendar grid, show the full Calendar & Holiday settings panel
                 let looks_like_calendar = updated.text.contains("Sun") && updated.text.contains("Mon");
                 if looks_like_calendar {
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
                     egui::CollapsingHeader::new(RichText::new("🗓 Calendar & Holiday Controls").size(12.0).strong().color(AppTheme::accent_yellow()))
                         .default_open(true)
                         .show(ui, |ui| {
@@ -779,11 +750,11 @@ impl SlideBinView {
                         });
                 }
 
-                ui.add_space(4.0);
+                ui.add_space(2.0);
+
+                // Font Family Dropdown
                 egui::ComboBox::from_id_salt("sel_slide_text_font")
-                    .selected_text(RichText::new(format!("🔤 {}", updated.font_family.label())).size(12.0))
-                    // ComboBox::width sets the INNER width; the button frame
-                    // adds 2× button_padding (28px) on top, so leave room.
+                    .selected_text(RichText::new(format!("🔤 {}", updated.font_family.label())).size(11.5))
                     .width(ui.available_width() - 36.0)
                     .show_ui(ui, |ui| {
                         for f in crate::core::text_overlay::FontFamilyPreset::all() {
@@ -795,61 +766,208 @@ impl SlideBinView {
                         }
                     });
 
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(Button::new(RichText::new("B Bold").size(11.5).strong()).fill(if updated.is_bold { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
-                        .clicked()
-                    {
-                        updated.is_bold = !updated.is_bold;
-                        changed = true;
-                    }
-                    if ui
-                        .add(Button::new(RichText::new("I Italic").size(11.5)).fill(if updated.is_italic { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
-                        .clicked()
-                    {
-                        updated.is_italic = !updated.is_italic;
-                        changed = true;
-                    }
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Color:").size(11.5).color(AppTheme::text_secondary()));
-                    ui.color_edit_button_srgba(&mut updated.text_color);
+                ui.add_space(2.0);
+
+                // Sizing Presets & Slider
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Size:").size(11.0).strong().color(AppTheme::text_secondary()));
+                        for (label, sz) in [("S", 14.0), ("M", 18.0), ("L", 24.0), ("XL", 32.0), ("XXL", 44.0), ("Title", 60.0)] {
+                            let is_active = (updated.font_size - sz).abs() < 1.0;
+                            if ui.add(Button::new(RichText::new(label).size(10.0)).fill(if is_active { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
+                                updated.font_size = sz;
+                                changed = true;
+                            }
+                        }
+                    });
                 });
 
-                // Label on its own line + short button labels: the one-line
-                // form measured ~364px against the 254px budget (dead gap).
-                ui.label(RichText::new("Background:").size(11.5).color(AppTheme::text_secondary()));
                 ui.horizontal(|ui| {
-                    for style in TextBoxStyle::all() {
-                        let is_sel = updated.box_style == *style;
-                        let short = match style {
-                            TextBoxStyle::None => "None",
-                            TextBoxStyle::TranslucentBox => "Tight Box",
-                            TextBoxStyle::SolidBanner => "Banner",
-                        };
-                        if ui
-                            .add(Button::new(RichText::new(short).size(11.0)).fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
-                            .on_hover_text(style.label())
-                            .clicked()
-                        {
-                            updated.box_style = *style;
+                    ui.label(RichText::new("Scale:").size(10.5).color(AppTheme::text_muted()));
+                    crate::ui::small_slider(ui, 12.0, |ui| {
+                        if ui.add_sized([130.0, 12.0], egui::Slider::new(&mut updated.font_size, 10.0..=80.0).step_by(1.0)).changed() {
                             changed = true;
                         }
-                    }
+                    });
                 });
 
-                ui.add_space(6.0);
-                // Short labels at 11.5: the 15px "Move Up / Move Down /
-                // Delete Text" row measured ~359px against the 254px budget.
-                ui.horizontal(|ui| {
-                    if ui.add(Button::new(RichText::new("⬆ Up").size(11.5))).on_hover_text("Move this text earlier in the layer order").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: -1 };
-                    }
-                    if ui.add(Button::new(RichText::new("⬇ Down").size(11.5))).on_hover_text("Move this text later in the layer order").clicked() {
-                        *action = SlideBinAction::ReorderElement { idx, dir: 1 };
-                    }
-                    if ui.add(Button::new(RichText::new("🗑 Delete").size(11.5))).on_hover_text("Delete this text element").clicked() {
-                        *action = SlideBinAction::RemoveElement(idx);
-                    }
+                ui.add_space(2.0);
+
+                // Formatting Toolbar: Bold, Italic, ALL CAPS, Shadow
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(5.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(Button::new(RichText::new("B Bold").size(11.0).strong()).fill(if updated.is_bold { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .on_hover_text("Toggle bold text weight")
+                            .clicked()
+                        {
+                            updated.is_bold = !updated.is_bold;
+                            changed = true;
+                        }
+                        if ui
+                            .add(Button::new(RichText::new("I Italic").size(11.0)).fill(if updated.is_italic { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .on_hover_text("Toggle italic slant")
+                            .clicked()
+                        {
+                            updated.is_italic = !updated.is_italic;
+                            changed = true;
+                        }
+                        if ui
+                            .add(Button::new(RichText::new("aA CAPS").size(10.5)).fill(if updated.is_all_caps { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .on_hover_text("Toggle ALL CAPS formatting")
+                            .clicked()
+                        {
+                            updated.is_all_caps = !updated.is_all_caps;
+                            changed = true;
+                        }
+                        if ui
+                            .add(Button::new(RichText::new("👥 Shadow").size(10.5)).fill(if updated.show_shadow { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                            .on_hover_text("Toggle drop shadow")
+                            .clicked()
+                        {
+                            updated.show_shadow = !updated.show_shadow;
+                            changed = true;
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
+                // Alignment Toolbar
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(5.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Align:").size(11.0).color(AppTheme::text_secondary()));
+                        let aligns = [
+                            (crate::core::text_overlay::TextAlignment::Left, "⬅ Left"),
+                            (crate::core::text_overlay::TextAlignment::Center, "⏺ Center"),
+                            (crate::core::text_overlay::TextAlignment::Right, "➡ Right"),
+                        ];
+                        for (a, label) in aligns {
+                            let is_sel = updated.alignment == a;
+                            if ui.add(Button::new(RichText::new(label).size(10.5)).fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_card() })).clicked() {
+                                updated.alignment = a;
+                                changed = true;
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
+                // Quick Position Buttons (Top, Center, Bottom Subtitle)
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(5.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Pos:").size(11.0).color(AppTheme::text_secondary()));
+                        if ui.add(Button::new(RichText::new("⬆ Top").size(10.5))).on_hover_text("Position as top title").clicked() {
+                            updated.y = 0.18;
+                            changed = true;
+                        }
+                        if ui.add(Button::new(RichText::new("⏺ Mid").size(10.5))).on_hover_text("Center on canvas").clicked() {
+                            updated.x = 0.50;
+                            updated.y = 0.50;
+                            changed = true;
+                        }
+                        if ui.add(Button::new(RichText::new("⬇ Sub").size(10.5))).on_hover_text("Position as lower subtitle").clicked() {
+                            updated.y = 0.82;
+                            changed = true;
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
+                // Color Selection: Quick Palette Swatches + Color Picker
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(3.0, 2.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(2.5, 2.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Color:").size(11.0).color(AppTheme::text_secondary()));
+                        if ui.color_edit_button_srgba(&mut updated.text_color).changed() {
+                            changed = true;
+                        }
+                        let swatches: [(&str, Color32); 7] = [
+                            ("White", Color32::WHITE),
+                            ("Yellow", Color32::from_rgb(255, 230, 0)),
+                            ("Gold", Color32::from_rgb(255, 170, 0)),
+                            ("Red", Color32::from_rgb(255, 68, 68)),
+                            ("Cyan", Color32::from_rgb(0, 229, 255)),
+                            ("Green", Color32::from_rgb(0, 230, 118)),
+                            ("Black", Color32::from_rgb(24, 24, 28)),
+                        ];
+                        for (name, col) in swatches {
+                            let is_curr = updated.text_color == col;
+                            let btn = Button::new(RichText::new("■").size(11.0).color(col))
+                                .fill(if is_curr { AppTheme::accent_blue() } else { AppTheme::bg_card() });
+                            if ui.add(btn).on_hover_text(name).clicked() {
+                                updated.text_color = col;
+                                changed = true;
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
+                // Background Style & Box Opacity Slider
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Box:").size(11.0).color(AppTheme::text_secondary()));
+                        for style in TextBoxStyle::all() {
+                            let is_sel = updated.box_style == *style;
+                            let short = match style {
+                                TextBoxStyle::None => "None",
+                                TextBoxStyle::TranslucentBox => "Tight Box",
+                                TextBoxStyle::SolidBanner => "Banner",
+                            };
+                            if ui
+                                .add(Button::new(RichText::new(short).size(10.5)).fill(if is_sel { AppTheme::accent_blue() } else { AppTheme::bg_panel() }))
+                                .on_hover_text(style.label())
+                                .clicked()
+                            {
+                                updated.box_style = *style;
+                                changed = true;
+                            }
+                        }
+                    });
+                });
+
+                if updated.box_style != TextBoxStyle::None {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Opacity:").size(10.5).color(AppTheme::text_muted()));
+                        crate::ui::small_slider(ui, 12.0, |ui| {
+                            if ui.add_sized([120.0, 12.0], egui::Slider::new(&mut updated.box_opacity, 0.10..=1.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0))).changed() {
+                                changed = true;
+                            }
+                        });
+                    });
+                }
+
+                ui.add_space(4.0);
+                // Layer Ordering & Deletion
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(5.0, 3.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(Button::new(RichText::new("⬆ Up").size(11.0))).on_hover_text("Move this text earlier in the layer order").clicked() {
+                            *action = SlideBinAction::ReorderElement { idx, dir: -1 };
+                        }
+                        if ui.add(Button::new(RichText::new("⬇ Down").size(11.0))).on_hover_text("Move this text later in the layer order").clicked() {
+                            *action = SlideBinAction::ReorderElement { idx, dir: 1 };
+                        }
+                        if ui.add(Button::new(RichText::new("🗑 Delete").size(11.0).color(Color32::from_rgb(255, 140, 140)))).on_hover_text("Delete this text element").clicked() {
+                            *action = SlideBinAction::RemoveElement(idx);
+                        }
+                    });
                 });
 
                 if changed {
