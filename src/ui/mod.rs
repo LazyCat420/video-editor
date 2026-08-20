@@ -27,6 +27,7 @@ pub mod menu_bar;
 pub mod node_graph_view;
 pub mod preview_player;
 pub mod slide_bin;
+pub mod music_row;
 pub mod slide_deck;
 pub mod theme;
 pub mod effects_and_transitions_bin;

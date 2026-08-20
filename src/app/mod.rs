@@ -902,9 +902,9 @@ impl eframe::App for VideoEditorApp {
         if self.main_view_mode == crate::ui::MainViewMode::Slideshow {
             egui::TopBottomPanel::bottom("bottom_slideshow_panel")
                 .resizable(true)
-                .default_height(190.0)
-                .min_height(140.0)
-                .max_height(320.0)
+                .default_height(230.0)
+                .min_height(180.0)
+                .max_height(360.0)
                 .show(ctx, |ui| {
                     self.render_bottom_slideshow_bar(ui, ctx);
                 });

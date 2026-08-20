@@ -516,6 +516,7 @@ Great for highlights and memories.".to_string();
         let mut nav_prev = false;
         let mut nav_next = false;
         let mut strip_action = crate::ui::slide_deck::SlideDeckAction::None;
+        let mut music_action = crate::ui::music_row::MusicRowAction::None;
 
         // Load any missing element textures so the filmstrip below can draw
         // real slide miniatures.
@@ -610,6 +611,11 @@ Great for highlights and memories.".to_string();
         // the rest of the panel (previously dead black space — the filmstrip
         // renderer existed but was never called).
         strip_action = crate::ui::slide_deck::SlideDeckView::render_horizontal_filmstrip(ui, self);
+
+        // The music row: the song list that plays under the whole slideshow.
+        ui.add_space(2.0);
+        ui.separator();
+        music_action = crate::ui::music_row::MusicRowView::render(ui, &self.project.timeline);
         });
 
         {
@@ -654,6 +660,35 @@ Great for highlights and memories.".to_string();
                 SlideDeckAction::DropFilesOnSlide { clip_id, paths } => {
                     self.project.timeline.select_clip(clip_id);
                     self.drop_files_on_canvas(paths, 0.5, 0.5, Some(ctx));
+                }
+            }
+        }
+
+        {
+            use crate::ui::music_row::MusicRowAction;
+            match music_action {
+                MusicRowAction::None => {}
+                MusicRowAction::AddMusicClicked => {
+                    if let Some(files) =
+                        crate::media::probe::create_audio_file_dialog().pick_files()
+                    {
+                        self.add_music_files(files, Some(ctx));
+                    }
+                }
+                MusicRowAction::RemoveClip(id) => {
+                    self.remove_music_clip(id, Some(ctx));
+                }
+                // Live mixing control: deliberately no undo snapshot.
+                MusicRowAction::SetTrackVolume(v) => {
+                    if let Some(t) = self
+                        .project
+                        .timeline
+                        .tracks
+                        .iter_mut()
+                        .find(|t| t.kind == crate::core::track::TrackKind::Audio)
+                    {
+                        t.volume = v.clamp(0.0, 1.0);
+                    }
                 }
             }
         }
