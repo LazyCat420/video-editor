@@ -22,6 +22,7 @@ impl VideoEditorApp {
 
     pub fn pause_playback(&mut self) {
         self.player.pause();
+        self.music.pause();
         self.project.timeline.is_playing = false;
         self.current_playing_clip_id = None;
         self.stream_player.stop();
@@ -41,12 +42,15 @@ impl VideoEditorApp {
 
     pub fn stop_playback(&mut self, ctx: &Context) {
         self.pause_playback();
+        self.music.stop();
         self.project.timeline.playhead = TimeCode::ZERO;
         self.refresh_preview_frame(Some(ctx));
     }
 
     pub fn seek_to(&mut self, target_time: TimeCode, ctx: &Context) {
         self.project.timeline.playhead = target_time;
+        // Next playing sync() restarts the right song at the new offset.
+        self.music.invalidate();
         // See pause_playback: entries must be removed, not stopped in place,
         // or the decoders never restart at the new position.
         self.slide_video_players.clear();

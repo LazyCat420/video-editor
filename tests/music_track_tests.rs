@@ -78,6 +78,26 @@ fn remove_nonexistent_music_clip_is_noop() {
 }
 
 #[test]
+fn source_offset_math() {
+    use video_editor::audio::music_engine::music_source_offset;
+    // Song starts at 60s on the timeline, trimmed in by 10s; playhead at 75s
+    // → decode from 25s into the file.
+    let off = music_source_offset(
+        TimeCode::from_secs_f64(60.0),
+        TimeCode::from_secs_f64(10.0),
+        TimeCode::from_secs_f64(75.0),
+    );
+    assert_eq!(off, std::time::Duration::from_secs(25));
+    // A playhead before the clip clamps to source_in, never goes negative.
+    let off = music_source_offset(
+        TimeCode::from_secs_f64(60.0),
+        TimeCode::ZERO,
+        TimeCode::from_secs_f64(59.0),
+    );
+    assert_eq!(off, std::time::Duration::ZERO);
+}
+
+#[test]
 fn audio_routing_is_extension_based() {
     use video_editor::media::probe::is_audio_path;
     assert!(is_audio_path(Path::new("song.mp3")));

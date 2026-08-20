@@ -39,6 +39,22 @@ uuid = { version = "1.8.0", features = ["v4", "serde"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
+# Real-time music playback in the preview (music track only; video-embedded
+# audio still requires the export). Optional so a cross-build fight with
+# cpal/WASAPI can be sidestepped with --no-default-features.
+rodio = { version = "0.20", default-features = false, features = [
+    "symphonia-mp3",
+    "symphonia-wav",
+    "symphonia-flac",
+    "symphonia-vorbis",
+    "symphonia-aac",
+    "symphonia-isomp4",
+], optional = true }
+
+[features]
+default = ["audio-playback"]
+audio-playback = ["dep:rodio"]
+
 [build-dependencies]
 winres = "0.1"
 

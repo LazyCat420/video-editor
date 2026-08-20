@@ -93,6 +93,8 @@ pub struct VideoEditorApp {
     pub is_fullscreen: bool,
     /// Transient, user-visible message (big red toast, ~6s): (text, shown_at).
     pub status_toast: Option<(String, std::time::Instant)>,
+    /// Plays the music track during preview (video-embedded audio still needs export).
+    pub music: crate::audio::MusicEngine,
 }
 
 impl Default for VideoEditorApp {
@@ -141,6 +143,7 @@ impl Default for VideoEditorApp {
             new_custom_event_color: [255, 105, 180, 255],
             startup_maximized_done: false,
             status_toast: None,
+            music: crate::audio::MusicEngine::new(),
             is_fullscreen: false,
         }
     }
@@ -166,6 +169,7 @@ impl VideoEditorApp {
     pub fn undo(&mut self, ctx: Option<&Context>) {
         if let Some(prev) = self.history.undo(&self.project.timeline) {
             self.project.timeline = prev;
+            self.music.invalidate();
             self.refresh_preview_frame(ctx);
         }
     }
@@ -173,6 +177,7 @@ impl VideoEditorApp {
     pub fn redo(&mut self, ctx: Option<&Context>) {
         if let Some(next) = self.history.redo(&self.project.timeline) {
             self.project.timeline = next;
+            self.music.invalidate();
             self.refresh_preview_frame(ctx);
         }
     }
@@ -399,6 +404,7 @@ impl eframe::App for VideoEditorApp {
             let total_duration = self.project.timeline.duration();
             let current_playhead = self.player.update_playhead(self.project.timeline.playhead, total_duration);
             self.project.timeline.playhead = current_playhead;
+            self.music.sync(&self.project.timeline, current_playhead, true);
 
             if current_playhead >= total_duration && total_duration.as_secs_f64() > 0.0 {
                 self.pause_playback();
@@ -507,6 +513,7 @@ impl eframe::App for VideoEditorApp {
                     MenuAction::NewProject => {
                         self.project = Project::default();
                         self.pause_playback();
+                        self.music.stop();
                         self.current_frame = None;
                     }
                     MenuAction::OpenProject => {
@@ -517,7 +524,12 @@ impl eframe::App for VideoEditorApp {
                             if let Ok(loaded) = Project::load_from_file(path) {
                                 self.project = loaded;
                                 self.pause_playback();
+                                self.music.stop();
                                 self.refresh_preview_frame(Some(ctx));
+                            } else {
+                                self.show_error(
+                                    "That file isn't a saved project. Use 📂 Open Files to add photos, videos, or music.",
+                                );
                             }
                         }
                     }
@@ -1271,6 +1283,11 @@ if self.show_settings_dialog {
                     ui.label("• Delete: Remove Selected Slide Item");
                     ui.label("• Esc: Deselect Item");
                 });
+        }
+
+        // Surface any music-engine failure (bad file, missing sound device).
+        if let Some(e) = self.music.take_error() {
+            self.show_error(e);
         }
 
         // Transient error toast — big, high-contrast, floats above the bottom panel.
