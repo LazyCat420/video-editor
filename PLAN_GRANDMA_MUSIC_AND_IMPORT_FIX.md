@@ -87,6 +87,18 @@ track and NOT on the slide, and a missing mp3 adds nothing but sets a visible er
 Not machine-verifiable here: actual sound. WSL has no audio device and `cargo test` runs the
 Windows exes headless, so everything sink-side is covered only by the player test list below.
 
+### f. Import no longer freezes the UI (follow-up, same branch family)
+Reported: "when I open files it kind of lags." Cause: every picked/dropped file was probed by
+a synchronous ffprobe process spawn on the UI thread. Now `queue_unprobed_files` sends unknown
+files to a worker thread, a progress bar ("Adding your files… X of N") renders while the batch
+probes, and `pump_import_queue` replays the original drop with a hot `probe_cache` when done —
+batch layout math unchanged, zero ffprobe on the UI thread. Missing files fail instantly and
+synchronously (no worker), the `has_video` fallback reads the cache instead of re-probing a
+known-bad file, and the cache is cleared per consumed batch. Pinned by
+`add_media_to_bin_uses_probe_cache_without_ffprobe` (a nonexistent path succeeds only if the
+cache was honored) and `import_queue_probes_in_background_then_applies_batch` (queues, applies
+after pumping, drains the cache).
+
 ## 4. Open Items
 
 - **Preview/export font mismatch** (pre-existing): exported `drawtext` uses system font family
@@ -121,5 +133,8 @@ Windows exes headless, so everything sink-side is covered only by the player tes
    sound.
 10. **Timeline Editor toggle** → music clips visible on "🎵 Music & Sound" at their packed
     positions; mute there silences the preview music.
-11. **Music longer than slides** → the row reads "(music is longer)"; export runs to the music's
+11. **Big batch import**: Open Files with 10+ photos → the window stays responsive, a
+    progress bar counts up, then everything appears at once. Bug: the window greys out /
+    "Not Responding".
+12. **Music longer than slides** → the row reads "(music is longer)"; export runs to the music's
     end (pre-existing `Timeline::duration()` behavior).
