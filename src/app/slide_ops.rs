@@ -610,10 +610,21 @@ Great for highlights and memories.".to_string();
         // The slide filmstrip: one card per slide with a live miniature, filling
         // the rest of the panel (previously dead black space — the filmstrip
         // renderer existed but was never called).
-        strip_action = crate::ui::slide_deck::SlideDeckView::render_horizontal_filmstrip(ui, self);
+        // Cap the filmstrip's height: its empty state (horizontal_centered) greedily
+        // takes ALL remaining height, which pushed the music row below the panel —
+        // invisible in exactly the zero-slides state a new user starts in.
+        let music_row_h = 44.0;
+        let strip_h = (ui.available_height() - music_row_h).max(60.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), strip_h),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                strip_action =
+                    crate::ui::slide_deck::SlideDeckView::render_horizontal_filmstrip(ui, self);
+            },
+        );
 
         // The music row: the song list that plays under the whole slideshow.
-        ui.add_space(2.0);
         ui.separator();
         music_action = crate::ui::music_row::MusicRowView::render(ui, &self.project.timeline);
         });
