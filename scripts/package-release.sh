@@ -32,10 +32,34 @@ cp "${EXE_SRC}" "${APP_DIR}/video-editor.exe"
 echo "==> Copying assets..."
 cp -r "${ROOT_DIR}/assets" "${APP_DIR}/"
 
-echo "==> Copying trust certificate and helper scripts..."
-cp "${ROOT_DIR}/scripts/trust-cert.bat" "${APP_DIR}/" 2>/dev/null || true
+echo "==> Copying start-here instructions..."
+cp "${ROOT_DIR}/scripts/README-FIRST.txt" "${APP_DIR}/"
+
+echo "==> Bundling FFmpeg..."
+# The app shells out to ffmpeg/ffprobe for import, thumbnails, preview and export, so a
+# machine without them can do nothing at all. find_ffmpeg_executable() checks <exe>/bin/
+# before falling back to PATH, so binaries placed there make the folder self-contained.
+FFMPEG_BIN_DIR="${FFMPEG_BIN_DIR:-/mnt/c/FFMPEG/bin}"
+if [ -f "${FFMPEG_BIN_DIR}/ffmpeg.exe" ] && [ -f "${FFMPEG_BIN_DIR}/ffprobe.exe" ]; then
+    mkdir -p "${APP_DIR}/bin"
+    cp "${FFMPEG_BIN_DIR}/ffmpeg.exe" "${APP_DIR}/bin/"
+    cp "${FFMPEG_BIN_DIR}/ffprobe.exe" "${APP_DIR}/bin/"
+    echo "    bundled from ${FFMPEG_BIN_DIR}"
+else
+    echo "    !! WARNING: no ffmpeg.exe/ffprobe.exe in ${FFMPEG_BIN_DIR}"
+    echo "    !! This package will NOT work on a machine without FFmpeg on PATH."
+    echo "    !! Set FFMPEG_BIN_DIR to a directory holding both, then re-run."
+fi
+
+# trust-cert.bat asks for Administrator and then installs LazyCat420_Root.cer. Shipping it
+# without that file gives the recipient an admin prompt that can only fail, so both travel
+# together or neither does.
 if [ -f "${ROOT_DIR}/scripts/LazyCat420_Root.cer" ]; then
+    echo "==> Copying trust certificate and helper scripts..."
+    cp "${ROOT_DIR}/scripts/trust-cert.bat" "${APP_DIR}/"
     cp "${ROOT_DIR}/scripts/LazyCat420_Root.cer" "${APP_DIR}/"
+else
+    echo "==> Skipping trust-cert.bat (no LazyCat420_Root.cer to install)"
 fi
 
 echo "==> Creating portable ZIP..."
