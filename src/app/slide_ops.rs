@@ -672,7 +672,10 @@ Great for highlights and memories.".to_string();
                     if let Some(files) =
                         crate::media::probe::create_audio_file_dialog().pick_files()
                     {
-                        self.add_music_files(files, Some(ctx));
+                        // Via the canvas-drop router so probing happens on the
+                        // worker thread; the audio partition sends every file
+                        // to the music track anyway.
+                        self.import_files(files, Some(ctx));
                     }
                 }
                 MusicRowAction::RemoveClip(id) => {

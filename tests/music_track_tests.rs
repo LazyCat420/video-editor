@@ -109,3 +109,77 @@ fn audio_routing_is_extension_based() {
     assert!(!is_audio_path(Path::new("photo.png")));
     assert!(!is_audio_path(Path::new("noext")));
 }
+
+#[test]
+fn add_media_to_bin_uses_probe_cache_without_ffprobe() {
+    use video_editor::media::probe::MediaMetadata;
+    use video_editor::VideoEditorApp;
+
+    let mut app = VideoEditorApp::default();
+    // The path does not exist, so a real ffprobe would fail: success proves
+    // the cached result was used instead of a fresh probe.
+    let fake = PathBuf::from("Z:\\definitely\\missing\\song.mp3");
+    app.probe_cache.insert(
+        fake.clone(),
+        Ok(MediaMetadata {
+            duration_secs: 33.0,
+            has_audio: true,
+            ..Default::default()
+        }),
+    );
+    app.add_music_files(vec![fake.clone()], None);
+
+    let music = app.project.timeline.music_clips();
+    assert_eq!(music.len(), 1, "cached probe must be honored");
+    assert_eq!(music[0].duration(), TimeCode::from_secs_f64(33.0));
+    assert_eq!(music[0].source_path, fake);
+}
+
+#[test]
+fn import_queue_probes_in_background_then_applies_batch() {
+    use video_editor::VideoEditorApp;
+
+    let dir = std::env::temp_dir().join(format!("ve_import_queue_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mp3 = dir.join("song.mp3");
+    let ok = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            mp3.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "failed to make test mp3");
+
+    let mut app = VideoEditorApp::default();
+    app.drop_files_on_canvas(vec![mp3.clone()], 0.5, 0.5, None);
+
+    // The call must return without applying anything: probing is in flight.
+    assert!(app.pending_import.is_some(), "unprobed files must queue");
+    assert_eq!(app.project.timeline.music_clips().len(), 0);
+
+    // Pump like the update loop does, until the worker finishes (bounded wait).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while app.pending_import.is_some() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "import worker never finished"
+        );
+        app.pump_import_queue(None);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let music = app.project.timeline.music_clips();
+    assert_eq!(music.len(), 1, "batch must apply after probing completes");
+    assert_eq!(music[0].source_path, mp3);
+    assert!(app.probe_cache.is_empty(), "cache must be drained after apply");
+
+    let _ = std::fs::remove_dir_all(dir);
+}

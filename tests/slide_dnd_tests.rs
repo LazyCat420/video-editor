@@ -1297,6 +1297,14 @@ fn test_os_file_explorer_direct_drag_and_drop_image_and_audio() {
 
     app.drop_files_on_canvas(vec![audio.clone()], 0.5, 0.5, None);
 
+    // A real file is probed on the worker thread; pump like the update loop does.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while app.pending_import.is_some() {
+        assert!(std::time::Instant::now() < deadline, "import never finished");
+        app.pump_import_queue(None);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
     let slide = &app.project.timeline.tracks[0].clips[0];
     assert_eq!(slide.elements.len(), 1, "audio must not become a slide element");
     let music = app.project.timeline.music_clips();

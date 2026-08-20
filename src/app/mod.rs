@@ -95,6 +95,22 @@ pub struct VideoEditorApp {
     pub status_toast: Option<(String, std::time::Instant)>,
     /// Plays the music track during preview (video-embedded audio still needs export).
     pub music: crate::audio::MusicEngine,
+    /// Probe results delivered by the import worker; consulted by add_media_to_bin
+    /// so the UI thread never has to shell out to ffprobe itself.
+    pub probe_cache: HashMap<PathBuf, Result<crate::media::probe::MediaMetadata, String>>,
+    /// An in-flight background import batch (probing happens off the UI thread).
+    pub pending_import: Option<PendingImport>,
+}
+
+/// A batch of picked/dropped files being probed on a worker thread. When every
+/// result has arrived, the original drop call is replayed with a hot cache.
+pub struct PendingImport {
+    pub rx: crossbeam_channel::Receiver<(PathBuf, Result<crate::media::probe::MediaMetadata, String>)>,
+    pub total: usize,
+    pub done: usize,
+    pub paths: Vec<PathBuf>,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl Default for VideoEditorApp {
@@ -144,6 +160,8 @@ impl Default for VideoEditorApp {
             startup_maximized_done: false,
             status_toast: None,
             music: crate::audio::MusicEngine::new(),
+            probe_cache: HashMap::new(),
+            pending_import: None,
             is_fullscreen: false,
         }
     }
@@ -193,8 +211,13 @@ impl VideoEditorApp {
             .and_then(|n| n.to_str())
             .unwrap_or("Untitled")
             .to_string();
-        let meta = probe_media_file(p)
-            .map_err(|e| format!("Couldn't read \"{}\": {}", name, e))?;
+        // Cache-first: the import worker probes off the UI thread and parks the
+        // result here, so this path only shells out for files nobody pre-probed.
+        let meta = match self.probe_cache.get(p) {
+            Some(cached) => cached.clone(),
+            None => probe_media_file(p),
+        }
+        .map_err(|e| format!("Couldn't read \"{}\": {}", name, e))?;
         let id = self.project.timeline.next_id();
 
         if meta.has_audio {
@@ -1288,6 +1311,36 @@ if self.show_settings_dialog {
         // Surface any music-engine failure (bad file, missing sound device).
         if let Some(e) = self.music.take_error() {
             self.show_error(e);
+        }
+
+        // Background import: collect finished probes and apply the batch when done.
+        self.pump_import_queue(Some(ctx));
+        if let Some(pending) = &self.pending_import {
+            let (done, total) = (pending.done, pending.total);
+            egui::Area::new(egui::Id::new("import_progress_area"))
+                .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -240.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_min_width(320.0);
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Adding your files… {} of {}",
+                                    done.min(total),
+                                    total
+                                ))
+                                .size(16.0),
+                            );
+                        });
+                        ui.add(
+                            egui::ProgressBar::new(done as f32 / total.max(1) as f32)
+                                .desired_width(300.0),
+                        );
+                    });
+                });
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
         // Transient error toast — big, high-contrast, floats above the bottom panel.

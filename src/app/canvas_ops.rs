@@ -176,6 +176,14 @@ impl VideoEditorApp {
     }
 
     pub fn drop_files_on_canvas(&mut self, paths: Vec<PathBuf>, x: f32, y: f32, ctx: Option<&Context>) {
+        // Every file needs an ffprobe before it can be placed, and a synchronous
+        // probe on the UI thread freezes the whole window for seconds. Any file
+        // not yet probed goes to a worker thread instead; pump_import_queue
+        // replays this exact call once the batch is done and the cache is hot.
+        if self.queue_unprobed_files(&paths, x, y) {
+            return;
+        }
+
         // Music never lands on a slide: it goes to the music track, appended after
         // the last song (this function is also reached via PlayerAction::DropFiles
         // and SlideDeckAction::DropFilesOnSlide, so the split lives here).
@@ -186,6 +194,9 @@ impl VideoEditorApp {
             self.add_music_files(audio, ctx);
         }
         if paths.is_empty() {
+            // Batch consumed (audio-only): drop cached probe results so a file
+            // the user later fixes on disk isn't shadowed by a stale verdict.
+            self.probe_cache.clear();
             return;
         }
         self.snapshot_timeline();
@@ -194,12 +205,20 @@ impl VideoEditorApp {
         let mut first_new_idx = None;
         for (i, p) in paths.into_iter().enumerate() {
             let asset_id = self.add_media_to_bin(&p).ok();
-            let has_video = asset_id
+            let has_video = match asset_id
                 .and_then(|id| self.project.media_assets.iter().find(|a| a.id == id))
-                .map(|a| a.has_video)
-                .unwrap_or_else(|| {
-                    crate::media::probe::probe_media_file(&p).map(|inf| inf.has_video).unwrap_or(false)
-                });
+            {
+                Some(a) => a.has_video,
+                // Never a fresh probe here: a file whose probe already failed
+                // would block the UI thread all over again for the same answer.
+                None => match self.probe_cache.get(&p) {
+                    Some(Ok(m)) => m.has_video,
+                    Some(Err(_)) => false,
+                    None => crate::media::probe::probe_media_file(&p)
+                        .map(|inf| inf.has_video)
+                        .unwrap_or(false),
+                },
+            };
 
             if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
                 clip.is_selected = true;
@@ -331,6 +350,8 @@ impl VideoEditorApp {
             self.selected_slide_element = Some(idx);
         }
         self.auto_adjust_slide_duration_to_media(slide_id);
+        // Batch consumed: see the audio-only exit above.
+        self.probe_cache.clear();
         self.refresh_preview_frame(ctx);
     }
 
