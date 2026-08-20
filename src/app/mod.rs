@@ -1,5 +1,6 @@
 pub mod calendar_ops;
 pub mod canvas_ops;
+pub mod music_ops;
 pub mod playback;
 pub mod slide_ops;
 
@@ -90,6 +91,8 @@ pub struct VideoEditorApp {
     pub new_custom_event_color: [u8; 4],
     pub startup_maximized_done: bool,
     pub is_fullscreen: bool,
+    /// Transient, user-visible message (big red toast, ~6s): (text, shown_at).
+    pub status_toast: Option<(String, std::time::Instant)>,
 }
 
 impl Default for VideoEditorApp {
@@ -137,6 +140,7 @@ impl Default for VideoEditorApp {
             new_custom_event_label: "Family Birthday".to_string(),
             new_custom_event_color: [255, 105, 180, 255],
             startup_maximized_done: false,
+            status_toast: None,
             is_fullscreen: false,
         }
     }
@@ -154,6 +158,11 @@ impl VideoEditorApp {
         self.history.push_snapshot(&self.project.timeline);
     }
 
+    /// Show a big, plain-language error the user can actually see (~6s toast).
+    pub fn show_error(&mut self, msg: impl Into<String>) {
+        self.status_toast = Some((msg.into(), std::time::Instant::now()));
+    }
+
     pub fn undo(&mut self, ctx: Option<&Context>) {
         if let Some(prev) = self.history.undo(&self.project.timeline) {
             self.project.timeline = prev;
@@ -168,19 +177,20 @@ impl VideoEditorApp {
         }
     }
 
-    pub fn add_media_to_bin<P: AsRef<Path>>(&mut self, path: P) -> Option<u64> {
+    pub fn add_media_to_bin<P: AsRef<Path>>(&mut self, path: P) -> Result<u64, String> {
         let p = path.as_ref();
         if let Some(existing) = self.project.media_assets.iter().find(|a| a.path == p) {
-            return Some(existing.id);
+            return Ok(existing.id);
         }
 
-        let meta = probe_media_file(p).ok()?;
-        let id = self.project.timeline.next_id();
         let name = p
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("Untitled")
             .to_string();
+        let meta = probe_media_file(p)
+            .map_err(|e| format!("Couldn't read \"{}\": {}", name, e))?;
+        let id = self.project.timeline.next_id();
 
         if meta.has_audio {
             let (tx, rx) = tokio::sync::watch::channel(ProxyStatus::Generating { progress_pct: 0.0 });
@@ -220,11 +230,7 @@ impl VideoEditorApp {
         };
 
         self.project.add_asset(asset);
-        Some(id)
-    }
-
-    pub fn import_file<P: AsRef<Path>>(&mut self, path: P) -> Option<u64> {
-        self.add_media_to_bin(path)
+        Ok(id)
     }
 
     pub fn add_asset_to_timeline(&mut self, asset: MediaAsset) {
@@ -526,11 +532,7 @@ impl eframe::App for VideoEditorApp {
                     }
                     MenuAction::ImportMedia => {
                         if let Some(files) = crate::media::probe::create_media_file_dialog().pick_files() {
-                            for file in files {
-                                self.import_file(file);
-                            }
-                            self.sidebar_tab = crate::ui::SidebarTab::Slides;
-                            self.refresh_preview_frame(Some(ctx));
+                            self.import_files(files, Some(ctx));
                         }
                     }
                     MenuAction::SplitAtPlayhead => {
@@ -1269,6 +1271,30 @@ if self.show_settings_dialog {
                     ui.label("• Delete: Remove Selected Slide Item");
                     ui.label("• Esc: Deselect Item");
                 });
+        }
+
+        // Transient error toast — big, high-contrast, floats above the bottom panel.
+        if let Some((msg, shown_at)) = &self.status_toast {
+            if shown_at.elapsed().as_secs_f32() > 6.0 {
+                self.status_toast = None;
+            } else {
+                let msg = msg.clone();
+                egui::Area::new(egui::Id::new("status_toast_area"))
+                    .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -240.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style())
+                            .fill(egui::Color32::from_rgb(120, 40, 40))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("⚠ {}", msg))
+                                        .size(18.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+                            });
+                    });
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
         }
     }
 }

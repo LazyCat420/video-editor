@@ -19,7 +19,9 @@ impl VideoEditorApp {
                 SlideElement::Text(overlay)
             }
             crate::ui::PendingElement::Picture(path) => {
-                let _ = self.add_media_to_bin(&path);
+                if let Err(e) = self.add_media_to_bin(&path) {
+                    self.show_error(e);
+                }
                 SlideElement::Picture {
                     path,
                     x: (x - 0.20).clamp(0.0, 0.60),
@@ -40,7 +42,9 @@ impl VideoEditorApp {
                 }
             }
             crate::ui::PendingElement::Video(path) => {
-                let _ = self.add_media_to_bin(&path);
+                if let Err(e) = self.add_media_to_bin(&path) {
+                    self.show_error(e);
+                }
                 SlideElement::Video {
                     path,
                     x: (x - 0.25).clamp(0.0, 0.50),
@@ -172,6 +176,15 @@ impl VideoEditorApp {
     }
 
     pub fn drop_files_on_canvas(&mut self, paths: Vec<PathBuf>, x: f32, y: f32, ctx: Option<&Context>) {
+        // Music never lands on a slide: it goes to the music track, appended after
+        // the last song (this function is also reached via PlayerAction::DropFiles
+        // and SlideDeckAction::DropFilesOnSlide, so the split lives here).
+        let (audio, paths): (Vec<_>, Vec<_>) = paths
+            .into_iter()
+            .partition(|p| crate::media::probe::is_audio_path(p));
+        if !audio.is_empty() {
+            self.add_music_files(audio, ctx);
+        }
         if paths.is_empty() {
             return;
         }
@@ -180,28 +193,18 @@ impl VideoEditorApp {
         let slide_id = self.resolve_target_slide_id();
         let mut first_new_idx = None;
         for (i, p) in paths.into_iter().enumerate() {
-            let is_audio = crate::media::probe::is_audio_path(&p);
-            let asset_id = self.add_media_to_bin(&p);
-            let has_video = if is_audio {
-                false
-            } else {
-                asset_id
-                    .and_then(|id| self.project.media_assets.iter().find(|a| a.id == id))
-                    .map(|a| a.has_video)
-                    .unwrap_or_else(|| {
-                        crate::media::probe::probe_media_file(&p).map(|inf| inf.has_video).unwrap_or(false)
-                    })
-            };
+            let asset_id = self.add_media_to_bin(&p).ok();
+            let has_video = asset_id
+                .and_then(|id| self.project.media_assets.iter().find(|a| a.id == id))
+                .map(|a| a.has_video)
+                .unwrap_or_else(|| {
+                    crate::media::probe::probe_media_file(&p).map(|inf| inf.has_video).unwrap_or(false)
+                });
 
             if let Some(clip) = self.project.timeline.get_clip_mut(slide_id) {
                 clip.is_selected = true;
 
-                if is_audio {
-                    clip.elements.push(SlideElement::Audio { path: p, volume: 1.0 });
-                    if first_new_idx.is_none() {
-                        first_new_idx = Some(clip.elements.len() - 1);
-                    }
-                } else {
+                {
                     let mut replaced_slot = false;
 
                     // A. Check if dropped directly over a specific placeholder slot

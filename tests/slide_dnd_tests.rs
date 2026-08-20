@@ -1274,19 +1274,47 @@ fn test_os_file_explorer_direct_drag_and_drop_image_and_audio() {
         _ => panic!("Expected Picture element from dropped .jpg"),
     }
 
-    // 2. Direct drop of audio file (.mp3) onto active slide
-    let audio = PathBuf::from("C:\\Users\\Music\\background_song.mp3");
+    // 2. Direct drop of a real audio file: it must land on the MUSIC TRACK,
+    //    never on the slide (music is managed as a song list, not a slide element).
+    let dir = std::env::temp_dir().join(format!("ve_dnd_audio_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let audio = dir.join("background_song.mp3");
+    let ok = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            audio.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "failed to make test mp3");
+
     app.drop_files_on_canvas(vec![audio.clone()], 0.5, 0.5, None);
 
     let slide = &app.project.timeline.tracks[0].clips[0];
-    assert_eq!(slide.elements.len(), 2);
-    match &slide.elements[1] {
-        SlideElement::Audio { path, volume } => {
-            assert_eq!(path, &audio);
-            assert_eq!(*volume, 1.0);
-        }
-        _ => panic!("Expected Audio element from dropped .mp3"),
-    }
+    assert_eq!(slide.elements.len(), 1, "audio must not become a slide element");
+    let music = app.project.timeline.music_clips();
+    assert_eq!(music.len(), 1);
+    assert_eq!(music[0].source_path, audio);
+    assert!(music[0].has_audio && !music[0].has_video);
+
+    // 3. A missing/unreadable audio file adds nothing and surfaces a visible error.
+    let ghost = PathBuf::from("C:\\Users\\Music\\does_not_exist.mp3");
+    app.status_toast = None;
+    app.drop_files_on_canvas(vec![ghost], 0.5, 0.5, None);
+    assert_eq!(app.project.timeline.music_clips().len(), 1);
+    assert!(
+        app.status_toast.is_some(),
+        "a failed music import must show a visible error"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

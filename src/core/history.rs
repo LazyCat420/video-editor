@@ -26,6 +26,12 @@ impl TimelineHistory {
         self.redo_stack.clear(); // Clear redo stack on new action
     }
 
+    /// Drop the most recent snapshot without touching the redo stack — for a
+    /// batch action that snapshotted up front and then turned out to be a no-op.
+    pub fn discard_last_snapshot(&mut self) {
+        self.undo_stack.pop();
+    }
+
     /// Undo to the previous timeline state.
     pub fn undo(&mut self, current_timeline: &Timeline) -> Option<Timeline> {
         if let Some(prev_state) = self.undo_stack.pop() {
