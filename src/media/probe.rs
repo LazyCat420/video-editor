@@ -41,6 +41,27 @@ pub fn is_supported_media(path: &Path) -> bool {
         || SUPPORTED_IMAGE_EXTENSIONS.contains(&ext)
 }
 
+/// True if the file's extension marks it as audio/music. Extension-based on purpose:
+/// routing must be decided BEFORE probing, and ffprobe reports codec_type=video for
+/// still images, so the probe result cannot be the routing authority.
+pub fn is_audio_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| {
+            SUPPORTED_AUDIO_EXTENSIONS
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(ext))
+        })
+        .unwrap_or(false)
+}
+
+/// Audio-only picker for the "🎵 Add Music" button.
+pub fn create_audio_file_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new()
+        .add_filter("Music Files", SUPPORTED_AUDIO_EXTENSIONS)
+        .add_filter("All Files (*.*)", &["*"])
+}
+
 /// Walk a folder (recursively) and return every media file it contains.
 pub fn scan_folder_for_media(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();

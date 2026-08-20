@@ -180,8 +180,7 @@ impl VideoEditorApp {
         let slide_id = self.resolve_target_slide_id();
         let mut first_new_idx = None;
         for (i, p) in paths.into_iter().enumerate() {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-            let is_audio = matches!(ext.as_str(), "mp3" | "wav" | "aac" | "m4a" | "flac" | "ogg" | "wma" | "opus" | "aiff");
+            let is_audio = crate::media::probe::is_audio_path(&p);
             let asset_id = self.add_media_to_bin(&p);
             let has_video = if is_audio {
                 false

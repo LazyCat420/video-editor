@@ -81,6 +81,72 @@ impl Timeline {
         self.tracks.iter_mut().find(|t| t.id == track_id)
     }
 
+    /// The first Audio track's id, creating the senior-friendly music track if missing.
+    pub fn music_track_id(&mut self) -> u64 {
+        if let Some(t) = self.tracks.iter().find(|t| t.kind == TrackKind::Audio) {
+            return t.id;
+        }
+        self.add_track("🎵 Music & Sound".to_string(), TrackKind::Audio)
+    }
+
+    /// Append a full-length audio clip at the END of the music track, so songs
+    /// play one after another and can never overlap. Returns the new clip id.
+    pub fn append_music_clip(
+        &mut self,
+        name: String,
+        path: std::path::PathBuf,
+        duration: TimeCode,
+    ) -> u64 {
+        let track_id = self.music_track_id();
+        let clip_id = self.next_id();
+        let mut clip = Clip::new(clip_id, track_id, name, path, duration, false, true);
+        clip.timeline_start = self
+            .get_track(track_id)
+            .map(|t| t.duration())
+            .unwrap_or(TimeCode::ZERO);
+        if let Some(track) = self.get_track_mut(track_id) {
+            track.add_clip(clip);
+        }
+        clip_id
+    }
+
+    /// Remove a clip from the Audio tracks and repack the remaining songs from t=0.
+    /// Returns true if a clip was removed.
+    pub fn remove_music_clip(&mut self, clip_id: u64) -> bool {
+        let mut removed = false;
+        for track in &mut self.tracks {
+            if track.kind == TrackKind::Audio {
+                removed |= track.remove_clip(clip_id).is_some();
+            }
+        }
+        if removed {
+            self.reflow_music_positions();
+        }
+        removed
+    }
+
+    /// Pack each Audio track's clips contiguously from t=0 in their current order.
+    pub fn reflow_music_positions(&mut self) {
+        for track in &mut self.tracks {
+            if track.kind == TrackKind::Audio {
+                let mut cur = TimeCode::ZERO;
+                for clip in &mut track.clips {
+                    clip.timeline_start = cur;
+                    cur = cur + clip.duration();
+                }
+            }
+        }
+    }
+
+    /// The music clips in play order (for the music row UI).
+    pub fn music_clips(&self) -> &[Clip] {
+        self.tracks
+            .iter()
+            .find(|t| t.kind == TrackKind::Audio)
+            .map(|t| t.clips.as_slice())
+            .unwrap_or(&[])
+    }
+
     /// Overall timeline duration (maximum duration across all tracks).
     pub fn duration(&self) -> TimeCode {
         self.tracks
