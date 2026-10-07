@@ -1,7 +1,11 @@
 # Implementation Plan: Slide Video Playback, Timeline Media Visuals & Media Bin Reorder Fix
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `92dcd93` (*real-time slide video playback, timeline layer badges, and media bin dnd reorder fix*) — the commit subject restates this plan's title. Code: `src/app/playback.rs`, `src/ui/timeline_view.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

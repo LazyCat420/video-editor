@@ -1,7 +1,11 @@
 # Implementation Plan: Fix Multi-Video Slide Playback Duration & Independent Completion
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `783404c` (*multi-video slide playback continues until longest video finishes with independent end clamping*). Code: `src/app/playback.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **awaiting user approval before implementation.**
+**Status (original, pre-implementation):** Plan for review — **awaiting user approval before implementation.**
 
 ---
 

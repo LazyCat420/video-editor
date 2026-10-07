@@ -1,5 +1,9 @@
 # Audit & Implementation Plan: Continuous Video & Audio Playback Engine
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `2dfff71` (video) and `d75917f`/`20e6aaa` (audio). Code: `src/media/stream_player.rs` and `src/audio/` (mixer, music_engine, player, envelope_eval).
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 When attempting to play various MP4 files, no video or audio plays, and the preview screen remains stuck or frozen on `"Loading preview frame..."`.

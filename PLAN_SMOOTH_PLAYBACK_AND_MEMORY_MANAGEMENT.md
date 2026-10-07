@@ -1,5 +1,9 @@
 # Implementation Plan: Smooth Playback & Bounded Memory Architecture
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `b58a6d5` (*eliminate stderr pipe deadlock and add texture dirty-checking for 60MB RAM ceiling*). Code: `src/media/frame_cache.rs`, `src/ui/preview_player.rs`. The plan's own memory targets were never measured — see chapter 02.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Selected Focus Task
 **Single Task:** Eliminate video playback freezing and guarantee lightweight, crash-free memory management ($< 60\text{MB}$ RAM) on older Dell PCs.
 

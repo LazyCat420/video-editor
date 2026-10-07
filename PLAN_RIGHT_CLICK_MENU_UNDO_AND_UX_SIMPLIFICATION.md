@@ -1,5 +1,9 @@
 # Implementation Plan: Right-Click Context Menu, Undo/Redo Engine & Simplified Editing UX
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `932772d` (*right-click context menu, undo/redo toolbar, divide clip, trims, auto-fades, close gaps*) and simplified by `3a806fd`. Code: `src/core/history.rs`, `src/ui/menu_bar.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Overview & Goal
 
 Enhance the video editor with intuitive mouse interactions, robust Undo/Redo history, and high-impact UX simplifications designed to make video editing effortless for non-technical and older users without removing any core power features.

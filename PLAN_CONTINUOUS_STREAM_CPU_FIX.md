@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: Continuous Stream CPU Thrashing Fix
 
+> **Ruled 2026-10-07 — SUPERSEDED.** Its fix landed as `118e034` (*eliminate CPU thrashing by preserving continuous active stream across cuts*) and was then superseded by the dual-deck engine (`1d2fe95`). Kept for its root-cause analysis.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 The user reports: *"its still lagging hard"* when multiple cuts are made on the timeline.

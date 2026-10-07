@@ -1,7 +1,11 @@
 # Implementation Plan: Click-to-Place Text + PowerPoint-style Slide Editor
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `19fda9a` (*unified slide editor — click-to-place text/media…*) — **the same commit that added this file**, so the status line below was never a live request. Also `a36660a`. Code: `src/core/text_overlay.rs` (435 lines), `src/ui/text_renderer.rs`, `tests/text_overlay_tests.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repo:** `video-editor` (Rust + egui, eframe 0.29)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ## Goal & Problem Analysis
 

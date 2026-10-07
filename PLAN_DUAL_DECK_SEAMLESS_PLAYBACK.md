@@ -1,5 +1,9 @@
 # Implementation Plan: Dual-Deck (A/B) Seamless Cut Playback Engine
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `1d2fe95` (*implement DualDeckPlayer lookahead pre-buffering engine for 0ms cut transitions*). Code: `DualDeckPlayer` in `src/media/stream_player.rs`. This is the playback design of record.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 When the user cuts a video into multiple pieces, edits them, and plays across the cuts, every cut transition suffers from a stutter/freeze. As more cuts are added, the stuttering compounds across every boundary.

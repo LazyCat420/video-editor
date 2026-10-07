@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: Real-Time Stream Pacing & Seamless Clip Transitions
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `6a8e084` (*add -re real-time rate pacing, producer backpressure, and cross-clip transition detection*). Code: `src/media/stream_player.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 1. **Mid-Clip Freeze:** When playing a video clip, playback freezes halfway through (or after 1–2 seconds) because FFmpeg runs unthrottled, decodes the entire clip in ~1.5s, overflows the buffer, and exits.

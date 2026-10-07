@@ -1,5 +1,9 @@
 # Implementation Plan: High-Performance Real-Time Video Preview & Playback Engine
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `2dfff71` (*continuous FFmpeg rawvideo playback engine*), `35dcf95` and `c45d1c0`. Code: `src/media/stream_player.rs`, `src/ui/preview_player.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 When the user clicks `▶ PLAY` (or seeks), the video preview displays `"🎞 Loading preview frame..."` instead of playing the video.

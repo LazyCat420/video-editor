@@ -1,5 +1,9 @@
 # Implementation Plan: Fix 1-2 Second Playback Freeze (Pipe Deadlock & Rate Pacing)
 
+> **Ruled 2026-10-07 — SHIPPED.** Both halves of this plan's own subtitle shipped: the pipe deadlock by `b58a6d5`, the rate pacing by `6a8e084`. Code: `src/media/stream_player.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 The video preview starts playing smoothly, but freezes after approximately 1–2 seconds.

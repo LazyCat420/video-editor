@@ -1,5 +1,9 @@
 # Implementation Plan: High-Performance Rust Video Editor for Low-End Hardware
 
+> **Ruled 2026-10-07 — SHIPPED, with Phase 7 open.** Phases 1-6 shipped (`27d593a` onward; see chapter 01 for the per-feature map). **Phase 7 did not:** there is no low-memory toggle (the 360p proxy is unconditional and the frame cache is a fixed 120 frames), and none of §7.3's measurements were taken. §8's four open questions were all answered by what shipped — the answers are recorded in chapter 01. Three of §7.1's four named tests do not exist under those names; 218 tests cover those areas under others.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `https://github.com/LazyCat420/video-editor`  
 **Target Platform:** Low-spec / Older Dell PCs (supports integrated graphics or CPU-only software rendering, low RAM budgets, Linux/WSL/Windows).  
 **Methodology:** Verified-Claim Plan Methodology (VCPM) adhering to `.agents/plan-verification-standard.md`.  

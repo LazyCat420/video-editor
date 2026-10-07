@@ -1,7 +1,11 @@
 # Implementation Plan: Drag-and-Drop Slide Reordering in the Bottom Filmstrip
 
+> **Ruled 2026-10-07 — SHIPPED — the status line below is stale.** The code was committed as `2bc5be1` (*drag a slide anywhere in the filmstrip to reorder*) hours after this file landed (`692a81a`), so "CODE UNCOMMITTED" has been false since 2026-08-17. Verified 2026-10-07: working tree clean, no stashes, `windows-distribution` and `origin/feat/low-spec-nle` both 0 commits ahead of `main`. Nothing is stranded. Covered by `tests/slide_dnd_tests.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)
-**Status:** **IMPLEMENTED, CODE UNCOMMITTED** — the code sits in the working tree of the
+**Status (original, pre-implementation):** **IMPLEMENTED, CODE UNCOMMITTED** — the code sits in the working tree of the
 primary checkout, not on a branch. This document is committed on its own. See §6 for why,
 and §7 for what is still unverified.
 

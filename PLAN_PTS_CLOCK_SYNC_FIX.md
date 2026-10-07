@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: PTS Clock Synchronization & 2x Drain Fix
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `2c86e52` (*implement PTS timestamp presentation clock sync to eliminate 2x drain and freeze bugs*). Code: `src/media/stream_player.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 - **Symptom 1:** Video freezes halfway through playback (e.g. at 5.0s on a 10s video).

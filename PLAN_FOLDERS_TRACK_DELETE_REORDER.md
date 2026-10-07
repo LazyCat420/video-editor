@@ -1,5 +1,9 @@
 # Implementation Plan: Folder Bins, Drag-to-Timeline, Track Delete & Reorder (Senior-Friendly)
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `23fcfa4` (*Add folder bins, drag-to-timeline, track delete & reorder*) — **the same commit that added this file**. Code: `scan_folder_for_media` (`src/media/probe.rs:66`), `MediaBinAction::ImportFolder` (`src/ui/media_bin.rs:14`), collapsible folder groups (`media_bin.rs:118-375`).
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Goal & Problem Analysis
 
 Everything below is **net-new UI** wired onto hooks that already exist in the model:

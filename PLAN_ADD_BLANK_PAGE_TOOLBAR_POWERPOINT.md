@@ -1,7 +1,11 @@
 # Implementation Plan: 'Add Blank Page' Toolbar Button & PowerPoint-Style Media Canvas
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `0656c5c` (*add ➕ Add Blank Page button on timeline toolbar next to zoom slider*), with the PowerPoint-style canvas by `d1f2fbc`/`19fda9a`. Code: `src/ui/timeline_view.rs`, `src/app/slide_ops.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

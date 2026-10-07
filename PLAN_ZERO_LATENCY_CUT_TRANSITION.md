@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: Zero-Latency Cut Transitions (No Stutter)
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `1d2fe95` (*DualDeckPlayer lookahead pre-buffering engine for 0ms cut transitions*) and `c63cfd5`. Code: `DualDeckPlayer` in `src/media/stream_player.rs`, driven from `src/app/mod.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 When playback reaches any cut on the timeline, there is a visible stutter/hitch in the video.

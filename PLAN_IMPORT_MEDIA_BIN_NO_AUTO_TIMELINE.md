@@ -1,7 +1,11 @@
 # Implementation Plan: Prevent Auto-Adding Imported Files/Folders to Timeline
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `c3db773` (*prevent auto-adding imported files/folders to timeline*) — which landed **before** this file was committed (`4d7c3aa`). Code: `src/ui/media_bin.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

@@ -1,5 +1,9 @@
 # Implementation Plan: Ultra-Simplified Senior-Friendly Video Controls
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `3a806fd` (*ultra-simplify context menu to 5 core actions and eliminate missing box glyphs*). Code: `src/ui/menu_bar.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Goal & Problem Analysis
 
 ### 1. Issues Identified from User Screenshot:

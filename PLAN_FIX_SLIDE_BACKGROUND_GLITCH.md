@@ -1,7 +1,11 @@
 # Implementation Plan: Fix Background Glitch on Blank Slide Playback
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `aec62a5` (*…and guarantee solid canvas frame*). Code: `src/app/canvas_ops.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

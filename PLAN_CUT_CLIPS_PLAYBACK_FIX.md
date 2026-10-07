@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: Cut Clips Playback Fix
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `26afbf2` (*fix cut clips playback by removing -re stall and passing exact segment duration bounds*). Code: `src/media/stream_player.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 When the user cuts a video into multiple pieces (or trims/deletes parts), the cut segments do not play or freeze when the playhead enters them.

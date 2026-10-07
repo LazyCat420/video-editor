@@ -1,7 +1,11 @@
 # Implementation Plan: Drag-and-Drop Reorder Animation & Push-Down Feedback
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `2e60a30` (*push-down drop slots, dimmed placeholders, and cursor ghost previews for cards*) — which landed **before** this file was committed (`866943e`). Code: `src/ui/components/card.rs`, `src/ui/media_bin.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

@@ -1,5 +1,9 @@
 # Root-Cause & Implementation Plan: Eliminating Lag as Cuts Accumulate
 
+> **Ruled 2026-10-07 — SUPERSEDED.** Its continuous-stream fix landed (`118e034`, `fcb3253`) and was then superseded by the dual-deck engine (`1d2fe95`). Kept for its root-cause analysis; read `PLAN_DUAL_DECK_SEAMLESS_PLAYBACK.md` for the design that won.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 The user reports: *"the more cuts i make the more it lags"*

@@ -1,7 +1,11 @@
 # Implementation Plan: PowerPoint-Style Drag-and-Drop Slide Canvas & Context-Aware Sidebar
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `d1f2fbc` (*drag-and-drop media to canvas, click-to-add text, and context-aware styling inspector*) — which landed **before** this file was committed (`e153097`). Code: `src/app/canvas_ops.rs`, `src/ui/slide_deck.rs`. Note the PowerPoint *export* tab was later removed from the UI — see chapter 02.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **not to be implemented until approved.**
+**Status (original, pre-implementation):** Plan for review — **not to be implemented until approved.**
 
 ---
 

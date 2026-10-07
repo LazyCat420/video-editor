@@ -1,7 +1,11 @@
 # Implementation Plan: Fix Video Mirroring in Background on Blank Slides
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `aec62a5` (*eliminate video mirroring in slide background and guarantee solid canvas frame*). Code: `src/app/canvas_ops.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 **Repository:** `video-editor` (`LazyCat420/video-editor`)  
-**Status:** Plan for review — **awaiting user approval before implementation.**
+**Status (original, pre-implementation):** Plan for review — **awaiting user approval before implementation.**
 
 ---
 

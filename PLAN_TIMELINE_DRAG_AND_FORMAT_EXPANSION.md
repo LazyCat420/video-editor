@@ -1,5 +1,9 @@
 # Implementation Plan: Timeline Clip Dragging Fix & Comprehensive Format Support
 
+> **Ruled 2026-10-07 — SHIPPED.** Both halves shipped: dragging by `2ae96ae` (*backwards clip dragging, exclude self from snapping, grabbing hand cursor*), formats by the allowlist in `src/media/probe.rs:20-27` — 10 video and 10 audio extensions, both cases.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 1. **Clip Dragging Blocked When Moving Left / Towards `0:00`:**

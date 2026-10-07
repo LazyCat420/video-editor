@@ -1,5 +1,9 @@
 # Implementation Plan: Video Preview Fix & Senior-Friendly UI Simplification
 
+> **Ruled 2026-10-07 — SHIPPED.** Implemented by `c45d1c0` (*fix video preview frame extraction, auto-zero playhead, and simplify UI for senior accessibility*). Code: `src/ui/preview_player.rs`, `src/ui/theme.rs`.
+> Ruled by the daily documentation audit against the code at `9773faf`;
+> full method and the whole store in [`documentation/chapters/01-the-plan-store-ruled.md`](documentation/chapters/01-the-plan-store-ruled.md).
+
 ## Problem Statement
 
 1. **Video Preview Not Visible:** When the user imports a video (`Biker_with_toucan_head_202606070202.mp4`, duration 10.0s), the preview window remains black displaying `"Video Preview"`. The timeline playhead starts or ends at `00:00:11.17` (past the 10.0s clip), causing `get_clip_at(playhead)` to return `None`. In addition, synchronous `ffmpeg` process calls on the UI thread cause frame drops if `ffmpeg.exe` resolution has any latency on Windows.
