@@ -234,7 +234,7 @@ fn test_pptx_and_pdf_export_text_formatting() {
     let mut slide_xml = String::new();
     for i in 0..archive.len() {
         let mut zfile = archive.by_index(i).unwrap();
-        if zfile.name().contains("slide1.xml") {
+        if zfile.name().unwrap().contains("slide1.xml") {
             zfile.read_to_string(&mut slide_xml).unwrap();
             break;
         }

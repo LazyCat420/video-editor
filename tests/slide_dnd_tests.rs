@@ -1602,7 +1602,7 @@ fn test_export_slideshow_to_powerpoint_pptx() {
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).unwrap();
-        let name = file.name().to_string();
+        let name = file.name().unwrap().to_string();
         if name == "[Content_Types].xml" { found_content_types = true; }
         if name == "ppt/presentation.xml" { found_pres = true; }
         if name == "ppt/slides/slide1.xml" {

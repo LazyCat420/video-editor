@@ -22,10 +22,11 @@ PPTX exporter at all.
 |---|---|---|
 | `zip` | 0.6.6, feature `deflate` | 9.0.5, feature `deflate-flate2` |
 | `src/export/pptx_exporter.rs` | `zip::write::FileOptions::default()` | `zip::write::SimpleFileOptions::default()` |
+| `tests/text_overlay_tests.rs`, `tests/slide_dnd_tests.rs` | `entry.name()` returns `&str` | `entry.name().unwrap()` (zip 9 returns `Result<Cow<str>, ZipError>`) |
 | `Cargo.lock` | untracked, gitignored, dated 2026-08-19 | committed (zip bump applied on top of it) |
 
 `FileOptions` became generic in zip 2 and later; `SimpleFileOptions` is the non-generic alias, and
-it is the only code change. In zip 9 the `deflate` feature adds `zopfli` and `zlib-rs`; the
+it is the only change in `src/`; the two test files that read the export back needed `.unwrap()` on `name()`. In zip 9 the `deflate` feature adds `zopfli` and `zlib-rs`; the
 `deflate-flate2` feature keeps the existing `flate2` backend, so the lockfile gains only `typed-path`
 and `nix 0.31.3` (a macOS and BSD target dependency, not built here) and loses `byteorder`. The
 required Rust is 1.88; the toolchain here is 1.94.
