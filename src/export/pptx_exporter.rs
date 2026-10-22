@@ -5,7 +5,7 @@ use crate::core::track::TrackKind;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 const SLIDE_WIDTH_EMU: i64 = 12_192_000;
@@ -15,7 +15,7 @@ const SLIDE_HEIGHT_EMU: i64 = 6_858_000;
 pub fn export_to_pptx<P: AsRef<Path>>(timeline: &Timeline, output_path: P) -> std::io::Result<()> {
     let file = File::create(output_path)?;
     let mut zip = ZipWriter::new(file);
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
 
