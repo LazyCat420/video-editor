@@ -39,7 +39,7 @@ committed lock is the existing one with only the `zip` change applied; no other 
 
 ## Validation (primary checkout, through `testrun`)
 - Baseline on `main` before the change: `cargo test --no-fail-fast` gave 148 tests passed, 0 failed.
-- After the change: see the validation section of the commit log (same test command).
+- After the change: the same command gave 148 passed, 0 failed (the first run after the `zip` bump failed to compile two test files until `name().unwrap()` was added).
 - `cargo audit` after: the three `zip` advisories are gone. The remaining `unmaintained` and
   `unsound` warnings (paste, ttf-parser, zbus_names, zvariant, zvariant_derive) are only reported.
 
