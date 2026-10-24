@@ -1,7 +1,8 @@
 ---
-part: Plans
+part: Project plan and ops
 status: reference
 updated: 2026-10-07
+type: record
 ---
 # The 34 root plans, ruled against the code
 
@@ -18,10 +19,7 @@ against is not moving.
 
 ## Where this renders
 
-Nowhere yet. There is no `build_docs.py` in this repo and no served page — these
-chapters are read in git. What they *do* buy is that `docs_audit.py` reads
-`<repo>/documentation/chapters/*.md`, so from today this repo's record is inside
-the thing that checks whether documentation is still true, instead of outside it.
+The Doc-Client Web Hub groups every page by its `part:` front matter; this repo has no `build_docs.py`, so there is no compiled sheet. Since 2026-10-23 the plans no longer sit in the repo root: the ones still worth reading live in `docs/<area>/`, and the finished or superseded ones are in `docs/archive/` with a banner. The paths in the tables below are the current ones. [Start here](00-reading-guide.md) lists the areas.
 
 ## How each plan was ruled
 
@@ -51,18 +49,18 @@ freshest documents in the repo.
 
 | Plan | Added by | Which is |
 |---|---|---|
-| `PLAN_SIMPLE_TEXT_SLIDES.md` | `19fda9a` | `feat(slides): unified slide editor - click-to-place text/media…` |
-| `PLAN_FOLDERS_TRACK_DELETE_REORDER.md` | `23fcfa4` | `Add folder bins, drag-to-timeline, track delete & reorder` |
-| `PLAN_VIDEO_PLAYBACK_MULTI_CUT_LAG_FIX.md` | `f8fb85f` | `Fix media thumbnails, floating reorder, folder import behavior` |
-| `PLAN_FIX_VIDEO_EXPORT_IMAGE_INPUTS.md` | `3d1ec22` | `fix(export): pass still images as bounded looped inputs` |
+| `docs/timeline-slides/PLAN_SIMPLE_TEXT_SLIDES.md` | `19fda9a` | `feat(slides): unified slide editor - click-to-place text/media…` |
+| `docs/media/PLAN_FOLDERS_TRACK_DELETE_REORDER.md` | `23fcfa4` | `Add folder bins, drag-to-timeline, track delete & reorder` |
+| `docs/archive/PLAN_VIDEO_PLAYBACK_MULTI_CUT_LAG_FIX.md` | `f8fb85f` | `Fix media thumbnails, floating reorder, folder import behavior` |
+| `docs/archive/PLAN_FIX_VIDEO_EXPORT_IMAGE_INPUTS.md` | `3d1ec22` | `fix(export): pass still images as bounded looped inputs` |
 
-`PLAN_SIMPLE_TEXT_SLIDES.md` says **"not to be implemented until approved"** in the
+`docs/timeline-slides/PLAN_SIMPLE_TEXT_SLIDES.md` says **"not to be implemented until approved"** in the
 same commit that implements it. No value of a staleness threshold reaches that
 file: it is exactly as old as the code that refutes it. The only instrument that
 works is the one that ignores dates — does the code contain the plan's nouns.
 
 **2. A plan's own test names are not the tests that shipped.** The master plan
-(`PLAN_RUST_VIDEO_EDITOR.md` §7.1) names four tests. One exists
+(`docs/project/PLAN_RUST_VIDEO_EDITOR.md` §7.1) names four tests. One exists
 (`test_envelope_linear_interpolation`, `tests/envelope_tests.rs`); the other three
 — `test_envelope_multi_node_sorting`, `test_timeline_clip_split`,
 `test_filter_graph_volume_curve_syntax` — **do not exist under those names**, while
@@ -116,7 +114,7 @@ copy** — a ruling in a chapter does not fix the file a reader actually opens.
 
 ### One of them was wrong in a way worth keeping
 
-`PLAN_FILMSTRIP_DRAG_DROP_SLIDE_REORDER.md` still reads **"IMPLEMENTED, CODE
+`docs/archive/PLAN_FILMSTRIP_DRAG_DROP_SLIDE_REORDER.md` still reads **"IMPLEMENTED, CODE
 UNCOMMITTED — the code sits in the working tree of the primary checkout, not on a
 branch."** That was true for a few hours on 2026-08-17: the plan was committed
 first (`692a81a`), then the code (`2bc5be1` *drag a slide anywhere in the filmstrip
@@ -128,8 +126,7 @@ stranded. `tests/slide_dnd_tests.rs` covers the behaviour.
 
 ## Ruling: superseded in place (2)
 
-Both describe a lag/CPU problem that a later, differently-shaped fix closed. Kept,
-not deleted — their root-cause analysis is why the current design looks as it does.
+Both describe a lag/CPU problem that a later, differently-shaped fix closed. Moved to `docs/archive/` on 2026-10-23, not deleted — their root-cause analysis is why the current design looks as it does.
 
 - `PLAN_CUTS_LAG_FIX` and `PLAN_CONTINUOUS_STREAM_CPU_FIX` → the continuous-stream
   approach landed as `118e034` *preserving continuous active stream across cuts*
@@ -139,7 +136,7 @@ not deleted — their root-cause analysis is why the current design looks as it 
 
 ## The master plan's four open questions were answered by what shipped
 
-`PLAN_RUST_VIDEO_EDITOR.md` §8 closes by asking the owner four questions and
+`docs/project/PLAN_RUST_VIDEO_EDITOR.md` §8 closes by asking the owner four questions and
 calling itself *"Ready for user brainstorming review"*. Three were decided in code
 and one by the repo's own existence. Nobody closed them, so they read as
 outstanding forever:

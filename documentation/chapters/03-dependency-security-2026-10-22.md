@@ -1,7 +1,8 @@
 ---
-part: Runtime
+part: Project plan and ops
 status: shipped
 updated: 2026-10-22
+type: record
 ---
 # Dependency security 2026-10-22: `zip` 0.6.6 to 9.0.5, and a committed `Cargo.lock`
 

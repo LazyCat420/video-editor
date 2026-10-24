@@ -1,3 +1,10 @@
+---
+part: Start Here
+status: reference
+type: spec
+updated: 2026-08-13
+---
+
 # Video Editor (Rust + FFmpeg)
 
 A high-performance, lightweight non-linear video editor (NLE) built in **Rust** designed to run smoothly on low-spec hardware (older Dell PCs, dual/quad-core CPUs, integrated Intel/AMD graphics, and low RAM budgets).
@@ -23,3 +30,7 @@ cargo run --release
 ```bash
 cargo test
 ```
+
+## Documentation
+
+Start at [documentation/chapters/00-reading-guide.md](documentation/chapters/00-reading-guide.md): the areas, the page types and where each plan, design note and gate description lives.

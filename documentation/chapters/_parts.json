@@ -1,0 +1,26 @@
+[
+  {
+    "part": "Start Here",
+    "blurb": "How the documentation is organised and the rules that stop it becoming a pile."
+  },
+  {
+    "part": "Playback engine",
+    "blurb": "The continuous FFmpeg stream player, dual-deck cut playback, audio engine, frame cache and memory bounds."
+  },
+  {
+    "part": "Timeline and slides",
+    "blurb": "The PowerPoint-style slide canvas, text slides and timeline drag and drop."
+  },
+  {
+    "part": "Media import and export",
+    "blurb": "The media bin, folders, music import and video/PDF export."
+  },
+  {
+    "part": "Senior-friendly UI",
+    "blurb": "The simplified context menu, undo and redo, and large-control design."
+  },
+  {
+    "part": "Project plan and ops",
+    "blurb": "The master plan, gates, dependency security and what is still open."
+  }
+]

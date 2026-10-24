@@ -1,8 +1,9 @@
 ---
-part: Plans
+part: Project plan and ops
 status: in-progress
 updated: 2026-10-07
 review-by: 2026-11-06
+type: plan
 ---
 # What is actually open
 
@@ -45,7 +46,7 @@ feature.
 
 ## 2. The master plan's Phase 7 shipped as an always-on default, not a toggle
 
-`PLAN_RUST_VIDEO_EDITOR.md` Phase 7 asks for *"a low-memory mode toggle in settings
+`docs/project/PLAN_RUST_VIDEO_EDITOR.md` Phase 7 asks for *"a low-memory mode toggle in settings
 (reduces frame buffer to 30 frames, enforces 240p/360p proxy)"*. What exists:
 
 - The 360p proxy is **unconditional**, not a mode — `proxy_generator.rs:15`
@@ -81,7 +82,7 @@ claim, not a measurement.
 
 ## 4. The Windows player test list for the music/import work is unverified
 
-`PLAN_GRANDMA_MUSIC_AND_IMPORT_FIX.md` is honest about this and it is still true:
+`docs/media/PLAN_GRANDMA_MUSIC_AND_IMPORT_FIX.md` is honest about this and it is still true:
 *"automated tests green; on-Windows player test list below is UNVERIFIED."* That
 work is the last four commits in the repo (`20e6aaa`, `7803d96`, `15f59be`,
 `d75917f`, then `c85da08` async import and `9773faf` the zero-slides music row),
@@ -101,7 +102,7 @@ before trusting `main`. `windows-distribution` was deleted locally in this pass;
 
 ## Not open, recorded so it is not re-investigated
 
-- **`PLAN_FILMSTRIP_DRAG_DROP_SLIDE_REORDER.md`'s "CODE UNCOMMITTED" is stale, not a
+- **`docs/archive/PLAN_FILMSTRIP_DRAG_DROP_SLIDE_REORDER.md`'s "CODE UNCOMMITTED" is stale, not a
   loss.** The code landed as `2bc5be1`, hours after the plan was committed. Working
   tree clean, no stashes, no branch ahead of `main`. See
   [the plan store](01-the-plan-store-ruled.md).
