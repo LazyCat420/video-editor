@@ -1,8 +1,8 @@
 ---
 part: Project plan and ops
 status: in-progress
-updated: 2026-10-07
-review-by: 2026-11-06
+updated: 2026-11-15
+review-by: 2026-12-15
 type: plan
 ---
 # What is actually open
@@ -11,8 +11,14 @@ Everything [the plan store](01-the-plan-store-ruled.md) claimed was pending had
 shipped. These five are the reverse: nothing advertises them as open, and they
 are. Found by ruling the plans against the code on 2026-10-07, at `9773faf`.
 
-The repo is dormant (last commit 2026-08-19). Nothing here is urgent; it is here
-so that whoever picks the repo up does not have to re-derive it.
+The repo is dormant (last feature commit 2026-08-19). Nothing here is urgent; it
+is here so that whoever picks the repo up does not have to re-derive it.
+
+Rechecked on 2026-11-15 at `87785aa`: all five are still open. The only commits
+since are docs and the `zip` 0.6.6 → 9.0.5 security bump (`4a58c1f`, `cf65e32`),
+which touch none of them — `ExportFormatTab` still has two variants, no `pptx`
+reference exists in `src/` outside `src/export/`, the frame cache is still a
+fixed 120 frames, and `origin/feat/low-spec-nle` is still on the remote.
 
 ## 1. PPTX export is built, tested, and unreachable from the UI
 
