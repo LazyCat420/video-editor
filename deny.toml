@@ -1,19 +1,16 @@
 [advisories]
 yanked = "deny"
 # Unmaintained, no replacement on our stack today:
-#   RUSTSEC-2024-0436 paste          — macro-only, via the wgpu/glam stack
 #   RUSTSEC-2026-0192 rustybuzz      — text shaping via the font stack
-#   RUSTSEC-2026-0206 ttf-parser     — ditto
-#   RUSTSEC-2023-0089 atomic-polyfill — via embedded-* HAL crates
 #   RUSTSEC-2026-0543 chrono         — direct dep; removing/replacing it is
 #       production work outside this tooling slice, no patched release
-#   RUSTSEC-2026-0386 tokio          — unsound ONLY in AsyncFd constructors
-#       (io-uring/net util); the app uses tokio only via the egui/wgpu stack
 #   RUSTSEC-2026-0371 zbus_names     — Linux file-dialog stack: rfd -> ashpd
 #   RUSTSEC-2026-0370 zvariant       — ditto
 #   RUSTSEC-2026-0372 zvariant_derive— ditto
+# RUSTSEC-2026-0386 (tokio AsyncFd unsoundness) is NOT ignored: fixed by the
+# semver-compatible bump tokio 1.53.1 -> 1.53.3 (patched release).
 # Vulnerabilities are NOT ignored: fix them with `cargo update -p <crate>`.
-ignore = ["RUSTSEC-2024-0436", "RUSTSEC-2026-0192", "RUSTSEC-2026-0206", "RUSTSEC-2023-0089", "RUSTSEC-2026-0543", "RUSTSEC-2026-0386", "RUSTSEC-2026-0371", "RUSTSEC-2026-0370", "RUSTSEC-2026-0372"]
+ignore = ["RUSTSEC-2026-0192", "RUSTSEC-2026-0543", "RUSTSEC-2026-0371", "RUSTSEC-2026-0370", "RUSTSEC-2026-0372"]
 
 [licenses]
 allow = [
