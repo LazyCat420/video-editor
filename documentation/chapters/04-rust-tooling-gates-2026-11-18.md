@@ -1,3 +1,10 @@
+---
+part: Rust tooling gates 2026-11-18
+status: shipped
+updated: 2026-11-18
+type: record
+evidence: 16efcd6 (tooling wave) and 0d5146a (deny ignore cleanup) on main; all six files below present and `[lints.rust]`/`[lints.clippy]` in Cargo.toml (docs audit 2026-11-18)
+---
 # Rust tooling gates 2026-11-18: toolchain pin, `[lints]`, nextest, deny, smoke
 
 Single wave that put this repo on the same boring baseline as drift-king's engine
@@ -21,15 +28,20 @@ policy, and one deterministic end-to-end smoke test.
 the drift-king baseline, each commented in `deny.toml`:
 
 - `LicenseRef-UFL-1.0` allowed: `epaint_default_fonts 0.29.1` (via `egui`/`eframe`)
-  ships the UniBit Font License, which is not an SPDX identifier cargo-deny recognises.
+  ships the Ubuntu Font License 1.0, which is not an SPDX identifier cargo-deny recognises.
 - `private = { ignore = true }` + `publish = false`: the root app declares no
   `license` field; licensing the app itself is an owner decision, not a dependency
   finding. Third-party crates are still fully checked.
-- Advisory ignores (documented, no patched releases exist — same family policy as
-  drift-king/pkv2 which ignore the rustybuzz/ttf-parser/paste trio): `RUSTSEC-2026-0543`
-  (chrono, direct dep), `RUSTSEC-2026-0386` (tokio `AsyncFd` unsoundness — unused on
-  this stack), `RUSTSEC-2026-0371/0370/0372` (zbus_names/zvariant stack via
-  `rfd -> ashpd`, the Linux file dialog backend).
+- Advisory ignores (unmaintained crates with no replacement on this stack, each
+  commented in `deny.toml`): `RUSTSEC-2026-0192` (rustybuzz, via the font stack),
+  `RUSTSEC-2026-0543` (chrono, direct dep; replacing it is production work outside
+  this slice), `RUSTSEC-2026-0371/0370/0372` (zbus_names/zvariant stack via
+  `rfd -> ashpd`, the Linux file dialog backend). Vulnerabilities are never ignored.
+- Tokio `RUSTSEC-2026-0386` (`AsyncFd` unsoundness) was first ignored, then fixed
+  properly in `0d5146a` by the semver-compatible bump tokio 1.53.1 → 1.53.3 and
+  removed from the list. The same commit dropped three ignores
+  (`RUSTSEC-2026-0206`, `RUSTSEC-2024-0436`, `RUSTSEC-2023-0089`) that matched
+  nothing in this tree.
 - Two yanked crates were fixed properly instead of ignored: `cargo update -p
   async-executor` (1.14.0 → 1.14.1) and `cargo update -p clipboard-win` (via `arboard`).
 
@@ -53,5 +65,5 @@ The smoke test was proven to actually bite: breaking `Track::duration` arithmeti
 
 ## Follow-ups (not in this slice)
 
-- chrono/tokio/zbus advisory ignores become actionable if upstream ships fixed
+- rustybuzz/chrono/zbus advisory ignores become actionable if upstream ships fixed
   releases; until then they are reported, not silenced without a reason.
