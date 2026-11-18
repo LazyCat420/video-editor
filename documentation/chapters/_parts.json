@@ -22,5 +22,9 @@
   {
     "part": "Project plan and ops",
     "blurb": "The master plan, gates, dependency security and what is still open."
+  },
+  {
+    "part": "Rust tooling gates 2026-11-18",
+    "blurb": "Toolchain pin, lint table, nextest gate profile, cargo-deny policy and the headless smoke test."
   }
 ]

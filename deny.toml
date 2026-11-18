@@ -1,0 +1,39 @@
+[advisories]
+yanked = "deny"
+# Unmaintained, no replacement on our stack today:
+#   RUSTSEC-2024-0436 paste          — macro-only, via the wgpu/glam stack
+#   RUSTSEC-2026-0192 rustybuzz      — text shaping via the font stack
+#   RUSTSEC-2026-0206 ttf-parser     — ditto
+#   RUSTSEC-2023-0089 atomic-polyfill — via embedded-* HAL crates
+#   RUSTSEC-2026-0543 chrono         — direct dep; removing/replacing it is
+#       production work outside this tooling slice, no patched release
+#   RUSTSEC-2026-0386 tokio          — unsound ONLY in AsyncFd constructors
+#       (io-uring/net util); the app uses tokio only via the egui/wgpu stack
+#   RUSTSEC-2026-0371 zbus_names     — Linux file-dialog stack: rfd -> ashpd
+#   RUSTSEC-2026-0370 zvariant       — ditto
+#   RUSTSEC-2026-0372 zvariant_derive— ditto
+# Vulnerabilities are NOT ignored: fix them with `cargo update -p <crate>`.
+ignore = ["RUSTSEC-2024-0436", "RUSTSEC-2026-0192", "RUSTSEC-2026-0206", "RUSTSEC-2023-0089", "RUSTSEC-2026-0543", "RUSTSEC-2026-0386", "RUSTSEC-2026-0371", "RUSTSEC-2026-0370", "RUSTSEC-2026-0372"]
+
+[licenses]
+allow = [
+  "MIT", "MIT-0", "CDLA-Permissive-2.0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+  "ISC", "Unicode-3.0", "Unicode-DFS-2016", "Zlib", "MPL-2.0", "CC0-1.0", "Unlicense",
+  "OFL-1.1", "BSL-1.0", "NCSA", "0BSD",
+  # Ubuntu Font License 1.0: carried by epaint_default_fonts (egui stack),
+  # a standard font licence not in drift-king's tree.
+  "LicenseRef-UFL-1.0",
+]
+confidence-threshold = 0.9
+# Skip license checks for private (unpublished, workspace-local) crates: the
+# root app declares no license field and licensing it is an owner decision,
+# not a dependency finding. Third-party crates are still fully checked.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

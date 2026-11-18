@@ -1,0 +1,21 @@
+# clippy warning baseline — recorded 2026-11-18
+# Command: cargo clippy --all-targets (rustc 1.94.1, [lints] table at warn level in Cargo.toml)
+# Count method: compiler-message JSON diagnostics with level == "warning"
+# (each diagnostic counted once per target it is compiled for: lib + bin + test targets).
+# Purpose: ratchet reference. New code must not raise the total; lowering it is welcome.
+# Enforced by: none yet (warn level by design — mass fixes were explicitly out of scope).
+
+total_warnings=2248
+
+top_lints:
+   865  clippy::cast_possible_truncation
+   619  clippy::cast_lossless
+   136  clippy::too_many_lines
+   121  clippy::float_cmp
+    48  clippy::redundant_closure_for_method_calls
+    47  clippy::field_reassign_with_default
+    36  clippy::collapsible_if
+    33  clippy::cognitive_complexity
+
+# Note: field_reassign_with_default (47) is concentrated in test fixtures building
+# Project/Clip structs; cheapest real win if anyone wants to shrink this file.

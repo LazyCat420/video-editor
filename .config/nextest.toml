@@ -1,0 +1,8 @@
+# nextest profiles. `gate` mirrors the sibling game repos: never stop at the
+# first failure; the land/gate scripts collect the full list.
+[profile.default]
+retries = 0
+slow-timeout = { period = "120s", terminate-after = 3 }
+
+[profile.gate]
+fail-fast = false

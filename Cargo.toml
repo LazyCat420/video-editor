@@ -1,6 +1,9 @@
 [package]
 name = "video-editor"
 version = "0.1.0"
+# Shipped as a Windows installer (scripts/package-release.sh), never to crates.io;
+# keeps cargo-deny's `licenses.private.ignore` from demanding a license field.
+publish = false
 edition = "2021"
 authors = ["LazyCat420"]
 description = "A lightweight, performant Rust video editor for low-spec computers"
@@ -64,4 +67,24 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# Tooling standard 2026-11-17: mirrors the drift-king engine `[workspace.lints]`
+# table (games/drift-king/engine/Cargo.toml) at warn level. Baseline warning
+# counts: clippy-baseline.txt; promote warn -> deny only at zero.
+[lints.rust]
+unsafe_code = "warn"
+unused_must_use = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+# Hand-picked pedantic subset: catches real bugs, not style.
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+float_cmp = "warn"
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+too_many_lines = "warn"
+cognitive_complexity = "warn"
 

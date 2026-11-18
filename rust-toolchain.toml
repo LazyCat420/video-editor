@@ -1,0 +1,6 @@
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+# The shipped artifact is the Windows gnullvm exe (scripts/package-release.sh);
+# .cargo/config.toml builds for it by default.
+targets = ["x86_64-pc-windows-gnullvm"]
